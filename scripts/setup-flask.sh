@@ -28,6 +28,8 @@ if [ -f "$TARGET/requirements/tests.txt" ] && "$PY" -m pip install --quiet -r "$
   echo "Falling back to pytest only"
   "$PY" -m pip install --quiet pytest
 fi
+# Flask 3.1.3's tests import _pytest.monkeypatch.notset, removed in pytest 9
+"$PY" -m pip install --quiet "pytest<9"
 
 grep -qx '\.venv/' "$TARGET/.git/info/exclude" || echo '.venv/' >> "$TARGET/.git/info/exclude"
 

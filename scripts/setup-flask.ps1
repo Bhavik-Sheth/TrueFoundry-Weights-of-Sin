@@ -41,6 +41,9 @@ if (-not $ok) {
   & $py -m pip install --quiet pytest
   if ($LASTEXITCODE -ne 0) { throw "pip install pytest failed" }
 }
+# Flask 3.1.3's tests import _pytest.monkeypatch.notset, removed in pytest 9
+& $py -m pip install --quiet "pytest<9"
+if ($LASTEXITCODE -ne 0) { throw "pip install pytest<9 failed" }
 
 # the venv must not show up as untracked in the demo repo
 $exclude = Join-Path $Target ".git\info\exclude"

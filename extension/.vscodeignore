@@ -13,3 +13,4 @@ esbuild.mjs
 package-lock.json
 *.vsix
 dist/contexo.vsix
+.gitignore

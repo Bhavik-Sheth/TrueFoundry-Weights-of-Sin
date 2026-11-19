@@ -6,6 +6,10 @@
   "version": "0.0.1",
   "publisher": "contexo",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
