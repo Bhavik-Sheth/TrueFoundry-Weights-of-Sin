@@ -4,7 +4,8 @@
  * S3 status: REAL engine (beginProposal, per-hunk CodeLens, applyAccepted, rejectAll, finalize,
  * finalizeLatest, discardPending, pending). ReviewEngine.index (set by extension.ts) feeds
  * guards.symbolCheck; contexo.proposal.acceptAll(key) is registered and hidden from the palette (declared in the manifest).
- * Slice 6 adds decorations.
+ * S6: symbol-check denies list all violations; hunks outside an inline selection get a red decoration on the
+ * proposed side (refreshDecorations) and a CodeLens label.
  *
  * Exports:
  *  - class ReviewEngine:
@@ -30,8 +31,8 @@ import * as vscode from 'vscode';
 import type { Hunk, Proposal, ProposeArgs, Run, Sha, ToWebview } from '../types';
 import type { IndexApi } from '../context/indexer';
 import { log } from '../log';
-import { UndoStack } from './applyUndo';
-import { scopeGuard, symbolCheck } from './guards';
+import { UndoStack, pickHunk } from './applyUndo';
+import { addedLines, scopeGuard, symbolCheck } from './guards';
 import {
   acceptedCount, applyEditExact, buildHunks, computeResult, once, proposalKey, rebuildFile, setAllDecisions,
   setHunkDecision, sha256,
@@ -81,6 +82,12 @@ async function readLive(rel: string): Promise<string | undefined> {
   }
 }
 
+/** 1-based proposed-side line span of a hunk's changes (falls back to its start line for pure deletions). */
+function hunkSpan(h: Hunk): [number, number] {
+  const a = addedLines(h);
+  return a.length ? [a[0], a[a.length - 1]] : [Math.max(1, h.newStart), Math.max(1, h.newStart)];
+}
+
 export class ReviewEngine {
   readonly docs = new Map<string, string>();
   readonly undo: UndoStack;
@@ -94,6 +101,7 @@ export class ReviewEngine {
   private resolvers = new Map<Sha, (allow: boolean, reason?: string) => void>();
   private latest?: Result;
   private pendingKey?: Sha;
+  private outsideDeco?: vscode.TextEditorDecorationType;
 
   constructor(post: (m: ToWebview) => void = () => {}) {
     this.undo = new UndoStack(post);
@@ -165,8 +173,8 @@ export class ReviewEngine {
     const hunks: Hunk[] = files.flatMap((f) => buildHunks(f.path, f.base, f.proposed, f.baseHash));
 
     try {
-      const violations = await symbolCheck(files, this.index ?? EMPTY_INDEX);
-      if (violations.length > 0) return { deny: violations.join('\n') };
+      const violations = await symbolCheck(files, this.index ?? EMPTY_INDEX, { hunks });
+      if (violations.length > 0) return { deny: `${violations.join('; ')} — define or import it, then propose again.` };
       if (run.mode === 'inline' && run.selection) scopeGuard(hunks, run.selection);
     } catch (err) {
       log('guards failed (ignored):', errText(err));
@@ -201,6 +209,7 @@ export class ReviewEngine {
       }
       first = false;
     }
+    this.refreshDecorations();
     return 'reviewing';
   }
 
@@ -319,6 +328,39 @@ export class ReviewEngine {
     }
   }
 
+  /** Red background on the proposed-side lines of hunks outside the inline selection (visible diff editors only). */
+  refreshDecorations(editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors): void {
+    try {
+      this.outsideDeco ??= vscode.window.createTextEditorDecorationType({
+        isWholeLine: true,
+        backgroundColor: new vscode.ThemeColor('diffEditor.removedLineBackground'),
+        overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.errorForeground'),
+        overviewRulerLane: vscode.OverviewRulerLane.Right,
+      });
+      for (const ed of editors) {
+        if (ed.document.uri.scheme !== PROPOSED_SCHEME) continue;
+        const m = /^\/([0-9a-f]+)\/(.+)$/.exec(ed.document.uri.path);
+        const p = m ? this.proposals.get(m[1]) : undefined;
+        const ranges: vscode.Range[] = [];
+        if (m && p && p.status === 'reviewing') {
+          for (const h of p.hunks) {
+            if (h.path !== m[2] || !h.outsideSelection) continue;
+            const [a, b] = hunkSpan(h);
+            ranges.push(new vscode.Range(a - 1, 0, b - 1, 0));
+          }
+        }
+        ed.setDecorations(this.outsideDeco, ranges);
+      }
+    } catch (err) {
+      log('refreshDecorations failed', errText(err));
+    }
+  }
+
+  dispose(): void {
+    this.outsideDeco?.dispose();
+    this.outsideDeco = undefined;
+  }
+
   provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
     const m = /^\/([0-9a-f]+)\/(.+)$/.exec(doc.uri.path);
     if (!m) return [];
@@ -346,7 +388,10 @@ export class ReviewEngine {
           arguments: [p.key, h.id, 'rejected'],
         }),
       );
-      if (h.outsideSelection) lenses.push(new vscode.CodeLens(r, { title: '⚠ outside selection', command: '' }));
+      if (h.outsideSelection) {
+        const [a, b] = hunkSpan(h);
+        lenses.push(new vscode.CodeLens(r, { title: `⚠ outside selection (L${a}-${b})`, command: '' }));
+      }
     }
     return lenses;
   }
@@ -365,14 +410,18 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
 
   ctx.subscriptions.push(
     review.codeLensChanged,
+    { dispose: () => review.dispose() },
+    vscode.window.onDidChangeVisibleTextEditors((eds) => review.refreshDecorations(eds)),
     vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, provider),
     vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, provider),
     vscode.languages.registerCodeLensProvider({ scheme: PROPOSED_SCHEME }, lens),
     vscode.commands.registerCommand('contexo.undoHunk', async (hunkId?: string) => {
-      if (hunkId) await review.undo.undoHunk(hunkId);
+      const id = hunkId ?? (await pickHunk(review.undo, 'undo'));
+      if (id) await review.undo.undoHunk(id);
     }),
     vscode.commands.registerCommand('contexo.redoHunk', async (hunkId?: string) => {
-      if (hunkId) await review.undo.redoHunk(hunkId);
+      const id = hunkId ?? (await pickHunk(review.undo, 'redo'));
+      if (id) await review.undo.redoHunk(id);
     }),
     vscode.commands.registerCommand('contexo.hunk.decide', (key?: string, hunkId?: string, d?: 'accepted' | 'rejected') => {
       if (key && hunkId && d && review.pending?.key === key) review.setDecision(hunkId, d);

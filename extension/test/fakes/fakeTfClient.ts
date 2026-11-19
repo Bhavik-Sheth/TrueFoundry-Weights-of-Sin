@@ -1,7 +1,7 @@
 /**
- * fakeTfClient.ts - scripted TfClient for tests. streamTurn yields `turn` events; approve yields the
- * next list from `resumes` (empty if none) and records the call; cancel records and optionally waits
- * on `cancelGate`.
+ * fakeTfClient.ts - scripted TfClient for tests. streamTurn yields `turn` events (or the per-session
+ * script in `scripts`); approve yields the next list from `resumes` (empty if none) and records the
+ * call; cancel records and optionally waits on `cancelGate`. Sessions are numbered sess_1, sess_2...
  */
 import type { TfClient } from '../../src/run/tfClient';
 import type { TfEvent } from '../../src/types';
@@ -15,15 +15,27 @@ export class FakeTfClient implements TfClient {
   cancelGate?: Promise<void>;
   /** If set, the turn stream blocks on this after yielding its events (simulates a live stream). */
   hold?: Promise<void>;
+  /** Per-session scripts (override `turn`/`hold`), keyed by session id. `throws` is thrown when the stream opens; a rejecting `hold` throws mid-stream. */
+  scripts: Record<string, { events?: TfEvent[]; hold?: Promise<void>; throws?: unknown }> = {};
+  /** createSession rejects with this for the given agent name. */
+  createFail: Record<string, unknown> = {};
+  createdAgents: string[] = [];
   constructor(public turn: TfEvent[] = [], public resumes: TfEvent[][] = []) {}
 
-  async createSession(): Promise<string> { return 'sess_1'; }
+  async createSession(agent = ''): Promise<string> {
+    if (agent in this.createFail) throw this.createFail[agent];
+    this.createdAgents.push(agent);
+    return `sess_${this.createdAgents.length}`;
+  }
 
   streamTurn(sessionId: string, content: string): AsyncIterable<TfEvent> {
     this.streamCalls.push({ sessionId, content });
-    const events = this.turn;
-    const hold = this.hold;
+    const sc = this.scripts[sessionId];
+    const events = sc?.events ?? this.turn;
+    const hold = sc ? sc.hold : this.hold;
+    const throws = sc?.throws;
     return (async function* () {
+      if (throws !== undefined) throw throws;
       for (const e of events) yield e;
       if (hold) await hold;
     })();

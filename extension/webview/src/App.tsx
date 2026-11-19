@@ -57,7 +57,19 @@ export function App() {
           Stop
         </button>
       </div>
-      {run.banner && <div className="banner">{run.banner}</div>}
+      {run.state === 'failed' && run.banner && (
+        <div
+          role="alert"
+          style={{
+            padding: '8px',
+            background: 'var(--vscode-inputValidation-errorBackground, #5a1d1d)',
+            borderBottom: '1px solid var(--vscode-inputValidation-errorBorder, #be1100)',
+          }}
+        >
+          {run.banner}
+        </div>
+      )}
+      {run.state !== 'failed' && run.banner && <div className="banner">{run.banner}</div>}
       <div className="tabs">
         {TABS.map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => choose(id)}>

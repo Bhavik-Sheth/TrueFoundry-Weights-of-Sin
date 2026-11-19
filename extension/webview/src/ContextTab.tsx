@@ -33,13 +33,18 @@ const s: Record<string, CSSProperties> = {
   mono: { fontFamily: 'var(--vscode-editor-font-family)' },
 };
 
+/** Readable chip text per reason kind. */
 function reasonLabel(r: Reason): string {
   switch (r.kind) {
-    case 'mention': return `mention ${r.token}`;
-    case 'selection': return 'selection';
-    case 'lexical': return `lexical "${r.term}" #${r.rank}`;
-    case 'symbol-name': return `name "${r.term}" #${r.rank}`;
-    default: return `${r.kind} ${r.from}`;
+    case 'mention': return `you mentioned ${r.token}`;
+    case 'selection': return 'your selection';
+    case 'lexical': return `text match "${r.term}" (#${r.rank})`;
+    case 'symbol-name': return `name match "${r.term}" (#${r.rank})`;
+    case 'calls': return `called by ${r.from}`;
+    case 'called-by': return `calls ${r.from}`;
+    case 'registers': return `registered like ${r.from}`;
+    case 'tests': return `tests ${r.from}`;
+    case 'documents': return `documents ${r.from}`;
   }
 }
 
@@ -47,8 +52,8 @@ function BudgetBar({ used, budget }: { used: number; budget: number }) {
   const pct = budget > 0 ? Math.min(100, (used / budget) * 100) : 0;
   return (
     <div>
-      <div>{used} / {budget} tokens <span style={s.muted}>≈ estimated</span></div>
-      <div style={{ position: 'relative', ...s.barOuter, opacity: 1, background: 'var(--vscode-input-background)' }}>
+      <div>{used} / {budget} tokens <span style={s.muted}>(≈ estimated tokens)</span></div>
+      <div style={{ ...s.barOuter, opacity: 1, background: 'var(--vscode-input-background)' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: 'var(--vscode-progressBar-background)', borderRadius: 4 }} />
       </div>
     </div>
@@ -68,6 +73,12 @@ function ExcerptRow({ e }: { e: Excerpt }) {
   );
 }
 
+const OMIT_TEXT: Record<ContextPacket['omitted'][number]['reason'], string> = {
+  duplicate: 'duplicate (overlaps an included excerpt)',
+  'lower-rank': 'lower rank (below the cut)',
+  'over-budget': 'over budget',
+};
+
 function OmittedList({ items }: { items: ContextPacket['omitted'] }) {
   return (
     <details>
@@ -75,7 +86,7 @@ function OmittedList({ items }: { items: ContextPacket['omitted'] }) {
       {items.length === 0 && <div style={s.muted}>Nothing omitted.</div>}
       {items.map((o, i) => (
         <div key={i} style={s.muted}>
-          <span style={s.mono}>{o.path}:{o.startLine}-{o.endLine}</span> · {o.reason} · ≈{o.tokens} tokens
+          <span style={s.mono}>{o.path}:{o.startLine}-{o.endLine}</span> · {OMIT_TEXT[o.reason]} · ≈{o.tokens} tokens
         </div>
       ))}
     </details>
@@ -96,9 +107,9 @@ export function ContextTab() {
     <div style={s.root}>
       <div style={s.muted}>{packet.query}</div>
       <BudgetBar used={packet.used} budget={packet.budget} />
+      <ContextGraph packet={packet} />
       {packet.excerpts.map((e) => <ExcerptRow key={e.id} e={e} />)}
       <OmittedList items={packet.omitted} />
-      <ContextGraph packet={packet} />
     </div>
   );
 }

@@ -44,3 +44,14 @@ Status legend: **VERIFIED-FROM-TYPES** (SDK `@truefoundry/trueforge-sdk` 0.185.0
 - `sessionUrl` is `${baseUrl}/sessions/${id}`. NOT VERIFIED. The UI docs mention a default session deep link `'/sessions/:sessionId'` (trueforge-ui route config), so this is likely right; confirm in the live run.
 - SDK API actually used (all VERIFIED-FROM-TYPES): `new TrueForge({ baseUrl, timeoutInSeconds })`; `sessions.create({ agent:{name} })` -> `{ data: Session }`; `sessions.createTurnStream(id, { input:[{type:'user.message', content}] }, { abortSignal })` -> `Stream<TurnStreamingEvent>` (async iterable); `sessions.subscribeToTurn(id, turnId, { afterEventId })`; `sessions.createTurnEvents(id, turnId, { events })`; `sessions.cancel(id)`; `sessions.list({ limit })`; `isEventDelta`, `mergeEventDelta` (top-level exports).
 - MCP SDK 1.32.2 + zod 4.6.7: `McpServer.registerTool(name, { description, inputSchema: <zod raw shape> }, cb)` and `StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })` work together; checked with a local JSON-RPC smoke test (401 on bad token, 405 on GET, initialize, tools/list returns the 6 tools, tools/call works, zod limit violation returns an `isError` result).
+
+## Failure shapes (from SDK types, Slice 8)
+
+Status: FROM-SDK-TYPES. Q4 still needs a live confirmation against a running TrueForge.
+
+- `TrueForgeError` carries `statusCode`, `body`, `rawResponse`, `cause`.
+- Subclasses carry the HTTP status.
+- `TrueForgeTimeoutError` is identified by its `name`; it has no status.
+- Network failure is a plain `TrueForgeError` with message 'fetch failed', no `statusCode`, and `cause` = a Node error with `code` (ECONNREFUSED etc.).
+- User abort maps to reason 'aborted'.
+- `turn.done` state on failure: `{status:'error', message, completedAt, metrics?}`.

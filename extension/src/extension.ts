@@ -54,7 +54,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   registerInlineEdit(ctx, runs);
   registerDevCommands(ctx, { post, review, runs, tf });
 
+  let bannerShown = false;
   runs.on('state', (s) => {
+    if (s.state === 'starting') bannerShown = false;
+    if (s.banner && s.state === 'streaming' && !bannerShown) {
+      bannerShown = true;
+      void vscode.window.showWarningMessage(s.banner);
+    }
     status.update(s);
     post({ type: 'runState', ...s });
   });

@@ -26,7 +26,7 @@ const approval = (srcId: string): TfEvent => ({
 
 const PROPOSE = { summary: 's', edits: [{ path: 'a.py', baseHash: 'h', oldText: 'x', newText: 'y' }] };
 
-function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<'reviewing' | { deny: string }> = async () => 'reviewing') {
+function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<'reviewing' | { deny: string }> = async () => 'reviewing', cfgOver: Record<string, unknown> = {}) {
   const tf = new FakeTfClient(turn, resumes);
   const order: string[] = [];
   const review = {
@@ -36,12 +36,14 @@ function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<
     discardPending: vi.fn(() => { order.push('discard'); }),
   };
   killAll.mockImplementation(() => { order.push('killAll'); });
-  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo' } as never });
+  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo', fallbackAgent: 'contexo-fallback', firstEventTimeoutMs: 0, trueforgeUrl: 'http://tf:8790', ...cfgOver } as never });
   const events: UiStreamEvent[] = [];
-  const states: Array<{ state: string; hunks?: number }> = [];
+  const states: Array<{ state: string; hunks?: number; banner?: string; agent?: string }> = [];
+  const sessions: Array<{ sessionId: string; agent: string }> = [];
+  rm.on('session', (x) => sessions.push(x));
   rm.on('stream', (e: UiStreamEvent[]) => events.push(...e));
   rm.on('state', (s) => states.push(s));
-  return { tf, review, rm, events, states, order };
+  return { tf, review, rm, events, states, order, sessions };
 }
 
 const text = (events: UiStreamEvent[]) =>
@@ -149,5 +151,134 @@ describe('RunManager', () => {
     await rm.start('agent', 'hi');
     expect(states.at(-1)).toMatchObject({ state: 'failed' });
     expect(events.some((e) => e.kind === 'info' && e.text.includes('boom'))).toBe(true);
+  });
+
+  describe('fallback', () => {
+    const errDone = (message: string): TfEvent => ({ type: 'turn.done', state: { status: 'error', message } });
+
+    it('primary turn.done error -> takeOver once, fallback stream consumed, primary events ignored', async () => {
+      const { rm, tf, events, states, sessions, review } = setup([]);
+      tf.scripts.sess_1 = { events: [created, errDone('Invalid API key for model')] };
+      tf.scripts.sess_2 = { events: [created, delta('f1', 'from fallback'), done] };
+      await rm.start('agent', 'do it');
+      expect(tf.createdAgents).toEqual(['contexo', 'contexo-fallback']);
+      expect(tf.streamCalls).toHaveLength(2);
+      expect(tf.streamCalls[1].sessionId).toBe('sess_2');
+      expect(tf.streamCalls[1].content).toContain('do it');
+      expect(tf.streamCalls[1].content).toContain('[Note]');
+      expect(review.discardPending).toHaveBeenCalled();
+      expect(rm.active?.sealedSessions).toContain('sess_1');
+      expect(rm.active?.agent).toBe('contexo-fallback');
+      expect(sessions.map((s) => s.agent)).toEqual(['contexo', 'contexo-fallback']);
+      expect(text(events)).toBe('from fallback');
+      expect(states.some((s) => s.banner?.startsWith('Primary model failed (Invalid API key'))).toBe(true);
+      expect(states.at(-1)).toMatchObject({ state: 'done', agent: 'contexo-fallback' });
+      expect(states.at(-1)?.banner).toContain('Continued on fallback contexo-fallback');
+    });
+
+    it('thrown 401 SDK error during primary streaming triggers fallback', async () => {
+      const { rm, tf, states } = setup([]);
+      tf.scripts.sess_1 = { throws: Object.assign(new Error('Status code: 401'), { statusCode: 401 }) };
+      tf.scripts.sess_2 = { events: [created, done] };
+      await rm.start('agent', 'x');
+      expect(tf.createdAgents).toHaveLength(2);
+      expect(states.at(-1)?.state).toBe('done');
+    });
+
+    it('first-event timeout cancels primary and falls back', async () => {
+      vi.useFakeTimers();
+      try {
+        const { rm, tf, states, events } = setup([], [], undefined, { firstEventTimeoutMs: 5000 });
+        tf.scripts.sess_1 = { events: [], hold: new Promise<void>(() => {}) };
+        tf.scripts.sess_2 = { events: [created, delta('f1', 'ok'), done] };
+        const p = rm.start('agent', 'slow');
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(tf.createdAgents).toEqual(['contexo']);
+        await vi.advanceTimersByTimeAsync(2);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(tf.cancelCalls).toEqual(['sess_1']);
+        expect(tf.createdAgents).toEqual(['contexo', 'contexo-fallback']);
+        expect(states.some((s) => s.banner?.includes('no response within 5s'))).toBe(true);
+        expect(text(events)).toBe('ok');
+        expect(rm.active?.state).toBe('done');
+        void p;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('first event clears the timer (no fallback)', async () => {
+      vi.useFakeTimers();
+      try {
+        const { rm, tf } = setup([created, delta('m1', 'hi')], [], undefined, { firstEventTimeoutMs: 5000 });
+        tf.hold = new Promise<void>(() => {});
+        void rm.start('agent', 'x');
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(tf.createdAgents).toEqual(['contexo']);
+        expect(tf.cancelCalls).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('both fail -> failed with combined message', async () => {
+      const { rm, tf, states } = setup([]);
+      tf.scripts.sess_1 = { events: [created, errDone('401 Unauthorized')] };
+      tf.scripts.sess_2 = { events: [created, errDone('model endpoint refused')] };
+      await rm.start('agent', 'x');
+      expect(tf.createdAgents).toHaveLength(2);
+      const last = states.at(-1)!;
+      expect(last.state).toBe('failed');
+      expect(last.banner).toBe('Both models failed: 401 Unauthorized; model endpoint refused. No files were changed.');
+    });
+
+    it('fallback session creation failure -> combined failure', async () => {
+      const { rm, tf, states } = setup([]);
+      tf.scripts.sess_1 = { events: [created, errDone('401 Unauthorized')] };
+      tf.createFail['contexo-fallback'] = Object.assign(new Error('nf'), { statusCode: 404 });
+      await rm.start('agent', 'x');
+      expect(states.at(-1)?.banner).toBe('Both models failed: 401 Unauthorized; HTTP 404. No files were changed.');
+    });
+
+    it('TrueForge unreachable -> failed, no fallback', async () => {
+      const { rm, tf, states } = setup([]);
+      tf.createFail.contexo = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+      await rm.start('agent', 'x');
+      expect(tf.createdAgents).toEqual([]);
+      expect(states.at(-1)).toMatchObject({ state: 'failed', banner: 'TrueForge not reachable at http://tf:8790' });
+    });
+
+    it('non-model turn error does not fall back', async () => {
+      const { rm, tf, states } = setup([created, errDone('boom')]);
+      await rm.start('agent', 'x');
+      expect(tf.createdAgents).toEqual(['contexo']);
+      expect(states.at(-1)).toMatchObject({ state: 'failed', banner: 'boom' });
+    });
+
+    it('Stop during primary -> no fallback', async () => {
+      let release!: () => void;
+      const { rm, tf } = setup([]);
+      tf.scripts.sess_1 = { events: [created, delta('m1', 'x')], hold: new Promise<void>((r) => { release = r; }) };
+      const p = rm.start('agent', 'x');
+      await tick(); await tick();
+      await rm.stop();
+      release();
+      await p;
+      expect(tf.createdAgents).toEqual(['contexo']);
+      expect(rm.active?.state).toBe('cancelled');
+    });
+
+    it('Stop then late primary error -> no fallback', async () => {
+      const { rm, tf } = setup([]);
+      let fail!: (e: unknown) => void;
+      const gate = new Promise<void>((_, rej) => { fail = rej; });
+      tf.scripts.sess_1 = { events: [created], hold: gate };
+      const p = rm.start('agent', 'x');
+      await tick(); await tick();
+      await rm.stop();
+      fail(Object.assign(new Error('x'), { statusCode: 500 }));
+      await p;
+      expect(tf.createdAgents).toEqual(['contexo']);
+    });
   });
 });

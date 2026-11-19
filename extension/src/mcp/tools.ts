@@ -27,7 +27,7 @@ import type { IndexApi } from '../context/indexer';
 import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
 import type { ToWebview } from '../types';
-import { samplePacket } from '../dev/fixtures';
+import { assembleContext, formatForModel } from '../context/assembler';
 import { capOutput, resolveInWorkspace } from './server';
 import { sha256, proposalKey } from '../review/proposal';
 import { ripgrepSearch, symbolNameMatch, tokenize } from '../context/search';
@@ -147,12 +147,18 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         mentions: z.array(z.string()).optional().describe('Explicit @mentions: file paths or symbol names'),
         budget: z.number().int().min(500).max(32000).optional().describe('Token budget for excerpts (default from settings)'),
       },
-    }, guarded(async () => {
+    }, guarded(async (a: { request: string; mentions?: string[]; budget?: number }) => {
       await deps.index.ready;
-      deps.post({ type: 'packet', packet: samplePacket });
-      const { graph: _graph, ...forModel } = samplePacket;
-      void _graph;
-      return ok(forModel);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const cfg = (require('../config') as typeof import('../config')).getConfig();
+      const packet = await assembleContext({
+        request: a.request,
+        mentions: a.mentions,
+        budget: a.budget ?? cfg.excerptBudget,
+        runId: deps.runs.active?.id ?? 'adhoc',
+      }, deps.index);
+      deps.post({ type: 'packet', packet });
+      return { content: [{ type: 'text', text: formatForModel(packet) }] };
     }));
 
     server.registerTool('list_symbols', {

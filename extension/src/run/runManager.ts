@@ -20,7 +20,12 @@
  *      emits state, logs the local latency, then awaits tf.cancel(). Late events are ignored.
  *    - isToolCallAllowed(): false only while the active run is cancelled (MCP tools check this).
  *
- * Not yet (later slices): fallback (S8), run_command approvals (S7).
+ * Fallback (S8): turn.done error / thrown error / no first event within cfg.firstEventTimeoutMs on the
+ * primary -> classifyDetailed -> model-failure => takeOver (once per run, never after Stop or after an
+ * approved write); trueforgeDown => failed "TrueForge not reachable at <url>"; fallback failing too =>
+ * failed "Both models failed: ...". The original first message is kept for replay.
+ *
+ * Not yet (later slices): run_command approvals (S7).
  * Rules: one active run only; never writes to disk.
  * Depends on: types, config, run/tfClient, review/diffView, mcp/runCommand, log. Depended on by: extension, mcp/tools, shell/inlineEdit.
  */
@@ -30,6 +35,7 @@ import type { ReviewEngine } from '../review/diffView';
 import type { ProposeArgs, Run, RunStateMsg, Selection, TfEvent, UiStreamEvent } from '../types';
 import type { TfClient } from './tfClient';
 import { killAll } from '../mcp/runCommand';
+import { classifyDetailed, takeOver, type Classification } from './fallback';
 import { log } from '../log';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +56,13 @@ export class RunManager extends EventEmitter {
   private pending: PendingApproval[] = [];
   private messages = new Map<string, Ev>();        // model.message events by id (tool-call lookup)
   private streamedIds = new Set<string>();         // message ids that already produced text-deltas
+  private firstMessage = '';                       // original first message, replayed on fallback
+  private fallbackUsed = false;
+  private primaryReason = '';
+  private banner?: string;
+  private firstTimer?: ReturnType<typeof setTimeout>;
+  private sawActivity = false;                     // a model/tool event arrived in the current turn
+  private approvedAny = false;                     // a write was approved: fallback replay would be unsafe
 
   constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig }) {
     super();
@@ -74,17 +87,23 @@ export class RunManager extends EventEmitter {
     this.streamedIds.clear();
     this.turnId = '';
     this.lastEventId = '';
+    this.fallbackUsed = false;
+    this.primaryReason = '';
+    this.banner = undefined;
+    this.approvedAny = false;
+    this.clearTimer();
+    this.firstMessage = buildFirstMessage(mode, text, selection);
     this.setState('streaming');
     try {
       run.sessionId = await this.tf.createSession(agent);
     } catch (e) {
-      this.fail(run, `Could not create a TrueForge session: ${String(e)}`);
+      await this.handleFailure(run, classifyDetailed(e), `Could not create a TrueForge session: ${String(e)}`);
       return;
     }
     if (run.state === 'cancelled') return;
     this.emit('session', { sessionId: run.sessionId, agent, url: this.tf.sessionUrl(run.sessionId) });
     log('run.start', run.id, mode, run.sessionId);
-    await this.runTurn(run, buildFirstMessage(mode, text, selection));
+    await this.runTurn(run, this.firstMessage);
   }
 
   async send(text: string): Promise<void> {
@@ -108,6 +127,7 @@ export class RunManager extends EventEmitter {
     // Synchronous part first: nothing after this point may reach the workspace.
     run.state = 'cancelled';
     run.sealedSessions.push(run.sessionId);
+    this.clearTimer();
     this.pending = [];
     this.abort?.abort();
     try { this.review.discardPending(); } catch (e) { log('stop: discardPending failed', String(e)); }
@@ -126,6 +146,7 @@ export class RunManager extends EventEmitter {
     const p = this.pending.shift();
     if (!p) return;
     this.emit('stream', [{ kind: 'approval', toolCallId: p.toolCallId, name: p.name, status: allow ? 'allowed' : 'denied', reason }] as UiStreamEvent[]);
+    if (allow) this.approvedAny = true;
     run.state = 'streaming';
     this.setState('streaming');
     this.abort ??= new AbortController();
@@ -144,27 +165,100 @@ export class RunManager extends EventEmitter {
 
   private async runTurn(run: Run, content: string): Promise<void> {
     this.abort = new AbortController();
-    await this.consume(run, this.tf.streamTurn(run.sessionId, content, this.abort.signal));
+    this.sawActivity = false;
+    this.armTimer(run);
+    try {
+      await this.consume(run, this.tf.streamTurn(run.sessionId, content, this.abort.signal));
+    } finally {
+      this.clearTimer();
+    }
+  }
+
+  private armTimer(run: Run): void {
+    this.clearTimer();
+    const ms = this.cfg.firstEventTimeoutMs;
+    if (!(ms > 0)) return;
+    const sid = run.sessionId;
+    this.firstTimer = setTimeout(() => {
+      this.firstTimer = undefined;
+      if (run.state === 'cancelled' || run.sessionId !== sid) return;
+      const reason = `no response within ${Math.round(ms / 1000)}s`;
+      log('run: first-event timeout', run.id, reason);
+      run.sealedSessions.push(sid);
+      this.abort?.abort();
+      void this.tf.cancel(sid).catch(() => {});
+      void this.handleFailure(run, { kind: 'model-failure', reason, trueforgeDown: false }, reason);
+    }, ms);
+  }
+
+  private clearTimer(): void {
+    if (this.firstTimer) clearTimeout(this.firstTimer);
+    this.firstTimer = undefined;
+  }
+
+  /** Routes a failure: TrueForge down -> failed; primary model failure -> fallback; else failed. */
+  private async handleFailure(run: Run, c: Classification, message: string): Promise<void> {
+    if (run.state === 'cancelled') return;
+    this.clearTimer();
+    if (c.trueforgeDown) {
+      this.fail(run, `TrueForge not reachable at ${this.cfg.trueforgeUrl}`, true);
+      return;
+    }
+    if (c.kind === 'model-failure' && !this.fallbackUsed && !this.approvedAny) {
+      this.fallbackUsed = true;
+      this.primaryReason = c.reason;
+      try {
+        await takeOver(run, {
+          tf: this.tf, cfg: this.cfg, reason: c.reason, firstMessage: this.firstMessage,
+          reset: () => {
+            this.pending = [];
+            this.messages.clear();
+            this.streamedIds.clear();
+            this.turnId = '';
+            this.lastEventId = '';
+            try { this.review.discardPending(); } catch (e) { log('takeOver: discardPending failed', String(e)); }
+          },
+          emitSession: (info) => this.emit('session', info),
+          emitState: (m) => { this.banner = m.banner; this.emit('state', m); },
+          runTurn: (r, content) => this.runTurn(r, content),
+        });
+      } catch (e) {
+        if ((run.state as Run['state']) === 'cancelled') return;
+        this.fail(run, classifyDetailed(e).reason);
+      }
+      return;
+    }
+    this.fail(run, this.fallbackUsed ? c.reason : message);
   }
 
   /** Reads one stream until it ends or pauses on approvals, then routes the pending approvals. */
   private async consume(run: Run, stream: AsyncIterable<TfEvent>): Promise<void> {
+    const sid = run.sessionId;
+    const stale = () => run.state === 'cancelled' || run.sessionId !== sid || run.sealedSessions.includes(sid);
     try {
       for await (const raw of stream) {
-        if (run.state === 'cancelled' || run.sealedSessions.includes(run.sessionId)) return;
+        if (stale()) return;
         const ev = raw as Ev;
         if (ev.id) this.lastEventId = ev.id;
+        if (ev.type.startsWith('model.') || ev.type.startsWith('tool.')) {
+          this.sawActivity = true;
+          this.clearTimer();
+        }
+        if (ev.type === 'turn.done' && ev.state?.status === 'error') {
+          await this.handleFailure(run, classifyDetailed(ev), String(ev.state.message ?? 'turn error'));
+          return;
+        }
         const out = this.map(run, ev);
         if (out.length) this.emit('stream', out);
         if (ev.type === 'turn.update' && ev.state?.status === 'paused' && this.pending.length) break;
         if (ev.type === 'turn.done') return;
       }
     } catch (e) {
-      if (run.state === 'cancelled') return;
-      this.fail(run, String((e as Error)?.message ?? e));
+      if (stale()) return;
+      await this.handleFailure(run, classifyDetailed(e, { sawActivity: this.sawActivity }), String((e as Error)?.message ?? e));
       return;
     }
-    if (run.state === 'cancelled' || run.sealedSessions.includes(run.sessionId)) return;
+    if (stale()) return;
     if (this.pending.length) {
       await this.processPending(run);
       return;
@@ -277,7 +371,10 @@ export class RunManager extends EventEmitter {
     }
   }
 
-  private fail(run: Run, message: string): void {
+  private fail(run: Run, reason: string, raw = false): void {
+    const message = this.fallbackUsed && !raw
+      ? `Both models failed: ${this.primaryReason}; ${reason}. No files were changed.`
+      : reason;
     log('run.failed', run.id, message);
     run.state = 'failed';
     this.setState('failed', message);
@@ -287,8 +384,8 @@ export class RunManager extends EventEmitter {
     ] as UiStreamEvent[]);
   }
 
-  private setState(state: Run['state'], banner?: string): void {
-    const msg: RunStateMsg = { state, agent: this.active?.agent, banner };
+  private setState(state: Run['state'], failure?: string): void {
+    const msg: RunStateMsg = { state, agent: this.active?.agent, banner: state === 'failed' ? failure : this.banner };
     this.emit('state', msg);
   }
 }

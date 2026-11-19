@@ -72,6 +72,10 @@
         "title": "Contexo Dev: Open Sample Proposal"
       },
       {
+        "command": "contexo.dev.openSampleProposalMissingSymbol",
+        "title": "Contexo (dev): Open Sample Proposal (missing symbol)"
+      },
+      {
         "command": "contexo.dev.applySampleChange",
         "title": "Contexo Dev: Apply Sample Change"
       }
@@ -92,6 +96,10 @@
         },
         {
           "command": "contexo.dev.openSampleProposal",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.dev.openSampleProposalMissingSymbol",
           "when": "config.contexo.devMode"
         },
         {

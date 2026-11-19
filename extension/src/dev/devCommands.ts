@@ -8,6 +8,7 @@
  *    contexo.dev.showSamplePacket (posts samplePacket to the Context tab),
  *    contexo.dev.openSampleProposal (active editor text -> sampleProposalArgs -> review.beginProposal with a
  *      fake inline Run selecting the first 10 lines; onResolve shows an info message + log; full review UI, no model),
+ *    contexo.dev.openSampleProposalMissingSymbol (inserts `undefined_helper()` into the first function; shows the deny),
  *    contexo.dev.applySampleChange (posts sampleApplied to the Changes tab).
  *
  * Rules: no writes to the workspace.
@@ -15,7 +16,8 @@
  * Depended on by: extension.
  */
 import * as vscode from 'vscode';
-import type { Run, ToWebview } from '../types';
+import { createHash } from 'node:crypto';
+import type { ProposeArgs, Run, ToWebview } from '../types';
 import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
 import type { TfClient } from '../run/tfClient';
@@ -85,6 +87,46 @@ export function registerDevCommands(
     log('[dev] opening sample proposal for', rel);
     const r = await deps.review.beginProposal(run, 'dev_call', 'dev_thread', args);
     if (r !== 'reviewing') void vscode.window.showErrorMessage(`Contexo (dev): ${r.deny}`);
+  });
+
+  reg('contexo.dev.openSampleProposalMissingSymbol', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== 'python') {
+      void vscode.window.showInformationMessage('Contexo (dev): open a Python file first.');
+      return;
+    }
+    const text = editor.document.getText();
+    const m = /^([ \t]*)(?:async\s+)?def\s+\w+\(.*\)[^\n:]*:[ \t]*$/m.exec(text);
+    if (!m) {
+      void vscode.window.showInformationMessage('Contexo (dev): no single-line function signature found.');
+      return;
+    }
+    const rel = vscode.workspace.asRelativePath(editor.document.uri, false).replace(/\\/g, '/');
+    const args: ProposeArgs = {
+      summary: 'dev: call an undefined helper',
+      edits: [{
+        path: rel,
+        baseHash: createHash('sha256').update(text).digest('hex'),
+        oldText: m[0],
+        newText: `${m[0]}\n${m[1]}    undefined_helper()`,
+      }],
+    };
+    const run: Run = {
+      id: `dev_${Date.now()}`,
+      mode: 'inline',
+      request: 'dev missing-symbol proposal',
+      selection: captureSelection(editor),
+      sessionId: 'dev',
+      agent: 'contexo',
+      state: 'awaiting-review',
+      sealedSessions: [],
+    };
+    const r = await deps.review.beginProposal(run, 'dev_call', 'dev_thread', args);
+    if (r === 'reviewing') {
+      void vscode.window.showWarningMessage('Contexo (dev): expected a MISSING_SYMBOL deny, but the diff opened.');
+    } else {
+      void vscode.window.showInformationMessage(`Contexo (dev): denied: ${r.deny}`);
+    }
   });
 
   reg('contexo.dev.applySampleChange', () => {
