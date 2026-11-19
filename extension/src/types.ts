@@ -159,11 +159,56 @@ export type ToHost =
   | { type: 'send'; text: string }
   | { type: 'openSource'; path: string; line: number }
   | { type: 'undo'; hunkId: string }
-  | { type: 'redo'; hunkId: string };
+  | { type: 'redo'; hunkId: string }
+  | { type: 'setupRefresh' }
+  | { type: 'startTrueForge' }
+  | { type: 'openTrueForge' }
+  | { type: 'saveProvider'; providerType: string; key: string; name?: string; baseUrl?: string; modelIds?: string[] }
+  | { type: 'setModels'; primary: string; fallback: string }
+  | { type: 'register' }
+  | { type: 'updateSetting'; key: SettingKey; value: string | number | boolean | string[] };
 
 export type ToWebview =
   | { type: 'session'; sessionId: string; agent: string; url: string }
   | ({ type: 'runState' } & RunStateMsg)
   | { type: 'stream'; events: UiStreamEvent[] }
   | { type: 'packet'; packet: ContextPacket }
-  | { type: 'changes'; hunks: AppliedHunk[] };
+  | { type: 'changes'; hunks: AppliedHunk[] }
+  | { type: 'setup'; status: SetupStatus; catalog: CatalogProviderView[]; settings: SettingsView }
+  | { type: 'setupResult'; op: string; ok: boolean; message: string; steps?: SetupStep[] }
+  | { type: 'showSetup' };
+
+export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';
+
+export interface SetupStatus {
+  trueforge: 'starting' | 'running' | 'down' | 'node-missing';
+  detail?: string;
+  providersConfigured: string[];
+  models: string[];
+  primaryModel?: string;
+  fallbackModel?: string;
+  connectorOk: boolean;
+  agentsOk: boolean;
+  mcpOk: boolean;
+  indexReady: boolean;
+}
+
+export interface CatalogProviderView {
+  type: string;
+  custom: boolean;
+}
+
+export interface SettingsView {
+  excerptBudget: number;
+  firstEventTimeoutMs: number;
+  commandAllowlist: string[];
+  autoStartTrueForge: boolean;
+  devMode: boolean;
+  trueforgeUrl: string;
+}
+
+export interface SetupStep {
+  label: string;
+  ok: boolean;
+  detail?: string;
+}

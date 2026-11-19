@@ -55,3 +55,17 @@ Status: FROM-SDK-TYPES. Q4 still needs a live confirmation against a running Tru
 - Network failure is a plain `TrueForgeError` with message 'fetch failed', no `statusCode`, and `cause` = a Node error with `code` (ECONNREFUSED etc.).
 - User abort maps to reason 'aborted'.
 - `turn.done` state on failure: `{status:'error', message, completedAt, metrics?}`.
+
+## Provider/model API (onboarding)
+
+Status: VERIFIED-FROM-TYPES (SDK 0.185.0 `.d.ts`) plus a LIVE check of the read calls against a locally auto-started TrueForge (health, catalog: 9 providers, configured providers, models). Writing a provider key was NOT exercised live (no real key used).
+
+- **Keys CAN be set via the API.** `client.settings.modelProviders.createOrUpdate({ manifest })` (create-or-replace; `create` fails on name conflict). Manifest: `{ type, auth: { apiKey }, models: [{ modelId, name, properties }], baseUrl? }`; `custom` also needs `name` and `baseUrl` (auth optional); `truefoundry` needs `baseUrl`. `models` is REQUIRED, so the extension copies the catalog's models for the chosen provider. Well-known types use `type` as the provider name (one each). A redacted key keeps the stored one; a real value sets/rotates. Delete: `settings.modelProviders.delete(name)`.
+- Catalog: `client.catalogs.modelProviders.list()` -> `data[]` of `{ type, logo?, models:[{modelId,name,properties}] }` (well-known: openai, anthropic, google-gemini, fireworks, zai, moonshot, alibaba, together) or `{ type:'custom', supportedReasoningEfforts }`. Live: 9 entries.
+- Configured providers: `client.settings.modelProviders.list()` -> `data[]` `{ name, manifest }`.
+- Configured models: `client.models.list()` -> `data[]` `{ modelId, name, provider:{name}, properties, warning? }`. The extension addresses a model as `${provider.name}/${name}` (the docs only say agents reference models by name; NEEDS-LIVE-RUN with a real model to confirm the `provider/model` form).
+- Connectors: `client.settings.mcpServers.list() / get(name) / create / createOrUpdate({manifest}) / delete(name)`; manifest `{ type:'remote', name, description, url, auth:{ type:'header', headers } }`. The extension uses `createOrUpdate` (idempotent).
+- Agents: `client.agents.list({ agentName, limit })` (paged; `.data`), `create({ name, description, manifest })`, `update(agentId, { description, manifest })` (by id, not name), `get(id)`, `delete(id)`. The extension lists by name, then updates or creates.
+- Health: there is no health endpoint in the SDK or docs; `client.server.getCapabilities()` (`GET /api/v1/capabilities`, 200 without auth locally) is used as the health probe.
+- SDK request types are camelCase (`mcpServers`, `requireApprovalForTools`, `preloadTools`, `iterationLimit`); the SDK serialises to snake_case. `src/run/manifests.ts` uses camelCase; `register.mjs` passes the snake_case JSON through (the SDK passes unknown keys through, so it likely works, but it is unverified; test/manifests.test.ts keeps the two in sync).
+- Local TrueForge on Windows: `npx -y @truefoundry/trueforge@latest --port 8790` starts in about 30 s from a warm npx cache and logs "Agent server listening"; auth disabled; warns that the local sandbox is unsupported on win32 (irrelevant to Contexo). Stopping the npx process tree with tree-kill frees the port.

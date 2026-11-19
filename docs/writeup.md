@@ -39,7 +39,7 @@ Models are configured only in TrueForge (Settings -> Models); the repo contains 
 
 - Primary model: `[TODO: model name]`, ran on `[TODO: provider / local]`, approximate cost `[TODO: cost]`.
 - Fallback model: `[TODO: model name]`, ran on `[TODO: provider / local]`, approximate cost `[TODO: cost]`.
-- Switching: edit the model on the agent in TrueForge, or re-run `trueforge/register.mjs` with other `PRIMARY_MODEL` / `FALLBACK_MODEL` values, or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents. Failover is automatic (section 3).
+- Switching: open the Contexo Settings tab (gear) or run **Contexo: Open Setup**, pick another primary/fallback model and press Save models; Contexo updates the `contexo` / `contexo-fallback` agents in TrueForge. New providers are added in the same place (the key goes straight to TrueForge's API and is never stored by the extension). Advanced alternatives: edit the agent in TrueForge, re-run `trueforge/register.mjs`, or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents. Failover is automatic (section 3).
 
 ## 6. Scorecard
 

@@ -27,9 +27,11 @@ import type { McpHandle } from './mcp/server';
 import { makeToolRegistrar } from './mcp/tools';
 import { registerInlineEdit } from './shell/inlineEdit';
 import { registerDevCommands } from './dev/devCommands';
+import { SetupController } from './shell/setupController';
 
 let mcpHandle: McpHandle | undefined;
 let runsRef: RunManager | undefined;
+let setupRef: SetupController | undefined;
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const cfg = getConfig();
@@ -55,6 +57,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     registerTools: makeToolRegistrar({ index, review, runs, post }),
   });
   mcpHandle = mcp;
+  const setup = new SetupController({ post, token, mcpPort: mcp.port, index });
+  setupRef = setup;
   registerInlineEdit(ctx, runs);
   registerDevCommands(ctx, { post, review, runs, tf });
 
@@ -96,6 +100,16 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           void vscode.commands.executeCommand('contexo.redoHunk', m.hunkId);
           break;
         case 'ready':
+          setup.onReady();
+          break;
+        case 'setupRefresh':
+        case 'startTrueForge':
+        case 'openTrueForge':
+        case 'saveProvider':
+        case 'setModels':
+        case 'register':
+        case 'updateSetting':
+          void setup.handle(m).catch((e) => log('setup message failed', e instanceof Error ? e.message : String(e)));
           break;
       }
     }),
@@ -114,14 +128,21 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       await vscode.env.clipboard.writeText(text);
       void vscode.window.showInformationMessage('Contexo MCP URL and token copied to the clipboard.');
     }),
+    vscode.commands.registerCommand('contexo.openSetup', async () => {
+      await vscode.commands.executeCommand('contexo.panel.focus');
+      setup.showSetup();
+    }),
     vscode.commands.registerCommand('contexo.reindex', () => index.reindexAll()),
   );
   log(`Contexo activated; MCP at ${mcp.url}`);
+  void setup.init().catch((e) => log('setup init failed', e instanceof Error ? e.message : String(e)));
 }
 
 export async function deactivate(): Promise<void> {
   const runs = runsRef;
   if (runs?.active && runs.active.state !== 'done') await runs.stop();
+  await setupRef?.dispose();
+  setupRef = undefined;
   await mcpHandle?.stop();
   mcpHandle = undefined;
 }

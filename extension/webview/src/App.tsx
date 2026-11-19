@@ -15,26 +15,48 @@ import type { RunStateMsg } from '../../src/types';
 import { ChatTab } from './ChatTab';
 import { ContextTab } from './ContextTab';
 import { ChangesTab } from './ChangesTab';
+import { SettingsTab, Wizard } from './SetupView';
+import type { SetupData } from './SetupView';
+import type { ToWebview } from '../../src/types';
 
-type Tab = 'chat' | 'context' | 'changes';
-const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['context', 'Context'], ['changes', 'Changes']];
+type Tab = 'chat' | 'context' | 'changes' | 'settings';
+const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['context', 'Context'], ['changes', 'Changes'], ['settings', '⚙ Settings']];
 
 export function App() {
   const [tab, setTab] = useState<Tab>(() => getState<{ tab?: Tab }>().tab ?? 'chat');
   const [run, setRun] = useState<RunStateMsg>({ state: 'idle' });
   const [text, setText] = useState('');
+  const [setup, setSetup] = useState<SetupData>({ catalog: [], results: {} });
+  const [skipped, setSkipped] = useState(() => getState<{ skipWizard?: boolean }>().skipWizard === true);
 
   useEffect(() => {
     const off = subscribe((m) => {
       if (m.type === 'runState') {
         const { type: _t, ...rest } = m;
         setRun(rest);
+      } else {
+        handleSetup(m);
       }
     });
     post({ type: 'ready' });
     return off;
   }, []);
 
+  const handleSetup = (m: ToWebview) => {
+    if (m.type === 'setup') setSetup((d) => ({ ...d, status: m.status, catalog: m.catalog, settings: m.settings }));
+    else if (m.type === 'setupResult') setSetup((d) => ({ ...d, results: { ...d.results, [m.op]: { ok: m.ok, message: m.message, steps: m.steps } } }));
+    else if (m.type === 'showSetup') { skip(false); setWizardNeeded(true); }
+  };
+  const skip = (v: boolean) => {
+    setSkipped(v);
+    setState({ skipWizard: v });
+  };
+  const st = setup.status;
+  const complete = !!st && st.trueforge === 'running' && st.models.length > 0 && !!st.primaryModel && st.connectorOk && st.agentsOk;
+  // once the wizard has been needed it stays until the user finishes it (so the checklist/Done step is seen)
+  const [wizardNeeded, setWizardNeeded] = useState(false);
+  useEffect(() => { if (st && !complete) setWizardNeeded(true); }, [st, complete]);
+  const showWizard = !!st && !skipped && (!complete || wizardNeeded);
   const choose = (t: Tab) => {
     setTab(t);
     setState({ tab: t });
@@ -70,6 +92,12 @@ export function App() {
         </div>
       )}
       {run.state !== 'failed' && run.banner && <div className="banner">{run.banner}</div>}
+      {showWizard ? (
+        <div className="content">
+          <Wizard data={setup} onSkip={() => skip(true)} onDone={() => skip(true)} />
+        </div>
+      ) : (
+      <>
       <div className="tabs">
         {TABS.map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => choose(id)}>
@@ -81,7 +109,9 @@ export function App() {
         {tab === 'chat' && <ChatTab />}
         {tab === 'context' && <ContextTab />}
         {tab === 'changes' && <ChangesTab />}
+        {tab === 'settings' && <SettingsTab data={setup} />}
       </div>
+      {tab !== 'settings' && (
       <div className="composer">
         <textarea
           value={text}
@@ -99,6 +129,9 @@ export function App() {
           Send
         </button>
       </div>
+      )}
+      </>
+      )}
     </div>
   );
 }

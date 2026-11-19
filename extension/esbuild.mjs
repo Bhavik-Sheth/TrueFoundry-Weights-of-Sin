@@ -34,6 +34,7 @@ const options = {
   target: 'node18',
   external: ['vscode'],
   sourcemap: true,
+  loader: { '.md': 'text' },
   logLevel: 'info',
 };
 

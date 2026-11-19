@@ -40,6 +40,10 @@
         "title": "Contexo: Copy MCP Connection"
       },
       {
+        "command": "contexo.openSetup",
+        "title": "Contexo: Open Setup"
+      },
+      {
         "command": "contexo.reindex",
         "title": "Contexo: Reindex Workspace"
       },
@@ -206,6 +210,21 @@
           "type": "number",
           "default": 8791,
           "description": "Fixed port for the local Contexo MCP server."
+        },
+        "contexo.autoStartTrueForge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start a local TrueForge (npx @truefoundry/trueforge) automatically when it is not already running. Requires Node 22.14+."
+        },
+        "contexo.primaryModel": {
+          "type": "string",
+          "default": "",
+          "description": "Primary model (provider/model) chosen in the Contexo setup. Models and keys are configured in TrueForge; this stores only the model name."
+        },
+        "contexo.fallbackModel": {
+          "type": "string",
+          "default": "",
+          "description": "Fallback model (provider/model) chosen in the Contexo setup."
         },
         "contexo.devMode": {
           "type": "boolean",

@@ -10,6 +10,15 @@ Contexo is a VS Code extension that adds a context-aware coding agent to the edi
 
 The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge.
 
+## Quick start (just use it)
+
+1. Get `contexo.vsix` (build it with the steps below, or download it from the repository's releases if one is published).
+2. In VS Code: **Extensions → ⋯ → Install from VSIX…** and pick the file (or `code --install-extension contexo.vsix`).
+3. Open any project folder and click the **Contexo** icon in the secondary sidebar. The setup wizard starts TrueForge, takes your provider API key, lets you pick a primary and a fallback model, and registers the agents. No terminal and no TrueForge UI needed.
+4. Select code and press `Ctrl+Alt+E` for an inline edit, or type a request in the Chat tab for agent mode.
+
+You need Node.js 22.14+ installed (Contexo uses it to run TrueForge locally) and an API key for at least one model provider.
+
 ## Requirements
 
 - VS Code 1.90 or newer (with the `code` command on PATH for `npm run install:local`)
@@ -40,30 +49,34 @@ The extension never calls a model provider. It is a client of a TrueForge agent 
    npm run install:local   # builds, runs the provider check, packages dist/contexo.vsix, installs it
    ```
 
-3. Start TrueForge locally (leave it running):
+3. Open the Flask folder in VS Code. The Contexo panel (secondary sidebar) opens a **setup wizard** the first time; no terminal and no TrueForge UI needed:
+
+   1. **TrueForge**: Contexo starts a local TrueForge for you (`npx @truefoundry/trueforge@latest`, needs Node 22.14+; the first run downloads it and can take a minute). If it is already running, Contexo uses it and never stops it.
+   2. **Add provider**: pick a provider, paste its API key, press **Save to TrueForge**. The key is sent once to your local TrueForge's own API and is not kept by Contexo (no settings, no secret storage, no logs).
+   3. **Choose models**: pick a primary and a fallback model (ideally different providers).
+   4. **Register**: one click creates the `contexo-editor` connector and the `contexo` / `contexo-fallback` agents in TrueForge.
+   5. **Done**: the tabs open. The gear tab (**Settings**) keeps the same controls plus health checks; **Contexo: Open Setup** reopens the wizard.
+
+   Settings added: `contexo.autoStartTrueForge` (default `true`), `contexo.primaryModel`, `contexo.fallbackModel` (model names only).
+
+### Manual alternative (no wizard)
+
+Use this if you prefer the terminal or the TrueForge UI.
+
+1. Start TrueForge yourself (leave it running): `npx @truefoundry/trueforge@latest` (http://localhost:8790; `--port <n>` or `PORT` to change). Set `contexo.autoStartTrueForge` to `false` to stop Contexo from starting one.
+2. In the TrueForge UI, open **Settings -> Models** and configure two models (a primary and a fallback, ideally from different providers). See [extension/trueforge/models.example.md](extension/trueforge/models.example.md). Never commit keys.
+3. Run **Contexo: Copy MCP Connection** from the Command Palette (copies the MCP URL and the `X-Contexo-Token`).
+4. Register the connector and agents (from `extension/`):
 
    ```bash
-   npx @truefoundry/trueforge@latest      # http://localhost:8790 ; --port <n> or PORT to change
-   ```
-
-4. In the TrueForge UI, open **Settings -> Models** and configure two models (a primary and a fallback, ideally from different providers). See [extension/trueforge/models.example.md](extension/trueforge/models.example.md). Use placeholders like `<provider>/<primary model>`; never commit keys.
-
-5. Open the Flask folder in VS Code and run **Contexo: Copy MCP Connection** from the Command Palette. It copies the MCP URL and token (`X-Contexo-Token`) to the clipboard. The token is generated once and stored in VS Code's secret storage.
-
-6. Register the MCP connector and the two agents in TrueForge (from `extension/`):
-
-   ```bash
-   CONTEXO_TOKEN=<token from step 5> \
-   PRIMARY_MODEL=<provider>/<primary model> \
-   FALLBACK_MODEL=<provider>/<fallback model> \
-   node trueforge/register.mjs
+   CONTEXO_TOKEN=<token>    PRIMARY_MODEL=<provider>/<primary model>    FALLBACK_MODEL=<provider>/<fallback model>    node trueforge/register.mjs
    ```
 
    PowerShell: `$env:CONTEXO_TOKEN='...'; $env:PRIMARY_MODEL='...'; $env:FALLBACK_MODEL='...'; node trueforge/register.mjs`.
 
-   Required env vars: `CONTEXO_TOKEN`, `PRIMARY_MODEL`, `FALLBACK_MODEL`. Optional: `TRUEFORGE_URL` (default `http://localhost:8790`), `CONTEXO_PORT` (default `8791`, must match `contexo.mcpPort`). The script creates the `contexo-editor` connector and the agents `contexo` and `contexo-fallback` (with `trueforge/instructions.md` inlined). Existing resources with the same name are left alone; delete them in the TrueForge UI to redo. The agent definitions are in [extension/trueforge/](extension/trueforge/); TrueForge has no file loader, so the script (or the UI) is the way to load them.
+   Required env vars: `CONTEXO_TOKEN`, `PRIMARY_MODEL`, `FALLBACK_MODEL`. Optional: `TRUEFORGE_URL` (default `http://localhost:8790`), `CONTEXO_PORT` (default `8791`, must match `contexo.mcpPort`). Existing resources with the same name are left alone; the wizard's Register button updates them instead. Agent definitions are in [extension/trueforge/](extension/trueforge/).
 
-7. Reload the VS Code window. The Contexo icon appears in the secondary sidebar; the status bar shows the run state.
+5. Reload the VS Code window. The Contexo icon appears in the secondary sidebar; the status bar shows the run state.
 
 ## Settings
 
@@ -76,11 +89,13 @@ The extension never calls a model provider. It is a client of a TrueForge agent 
 | `contexo.firstEventTimeoutMs` | `20000` | Wait for the first stream event before treating the model as failed |
 | `contexo.commandAllowlist` | `["python","pytest","flask"]` | Allowed `argv[0]` values for `run_command` |
 | `contexo.mcpPort` | `8791` | Fixed port of the local Contexo MCP server |
+| `contexo.autoStartTrueForge` | `true` | Start a local TrueForge when none is running |
+| `contexo.primaryModel` / `contexo.fallbackModel` | empty | `provider/model` names chosen in the wizard (never keys) |
 | `contexo.devMode` | `false` | Show the dev/fixture commands in the Command Palette |
 
 ## Commands
 
-`Contexo: Inline Edit` (`Ctrl+Alt+E`, needs a selection), `Contexo: Stop`, `Contexo: Copy MCP Connection`, `Contexo: Reindex Workspace`, and the review commands used by the CodeLens and the Changes tab (`Undo Hunk`, `Redo Hunk`, `Decide Hunk`, `Apply Accepted Hunks`, `Accept All Hunks`, `Reject All Hunks`; hidden from the palette). With `contexo.devMode` on: `Contexo Dev: Ping TrueForge`, `Send Test Turn`, `Show Sample Context Packet`, `Open Sample Proposal` (and a missing-symbol variant), `Apply Sample Change`.
+`Contexo: Inline Edit` (`Ctrl+Alt+E`, needs a selection), `Contexo: Open Setup`, `Contexo: Stop`, `Contexo: Copy MCP Connection`, `Contexo: Reindex Workspace`, and the review commands used by the CodeLens and the Changes tab (`Undo Hunk`, `Redo Hunk`, `Decide Hunk`, `Apply Accepted Hunks`, `Accept All Hunks`, `Reject All Hunks`; hidden from the palette). With `contexo.devMode` on: `Contexo Dev: Ping TrueForge`, `Send Test Turn`, `Show Sample Context Packet`, `Open Sample Proposal` (and a missing-symbol variant), `Apply Sample Change`.
 
 ## Running the three fixed tasks (Flask 3.1.3)
 
@@ -109,13 +124,15 @@ pytest tests/test_cli.py -q
 flask --app <some app> config      # masked JSON; e.g. copy scripts/demo-app.py into the Flask folder (outside git status) and use --app demo-app.py
 ```
 
-**Task C: resilience.** In TrueForge Settings -> Models break the primary model (invalid key or unreachable endpoint), then repeat Task A. Contexo shows a banner and the fallback agent takes over automatically (or a clear error if both fail). Verify the editor stays responsive and `git status` in Flask shows no changes.
+**Task C: resilience.** In the TrueForge UI (**Settings -> Models**, or **Open TrueForge** from Contexo's Settings tab) break the primary model (invalid key or unreachable endpoint), then repeat Task A. Contexo shows a banner and the fallback agent takes over automatically (or a clear error if both fail). Verify the editor stays responsive and `git status` in Flask shows no changes.
 
 See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) for the recording plan.
 
 ## Switching models
 
-Models are TrueForge configuration only. To switch: change the model in the agent (TrueForge UI -> Build Agent, or delete the agent and re-run `register.mjs` with a different `PRIMARY_MODEL` / `FALLBACK_MODEL`), or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents. No extension change or rebuild is needed.
+Open the **Settings** (gear) tab in the Contexo panel and pick a different primary or fallback model. Contexo updates the `contexo` / `contexo-fallback` agents in TrueForge right away. To use a new provider, add its key in the same tab first. No extension change or rebuild is needed.
+
+Models and keys still live only in TrueForge, so you can also change them in the TrueForge UI (Build Agent), re-run `register.mjs` with different `PRIMARY_MODEL` / `FALLBACK_MODEL`, or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents.
 
 ## Development
 
@@ -151,20 +168,21 @@ The upstream sample is a minimal webview view with colour-picker commands and no
 - **Editor capabilities as MCP tools** (`src/mcp/`): a local Streamable HTTP MCP server (127.0.0.1, token header) exposing `search_workspace`, `read_file`, `assemble_context`, `list_symbols`, `propose_write` and `run_command`, so the agent decides what to read and change.
 - **Context assembly** (`src/context/`): Tree-sitter symbol index, BM25 / symbol / ripgrep retrieval, one-hop expansion, RRF fusion and budgeted packing with reasons and omissions.
 - **Review and undo** (`src/review/`): `propose_write` is approval-gated; the proposal is shown as per-hunk diffs with CodeLens, guarded (stale base, scope, missing symbols), applied only after accept, and undoable per hunk or per apply.
-- **UI** (`webview/`): Chat, Context (graph and ranked list) and Changes tabs.
+- **Setup without a terminal** (`src/run/trueforgeProcess.ts`, `src/run/trueforgeAdmin.ts`, `src/shell/setup*.ts`): starts a local TrueForge, forwards the provider key to TrueForge's API, lists models, and registers the connector and agents.
+- **UI** (`webview/`): setup wizard, Chat, Context (graph and ranked list), Changes and Settings tabs.
 
 ## Project layout
 
 ```text
 extension/
   src/extension.ts        activation and wiring
-  src/shell/              panel, inline edit command, status bar
-  src/run/                RunManager, TrueForge client wrapper, fallback
+  src/shell/              panel, inline edit command, status bar, setup state + controller
+  src/run/                RunManager, TrueForge client wrapper, fallback, TrueForge auto-start + admin, agent manifests
   src/mcp/                MCP server, tool registration, run_command
   src/context/            indexer, search (BM25, ripgrep), assembler, token counts
   src/review/             proposal/hunks, guards, diff view + CodeLens, apply/undo
   src/dev/                fixtures and dev commands
-  webview/                React webview (Chat, Context, Changes)
+  webview/                React webview (setup wizard, Chat, Context, Changes, Settings)
   trueforge/              agent JSONs, connector JSON, instructions.md, register.mjs, models.example.md
   test/                   Vitest suites
 scripts/                  setup-flask.{ps1,sh}, check-no-provider.mjs, demo-app.py

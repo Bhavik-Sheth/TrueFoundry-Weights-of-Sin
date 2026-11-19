@@ -20,6 +20,10 @@ export interface ContexoConfig {
   commandAllowlist: string[];
   mcpPort: number;
   devMode: boolean;
+  autoStartTrueForge: boolean;
+  /** 'provider/model' names chosen in the setup wizard (strings only, never keys). */
+  primaryModel: string;
+  fallbackModel: string;
 }
 
 export function getConfig(): ContexoConfig {
@@ -33,5 +37,8 @@ export function getConfig(): ContexoConfig {
     commandAllowlist: c.get<string[]>('commandAllowlist', ['python', 'pytest', 'flask']),
     mcpPort: c.get<number>('mcpPort', 8791),
     devMode: c.get<boolean>('devMode', false),
+    autoStartTrueForge: c.get<boolean>('autoStartTrueForge', true),
+    primaryModel: c.get<string>('primaryModel', ''),
+    fallbackModel: c.get<string>('fallbackModel', ''),
   };
 }

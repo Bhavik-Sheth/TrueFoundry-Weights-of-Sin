@@ -13,3 +13,22 @@ body { margin: 0; padding: 0; color: var(--vscode-foreground); font-family: var(
 button.btn { padding: 4px 10px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: none; cursor: pointer; }
 button.btn:hover { background: var(--vscode-button-hoverBackground); }
 button.btn:disabled { opacity: 0.5; cursor: default; }
+.wizard, .settings { display: flex; flex-direction: column; gap: 8px; }
+.wizard h2 { margin: 0 0 4px; font-size: 1.2em; }
+.step { border: 1px solid var(--vscode-panel-border); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.step h3 { margin: 0 0 4px; font-size: 1.05em; }
+.step label { margin-top: 4px; }
+.step input[type=text], .step input[type=password], .step input[type=number], .step input:not([type]), .step select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding: 3px 4px; font-family: inherit; }
+.step input:focus-visible, .step select:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.step label.check { display: flex; align-items: center; gap: 6px; }
+.row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.nav { margin-top: 4px; }
+.stepper { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; opacity: 0.8; }
+.stepper li.cur { font-weight: bold; opacity: 1; color: var(--vscode-focusBorder); }
+button.btn.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+.ok { color: var(--vscode-testing-iconPassed, #3fb950); }
+.err { color: var(--vscode-errorForeground); }
+.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+.checklist { margin: 4px 0 0; padding-left: 16px; list-style: none; }
+table.health { border-collapse: collapse; }
+table.health th { text-align: left; font-weight: normal; padding-right: 12px; }
