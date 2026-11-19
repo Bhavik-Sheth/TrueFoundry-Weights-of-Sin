@@ -1,0 +1,46 @@
+# S0b spike notes (TrueForge)
+
+Status legend: **VERIFIED-FROM-TYPES** (SDK `@truefoundry/trueforge-sdk` 0.185.0 `.d.ts`), **FROM-DOCS** (github.com/truefoundry/trueforge docs), **NEEDS-LIVE-RUN** (requires TrueForge + a configured model; not done in this pass: no model key available).
+
+## Q1. `tool.approval_required` payload
+
+- VERIFIED-FROM-TYPES `ToolApprovalRequiredEvent = { type: 'tool.approval_required', id, createdAt, threadId, toolCalls: { id, sourceEventId }[] }` (SDK is camelCase; the wire/docs use snake_case: `thread_id`, `tool_calls[].source_event_id`).
+- **The event carries NO tool name and NO args.** It only references the call: `toolCalls[i].id` is the `toolCallId`, and `sourceEventId` is the `id` of the earlier `model.message` event whose `toolCalls[]` (`{ id, type:'function', function:{ name, arguments: string(JSON) }, toolInfo }`) holds the name and args. `threadId` is on the approval event itself (`"main"` for the root agent).
+- Consequence (implemented in `runManager.ts`): index every `model.message` by `id` and look the call up by `sourceEventId` + `toolCalls[].id`. `tfClient.ts` merges `model.message.delta` events so that message is complete; if only deltas were seen, it yields the merged synthetic message just before the approval event.
+- Deferred tools (FROM-DOCS): the model's call is `call_tool` with `arguments` containing `mcp_server`, `tool_name` (+ the real args). `runManager.describeCall` unwraps this. NEEDS-LIVE-RUN: exact key names for the inner args (assumed `tool_name`, `mcp_server`, and the tool's own args alongside or nested).
+- Resume protocol (VERIFIED-FROM-TYPES): stream until `turn.update` with `state.status === 'paused'`; `subscribeToTurn(sessionId, turnId, { afterEventId })`; `createTurnEvents(sessionId, turnId, { events: [{ type:'user.tool_approval', threadId, toolCallId, approval:{status:'allow'} | {status:'deny', reason?} }] })`. `turnId` comes from the `turn.created` event (`turnId` field). Also available: `user.tool_approval_policy` (`allow_session`) to pre-approve a tool for a period.
+- NEEDS-LIVE-RUN: whether the original `createTurnStream` response ends at the pause (our loop breaks on the paused `turn.update` either way), and whether parallel approvals need to be sent in one `createTurnEvents` batch (`TfClient.approve` sends one at a time).
+
+## Q2. Does an allowed `propose_write` reach our MCP tool with byte-identical args?
+
+- NEEDS-LIVE-RUN. What we know: args shown at approval time are `model.message.toolCalls[].function.arguments` (a JSON **string** as the model emitted it). TrueForge then calls our MCP server with parsed args; our server receives them as a JSON object after zod parsing, so byte identity of the *string* is not observable; only canonical-JSON equality is. `proposalKey = sha256(canonicalJson(args))` over sorted keys is the right design.
+- Not guaranteed: zod 4 / MCP SDK strips unknown keys and may coerce, so key from the **parsed** args on both sides (approval side: `JSON.parse(arguments)` then canonicalize; same fields only). If it differs in the live run, use the plan's fallback (match the last allowed proposal for the run).
+- Server side note: our handler never sees `toolCallId` (MCP `_meta` passthrough not verified).
+
+## Q3. Agent definition format and field names for approval / deferred tools
+
+- FROM-DOCS (`docs/create-agent/overview.mdx`, `key-features/deferred-tool-loading.mdx`): the format is a **JSON manifest** (not YAML), snake_case, `model` is the only required field. There is **no file-based agent loader**: agents are saved in TrueForge's registry through the UI (Build Agent -> Save Agent) or API (`POST /api/v1/agents`, SDK `agents.create({ name, description, manifest })`), or passed inline as `spec` on session create.
+- Manifest fields: `model: { name: 'provider/model', params? }`, `instructions` (inline string, not a file reference), `mcp_servers: [{ name, enable_tools, disable_tools, preload, preload_tools, require_approval_for_tools }]`, `skills`, `config`, `response_format`, `messages`.
+  - Approval: `require_approval_for_tools` (default `["@write","@destructive"]`; accepts `@all`, labels, or literal tool names). Our server has no write/destructive labels, so we list names: `["propose_write","run_command"]`.
+  - Deferred: `preload` (default false: schemas discovered on demand) and `preload_tools` (eagerly loaded subset). So "deferred" = every tool not in `preload_tools` while `preload: false`: preload `search_workspace, read_file, assemble_context, propose_write`; `run_command`, `list_symbols` stay deferred.
+- **MCP servers are NOT defined inside the agent.** `mcp_servers[].name` refers to a connector configured in Settings -> Connectors ("Add MCP Server", custom URL, header auth), or via SDK `settings.mcpServers.create({ manifest: { type:'remote', name, description, url, auth:{ type:'header', headers } } })` (VERIFIED-FROM-TYPES). So URL `http://127.0.0.1:8791/mcp` and `X-Contexo-Token` live in `extension/trueforge/contexo-editor.mcp.json`, not in the agent files.
+- Files written: `extension/trueforge/contexo.agent.json`, `contexo-fallback.agent.json` (REST shape `{name, description, manifest}`, placeholders `<PRIMARY_MODEL>`/`<FALLBACK_MODEL>`), `contexo-editor.mcp.json`, and `register.mjs` (creates the connector and both agents via the SDK, inlining `instructions.md`). NEEDS-LIVE-RUN: run `register.mjs` once against a live TrueForge (unverified).
+
+## Q4. Bad key / unreachable endpoint behaviour
+
+- Partially VERIFIED-FROM-TYPES / FROM-DOCS: `turn.done` has `state.status` of `done | cancelled | error`; `error` carries `message`; cancel carries `reason` (`client-cancelled`, `server-execution-timeout`, `cancelled-for-next-turn`, `abandoned`). A subscription can end without `turn.done` (resubscribe from last event id). SDK default stream timeout is 60 s; we set 600 s. SDK retries 2x by default.
+- NEEDS-LIVE-RUN: which of (a) `turn.done`/`error` with a provider error message, (b) a thrown HTTP error from `createTurnStream` (SDK error classes are exported from `errors/`), or (c) a hang happens for a bad provider key vs unreachable TrueForge. Unreachable **TrueForge** itself is a thrown fetch error (ECONNREFUSED) from `sessions.create` / `createTurnStream`; `RunManager` turns both thrown errors and `turn.done` error into run state `failed` (S8 fallback will classify). A "no first event" timeout (`firstEventTimeoutMs`) is still needed for the hang case.
+
+## Q5. Can `TrueForgeUI` render an existing session read-only while the host sends turns?
+
+- Partially VERIFIED-FROM-TYPES (`@truefoundry/trueforge-ui` 0.185.1): `TrueForgeUI` accepts `initialSessionId` and a `server` config (`TrueForgeServerConfig`, with a `baseUrl`), so attaching to an existing session for display is plausible. But the UI is an interactive chat: it owns its composer, approval bar (`ToolApprovalContainer`) and cancel, and drives turns itself. There is no documented read-only mode, so it would compete with the host for approvals. Also needs CSP `connect-src http://localhost:8790` and TrueForge CORS for the `vscode-webview://` origin (NEEDS-LIVE-RUN).
+- Recommendation: **host-relayed renderer** (ChatTab renders `UiStreamEvent`s from the host), because approvals, Stop and fallback must be host-owned. Re-evaluate only if a live run shows a clean read-only slot-override of the composer/approval components.
+
+## Other findings
+
+- `npx @truefoundry/trueforge@latest`: CLI (`dist/cli.js`) is `parseArgs` strict with only `--port <n>` and `-h/--help` (unknown flags throw, e.g. `--version` fails). Env: `PORT`, `SQLITE_PATH`, `PUBLIC_BASE_URL`, `STANDALONE` (default standalone SQLite, no Redis). Needs Node >= 22.14. `--help` is safe (prints usage and exits). Starting it is non-interactive (plain server, no prompts); not started in this pass. Local mode has no login by default.
+- Registering agents: UI (Build Agent / Save Agent), API/SDK (`agents.create`, `settings.mcpServers.create`), or `trueforge/register.mjs`. No CLI or file loader.
+- Models: Settings -> Models -> provider -> Configure -> key. Agent `model.name` is `provider/model`.
+- `sessionUrl` is `${baseUrl}/sessions/${id}`. NOT VERIFIED. The UI docs mention a default session deep link `'/sessions/:sessionId'` (trueforge-ui route config), so this is likely right; confirm in the live run.
+- SDK API actually used (all VERIFIED-FROM-TYPES): `new TrueForge({ baseUrl, timeoutInSeconds })`; `sessions.create({ agent:{name} })` -> `{ data: Session }`; `sessions.createTurnStream(id, { input:[{type:'user.message', content}] }, { abortSignal })` -> `Stream<TurnStreamingEvent>` (async iterable); `sessions.subscribeToTurn(id, turnId, { afterEventId })`; `sessions.createTurnEvents(id, turnId, { events })`; `sessions.cancel(id)`; `sessions.list({ limit })`; `isEventDelta`, `mergeEventDelta` (top-level exports).
+- MCP SDK 1.32.2 + zod 4.6.7: `McpServer.registerTool(name, { description, inputSchema: <zod raw shape> }, cb)` and `StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })` work together; checked with a local JSON-RPC smoke test (401 on bad token, 405 on GET, initialize, tools/list returns the 6 tools, tools/call works, zod limit violation returns an `isError` result).

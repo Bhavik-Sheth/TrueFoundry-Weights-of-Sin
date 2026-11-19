@@ -1,0 +1,10 @@
+{
+  "$comment": "TrueForge connector (SDK settings.mcpServers.create({ manifest })). Replace <TOKEN> with the value from 'Contexo: Copy MCP Connection'. Port is contexo.mcpPort (default 8791). TrueForge must reach 127.0.0.1 (true for local npx mode).",
+  "manifest": {
+    "type": "remote",
+    "name": "contexo-editor",
+    "description": "Contexo VS Code editor tools: search, read, assemble context, propose edits, run allowlisted commands.",
+    "url": "http://127.0.0.1:8791/mcp",
+    "auth": { "type": "header", "headers": { "X-Contexo-Token": "<TOKEN>" } }
+  }
+}

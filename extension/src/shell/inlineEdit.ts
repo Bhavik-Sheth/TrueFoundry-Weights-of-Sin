@@ -1,15 +1,54 @@
 /**
- * shell/inlineEdit.ts - C1 command contexo.inlineEdit (Ctrl+Alt+E / Cmd+Alt+E).
+ * shell/inlineEdit.ts - C1 command contexo.inlineEdit (Ctrl+Alt+E / Cmd+Alt+E). REAL in S0.
  *
  * Exports:
- *  - registerInlineEdit(ctx, runManager): registers the command.
- *  - captureSelection(editor): Selection - path (workspace-relative), 0-based inclusive line range,
+ *  - registerInlineEdit(ctx, runs): registers the command.
+ *  - captureSelection(editor): Selection - path (workspace-relative POSIX), 0-based inclusive line range,
  *    document version, SHA-256 of the full buffer, selected text.
- *  - inlineEditCommand(): guards against an active run, captures the selection, shows an input
- *    box for the instruction, calls runManager.start('inline', text, selection).
  *
  * Rules: does nothing if a run is active or the selection is empty; no direct writes.
- * Depends on: types, run/runManager.
- * Depended on by: extension.
+ * The instruction goes to runs.start('inline', text, selection); the first-message template
+ * ([INLINE EDIT] ...) is built by RunManager/Slice 3, not here.
+ * Depends on: types, review/proposal (sha256), run/runManager (type). Depended on by: extension.
  */
-export {};
+import * as vscode from 'vscode';
+import type { Selection } from '../types';
+import type { RunManager } from '../run/runManager';
+import { sha256 } from '../review/proposal';
+
+export function captureSelection(editor: vscode.TextEditor): Selection {
+  const doc = editor.document;
+  const sel = editor.selection;
+  let endLine = sel.end.line;
+  // A selection ending at column 0 of a line does not include that line.
+  if (!sel.isEmpty && sel.end.character === 0 && endLine > sel.start.line) endLine -= 1;
+  const rel = vscode.workspace.asRelativePath(doc.uri, false).replace(/\\/g, '/');
+  return {
+    path: rel,
+    startLine: sel.start.line,
+    endLine,
+    docVersion: doc.version,
+    hash: sha256(doc.getText()),
+    text: doc.getText(sel),
+  };
+}
+
+export function registerInlineEdit(ctx: vscode.ExtensionContext, runs: RunManager): void {
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand('contexo.inlineEdit', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.selection.isEmpty) {
+        void vscode.window.showInformationMessage('Contexo: select some code first.');
+        return;
+      }
+      if (runs.active && runs.active.state !== 'done' && runs.active.state !== 'cancelled' && runs.active.state !== 'failed') {
+        void vscode.window.showInformationMessage('Contexo: a run is already active. Stop it first.');
+        return;
+      }
+      const selection = captureSelection(editor);
+      const instruction = await vscode.window.showInputBox({ prompt: 'Contexo: what should change?' });
+      if (!instruction) return;
+      await runs.start('inline', instruction, selection);
+    }),
+  );
+}

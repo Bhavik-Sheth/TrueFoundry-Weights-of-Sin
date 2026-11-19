@@ -1,12 +1,27 @@
 /**
- * ContextGraph.tsx - React Flow graph of the context choice (C1; cut candidate, list is kept).
+ * ContextGraph.tsx - graph of the context choice (C1; cut candidate, the list is kept).
+ *
+ * Slice 0 status: PLACEHOLDER listing node and edge counts. Slice 5 replaces it with @xyflow/react
+ * using fixed columns (request, terms, files, symbols), labelled edges (dashed = inferred) and
+ * node click -> openSource.
  *
  * Exports:
- *  - ContextGraph (React component): renders packet.graph with @xyflow/react using fixed columns
- *    request, terms, files, symbols (no layout library, stable positions). Edge labels are
- *    the reasons (lexical, registers, tests, docs); dashed edges = inferred; node click
- *    posts openSource. Node positions can be stored via setState.
+ *  - ContextGraph({ packet }): React component.
  *
- * Depends on: @xyflow/react, bridge.ts, ContextPacket graph type. Depended on by: ContextTab.tsx.
+ * Depends on: ../../src/types. Depended on by: ContextTab.tsx.
  */
-export {};
+import type { CSSProperties } from 'react';
+import type { ContextPacket } from '../../src/types';
+
+const box: CSSProperties = { padding: 8, border: '1px dashed var(--vscode-panel-border)', color: 'var(--vscode-descriptionForeground)', fontSize: 12 };
+
+export function ContextGraph({ packet }: { packet: ContextPacket }) {
+  const { nodes, edges } = packet.graph;
+  const by = (t: string) => nodes.filter((n) => n.type === t).length;
+  return (
+    <div style={box}>
+      Graph (placeholder): {nodes.length} nodes ({by('request')} request, {by('term')} terms, {by('file')} files,{' '}
+      {by('symbol')} symbols), {edges.length} edges ({edges.filter((e) => e.inferred).length} inferred).
+    </div>
+  );
+}

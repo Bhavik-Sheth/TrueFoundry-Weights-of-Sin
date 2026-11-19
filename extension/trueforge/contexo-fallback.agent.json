@@ -1,23 +1,19 @@
 {
-  "$comment": [
-    "Skeleton TrueForge agent definition (fallback). The schema MUST be verified against TrueForge docs (create-agent/overview.mdx, key-features/deferred-tool-loading.mdx) in the hour-0 spike; field names below are assumptions.",
-    "Model is a placeholder: configure real models in TrueForge only (see models.example.md). Never put keys here.",
-    "The extension writes the real MCP port and token into a copy under global storage at activation; this committed file keeps placeholders.",
-    "Instructions are shared via instructions.md. Tool policy per PRD_Lite 9.2."
-  ],
+  "$comment": "TrueForge agent in REST/API form (POST /api/v1/agents, SDK agents.create). Real schema verified against trueforge docs/create-agent/overview.mdx and SDK types: snake_case on the wire. No file-based loader exists; register with 'node register.mjs' (injects instructions.md) or paste into Build Agent. <FALLBACK_MODEL> is a 'provider/model' name configured in TrueForge Settings > Models (see models.example.md). Never put keys here. MCP server 'contexo-editor' is a TrueForge connector (see contexo-editor.mcp.json) holding the URL and X-Contexo-Token header.",
   "name": "contexo-fallback",
-  "model": "<FALLBACK_MODEL>",
-  "instructions": "@instructions.md",
-  "mcpServers": [
-    {
-      "name": "contexo-editor",
-      "url": "http://127.0.0.1:<PORT>/mcp",
-      "headers": { "X-Contexo-Token": "<TOKEN>" }
-    }
-  ],
-  "tools": {
-    "preloaded": ["search_workspace", "read_file", "assemble_context", "propose_write"],
-    "deferred": ["run_command", "list_symbols"],
-    "approvalRequired": ["propose_write", "run_command"]
+  "description": "Contexo fallback agent (same tools and instructions, different model).",
+  "manifest": {
+    "model": { "name": "<FALLBACK_MODEL>", "params": { "temperature": 0.2 } },
+    "instructions": "@instructions.md",
+    "mcp_servers": [
+      {
+        "name": "contexo-editor",
+        "enable_tools": ["@all"],
+        "require_approval_for_tools": ["propose_write", "run_command"],
+        "preload": false,
+        "preload_tools": ["search_workspace", "read_file", "assemble_context", "propose_write"]
+      }
+    ],
+    "config": { "iteration_limit": 40 }
   }
 }

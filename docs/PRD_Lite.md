@@ -384,7 +384,7 @@ These were taken from TrueForge's `docs/api/use-agent.mdx`. **Pin the SDK versio
 
 ### 9.2 Agent definitions (`extension/trueforge/*.agent.json`)
 
-Both agents share `instructions.md` and the MCP server entry `contexo-editor` (`http://127.0.0.1:<port>/mcp`, header `X-Contexo-Token: <token>`). The port and token are written by the extension at activation (see §11.1), and the user loads or refreshes the agents in TrueForge. The tool settings are:
+Both agents share `instructions.md` and the MCP server entry `contexo-editor` (`http://127.0.0.1:<port>/mcp`, header `X-Contexo-Token: <token>`). The port and token are written by the extension at activation (see §11.1), and the user loads or refreshes the agents in TrueForge by running `extension/trueforge/register.mjs` (or via the UI). The agents are snake_case JSON manifests, and the MCP server is a separate connector file, `contexo-editor.mcp.json`. The tool settings are:
 
 - **Approval required:** `propose_write`, `run_command`.
 - **Deferred:** `run_command`, `list_symbols`.

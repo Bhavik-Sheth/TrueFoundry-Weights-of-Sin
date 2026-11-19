@@ -1,0 +1,15 @@
+body { margin: 0; padding: 0; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.header { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); }
+.pill { padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.spacer { flex: 1; }
+.banner { padding: 6px 8px; background: var(--vscode-inputValidation-warningBackground, #5a4a00); border-bottom: 1px solid var(--vscode-inputValidation-warningBorder, #b89500); }
+.tabs { display: flex; border-bottom: 1px solid var(--vscode-panel-border); }
+.tab { flex: 1; padding: 6px 0; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-foreground); cursor: pointer; opacity: 0.7; }
+.tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder); }
+.content { flex: 1; overflow: auto; padding: 8px; }
+.composer { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--vscode-panel-border); }
+.composer textarea { flex: 1; resize: none; min-height: 44px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); font-family: inherit; }
+button.btn { padding: 4px 10px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: none; cursor: pointer; }
+button.btn:hover { background: var(--vscode-button-hoverBackground); }
+button.btn:disabled { opacity: 0.5; cursor: default; }

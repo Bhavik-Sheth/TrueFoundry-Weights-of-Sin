@@ -70,7 +70,7 @@ Each slice can start on fixtures as soon as S0 is merged. The arrows show when a
 | MCP port | **Fixed, configurable** `contexo.mcpPort` (default `8791`). This changes PRD_Lite, which used a random port. | The agent definition is registered in TrueForge once and survives window reloads |
 | MCP token | Generated once, stored in `context.secrets`; `Contexo: Copy MCP Connection` copies URL + header | Stable across reloads; never committed |
 | ripgrep | Use **VS Code's bundled rg** (`<vscode.env.appRoot>/node_modules/@vscode/ripgrep/bin/rg[.exe]`, with an `node_modules.asar.unpacked` fallback) | `vsce package --no-dependencies` would otherwise drop the platform binary |
-| Tree-sitter | `web-tree-sitter` + grammar wasm from `tree-sitter-wasms` (or `tree-sitter-python`), **pinned as an ABI-compatible pair**; both `.wasm` files copied to `dist/` by `esbuild.mjs` | Works on Windows/macOS/Linux with no native build |
+| Tree-sitter | `web-tree-sitter` + grammar wasm from the `tree-sitter-python` npm package (tree-sitter-wasms 0.1.13 is ABI-incompatible with web-tree-sitter 0.27.2), **pinned as an ABI-compatible pair**; both `.wasm` files copied to `dist/` by `esbuild.mjs` | Works on Windows/macOS/Linux with no native build |
 | Packaging | Bundle everything with esbuild/Vite; `vsce package --no-dependencies` | Small VSIX, no `node_modules` |
 | Chat rendering | **Decided by the S0b spike** (see below) | Depends on whether TrueForge UI can attach to a host-owned session |
 | Who sends turns | **Always the extension host** (panel input → host → `createTurnStream`) | The host must see every event for approvals, Stop and fallback |
@@ -83,7 +83,7 @@ Each slice can start on fixtures as soon as S0 is merged. The arrows show when a
 Steps:
 1. **Fork.** Copy `webview-view-sample` at the pinned commit into a temp folder. Port its provider/CSP/nonce code into `shell/panel.ts`. Copy its LICENSE into `extension/LICENSE.upstream`, and fill in `UPSTREAMS.md` with the files you took.
 2. **Install packages** (`--save-exact`):
-   - **deps:** `@truefoundry/trueforge-sdk`, `@truefoundry/trueforge-ui`, `@modelcontextprotocol/sdk`, `zod`, `diff`, `web-tree-sitter`, `tree-sitter-wasms`, `js-tiktoken`, `tree-kill`, `react`, `react-dom`, `@xyflow/react`.
+   - **deps:** `@truefoundry/trueforge-sdk`, `@truefoundry/trueforge-ui`, `@modelcontextprotocol/sdk`, `zod`, `diff`, `web-tree-sitter`, `tree-sitter-python` (0.25.0, ships the grammar wasm), `js-tiktoken`, `tree-kill`, `react`, `react-dom`, `@xyflow/react`.
    - **dev:** `typescript`, `esbuild`, `vite`, `@vitejs/plugin-react`, `vitest`, `@types/vscode@1.90`, `@types/node`, `@types/react`, `@types/react-dom`, `@vscode/vsce`.
 3. **Add these `package.json` scripts:**
    ```json
@@ -108,15 +108,17 @@ Steps:
    ```ts
    const cfg = getConfig();
    const panel = new ContexoPanelProvider(ctx);           // registerWebviewViewProvider('contexo.panel')
+   const post = (m: ToWebview) => panel.post(m);
    const status = new StatusBar();
    const index = startIndexing();                          // stub in S0
-   const mcp = await startServer({ port: cfg.mcpPort, token: await getOrCreateToken(ctx.secrets) });
-   const runs = new RunManager({ tf: createTfClient(cfg), mcp, panel, review });
-   registerTools(mcp.server, { index, runs, review, panel }); // all 6 tools, stub handlers
+   const review = registerReview(ctx, post);
+   const tf = createTfClient(cfg);
+   const runs = new RunManager({ tf, review, cfg });
+   const token = await getOrCreateToken(ctx.secrets);
+   const mcp = await startServer({ port: cfg.mcpPort, token, registerTools: makeToolRegistrar({ index, review, runs, post }) });
    registerInlineEdit(ctx, runs);
-   registerReview(ctx, runs);                              // content providers + CodeLens (stub)
-   registerDevCommands(ctx, { panel, review, runs });      // fixtures
-   runs.on('state', s => { status.update(s); panel.post({ type: 'runState', ...s }); });
+   registerDevCommands(ctx, { post, review, runs, tf });   // fixtures
+   runs.on('state', s => { status.update(s); post({ type: 'runState', ...s }); });
    ```
 7. **Webview.** `App.tsx` has tabs Chat / Context / Changes; the selected tab is persisted via `setState`. Add a run header (state pill, model, **Stop** button → `post({type:'stop'})`) and an **agent input box** (→ `post({type:'send', text})`). Each tab renders an empty state.
 8. **Status bar.** Shows `Contexo: idle`; clicking it runs `contexo.stop`.
@@ -134,12 +136,12 @@ Steps:
    - Export these signatures:
    ```ts
    export interface McpHandle { server: McpServer; port: number; revoke(runId: string): void; allow(runId: string): void; isAllowed(runId?: string): boolean; stop(): Promise<void> }
-   export function startServer(o: { port: number; token: string }): Promise<McpHandle>;
+   export function startServer(o: { port: number; token: string; registerTools: (s: McpServer) => void }): Promise<McpHandle>;
    export function resolveInWorkspace(p: string): string;   // throws on '..', absolute, .git/
    export function capOutput(s: string, max = 16_000): { text: string; truncated: boolean };
    ```
 3. **`mcp/tools.ts`:** register all six tools with their **final zod schemas** and stub handlers that return `fixtures.*` (for `propose_write`: `{applied:[],rejected:[],note:'stub'}`).
-4. **Agent JSONs:** fill in the real schema after checking TrueForge docs. Register both agents (`contexo`, `contexo-fallback`) in local TrueForge using the URL and token from `Contexo: Copy MCP Connection`. Record the exact registration steps in README.
+4. **Agent JSONs:** fill in the real schema after checking TrueForge docs. The agents are snake_case JSON manifests; the MCP server is a separate connector file `contexo-editor.mcp.json`. Register the connector and both agents (`contexo`, `contexo-fallback`) with `extension/trueforge/register.mjs` (env `CONTEXO_TOKEN` from `Contexo: Copy MCP Connection`, `PRIMARY_MODEL`, `FALLBACK_MODEL`) or via the TrueForge UI. Note `tool.approval_required` carries no args; look them up via `sourceEventId`. Record the exact registration steps in README.
 5. **`tfClient.ts` (final API):**
    ```ts
    export interface TfClient {
@@ -646,6 +648,6 @@ Steps:
 | TrueForgeUI can't attach (S0b) | Use the host-relayed ChatTab renderer from the start (S1) |
 | Approval args differ from the MCP call args (S3) | Key proposals by "last allowed proposal for this run" in `finalize`. Only one proposal can be under review at a time anyway. |
 | Deferred tool config unclear (S7) | Configure it via the TrueForge UI and export the agent JSON into the repo |
-| Tree-sitter wasm ABI mismatch (S2) | Pin `web-tree-sitter` to the version listed in the `tree-sitter-wasms` release notes |
+| Tree-sitter wasm ABI mismatch (S2) | Pin `web-tree-sitter` to the version whose ABI matches the grammar wasm (use `tree-sitter-python` 0.25.0 with 0.27.2) |
 | `reversePatch` is missing from jsdiff (S4) | Implement `reverseHunkPatch` (swap `+`/`-`, swap old/new ranges) in 20 lines |
 | Behind schedule | Cut, in order: Redo → the graph (keep the list) → `list_symbols` → the symbol check. Never cut per-hunk CodeLens, Stop, fallback or the Context list. |

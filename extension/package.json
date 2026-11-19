@@ -6,39 +6,229 @@
   "version": "0.0.1",
   "publisher": "contexo",
   "license": "MIT",
-  "engines": { "vscode": "^1.90.0" },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
   "main": "./dist/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
-      { "command": "contexo.inlineEdit", "title": "Contexo: Inline Edit" },
-      { "command": "contexo.stop", "title": "Contexo: Stop" },
-      { "command": "contexo.undoHunk", "title": "Contexo: Undo Hunk" },
-      { "command": "contexo.redoHunk", "title": "Contexo: Redo Hunk" }
+      {
+        "command": "contexo.inlineEdit",
+        "title": "Contexo: Inline Edit"
+      },
+      {
+        "command": "contexo.stop",
+        "title": "Contexo: Stop"
+      },
+      {
+        "command": "contexo.undoHunk",
+        "title": "Contexo: Undo Hunk"
+      },
+      {
+        "command": "contexo.redoHunk",
+        "title": "Contexo: Redo Hunk"
+      },
+      {
+        "command": "contexo.copyMcpConnection",
+        "title": "Contexo: Copy MCP Connection"
+      },
+      {
+        "command": "contexo.reindex",
+        "title": "Contexo: Reindex Workspace"
+      },
+      {
+        "command": "contexo.hunk.decide",
+        "title": "Contexo: Decide Hunk"
+      },
+      {
+        "command": "contexo.proposal.apply",
+        "title": "Contexo: Apply Accepted Hunks"
+      },
+      {
+        "command": "contexo.proposal.rejectAll",
+        "title": "Contexo: Reject All Hunks"
+      },
+      {
+        "command": "contexo.dev.pingTrueForge",
+        "title": "Contexo Dev: Ping TrueForge"
+      },
+      {
+        "command": "contexo.dev.sendTestTurn",
+        "title": "Contexo Dev: Send Test Turn"
+      },
+      {
+        "command": "contexo.dev.showSamplePacket",
+        "title": "Contexo Dev: Show Sample Context Packet"
+      },
+      {
+        "command": "contexo.dev.openSampleProposal",
+        "title": "Contexo Dev: Open Sample Proposal"
+      },
+      {
+        "command": "contexo.dev.applySampleChange",
+        "title": "Contexo Dev: Apply Sample Change"
+      }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "contexo.dev.pingTrueForge",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.dev.sendTestTurn",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.dev.showSamplePacket",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.dev.openSampleProposal",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.dev.applySampleChange",
+          "when": "config.contexo.devMode"
+        },
+        {
+          "command": "contexo.hunk.decide",
+          "when": "false"
+        },
+        {
+          "command": "contexo.proposal.apply",
+          "when": "false"
+        },
+        {
+          "command": "contexo.proposal.rejectAll",
+          "when": "false"
+        },
+        {
+          "command": "contexo.undoHunk",
+          "when": "false"
+        },
+        {
+          "command": "contexo.redoHunk",
+          "when": "false"
+        }
+      ]
+    },
     "keybindings": [
-      { "command": "contexo.inlineEdit", "key": "ctrl+alt+e", "mac": "cmd+alt+e", "when": "editorHasSelection" }
+      {
+        "command": "contexo.inlineEdit",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorHasSelection"
+      }
     ],
     "viewsContainers": {
       "secondarySidebar": [
-        { "id": "contexo", "title": "Contexo", "icon": "$(sparkle)" }
+        {
+          "id": "contexo",
+          "title": "Contexo",
+          "icon": "$(sparkle)"
+        }
       ]
     },
     "views": {
       "contexo": [
-        { "type": "webview", "id": "contexo.panel", "name": "Contexo" }
+        {
+          "type": "webview",
+          "id": "contexo.panel",
+          "name": "Contexo"
+        }
       ]
     },
     "configuration": {
       "title": "Contexo",
       "properties": {
-        "contexo.trueforgeUrl": { "type": "string", "default": "http://localhost:8790", "description": "TrueForge local server URL." },
-        "contexo.primaryAgent": { "type": "string", "default": "contexo", "description": "Primary TrueForge agent name." },
-        "contexo.fallbackAgent": { "type": "string", "default": "contexo-fallback", "description": "Fallback TrueForge agent name." },
-        "contexo.excerptBudget": { "type": "number", "default": 8000, "description": "Token budget for assembled excerpts." },
-        "contexo.firstEventTimeoutMs": { "type": "number", "default": 20000, "description": "Time to wait for the first stream event before treating the model as failed." },
-        "contexo.commandAllowlist": { "type": "array", "items": { "type": "string" }, "default": ["python", "pytest", "flask"], "description": "Allowed argv[0] values for run_command." }
+        "contexo.trueforgeUrl": {
+          "type": "string",
+          "default": "http://localhost:8790",
+          "description": "TrueForge local server URL."
+        },
+        "contexo.primaryAgent": {
+          "type": "string",
+          "default": "contexo",
+          "description": "Primary TrueForge agent name."
+        },
+        "contexo.fallbackAgent": {
+          "type": "string",
+          "default": "contexo-fallback",
+          "description": "Fallback TrueForge agent name."
+        },
+        "contexo.excerptBudget": {
+          "type": "number",
+          "default": 8000,
+          "description": "Token budget for assembled excerpts."
+        },
+        "contexo.firstEventTimeoutMs": {
+          "type": "number",
+          "default": 20000,
+          "description": "Time to wait for the first stream event before treating the model as failed."
+        },
+        "contexo.commandAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "python",
+            "pytest",
+            "flask"
+          ],
+          "description": "Allowed argv[0] values for run_command."
+        },
+        "contexo.mcpPort": {
+          "type": "number",
+          "default": 8791,
+          "description": "Fixed port for the local Contexo MCP server."
+        },
+        "contexo.devMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show Contexo dev/fixture commands in the Command Palette."
+        }
       }
     }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@truefoundry/trueforge-sdk": "0.185.0",
+    "@truefoundry/trueforge-ui": "0.185.1",
+    "@xyflow/react": "13.0.2",
+    "diff": "9.0.0",
+    "js-tiktoken": "1.0.21",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tree-kill": "1.2.2",
+    "web-tree-sitter": "0.27.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/vscode": "1.90.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "@vscode/vsce": "4.1.1",
+    "esbuild": "0.28.2",
+    "tree-sitter-python": "0.25.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs && vite build",
+    "watch": "node esbuild.mjs --watch",
+    "watch:web": "vite build --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "test": "vitest run",
+    "check": "node ../scripts/check-no-provider.mjs dist",
+    "package": "npm run build && npm run check && vsce package --no-dependencies -o dist/contexo.vsix",
+    "install:local": "npm run package && code --install-extension dist/contexo.vsix --force"
   }
 }

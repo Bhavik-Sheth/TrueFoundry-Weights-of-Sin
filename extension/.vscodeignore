@@ -1,0 +1,15 @@
+.vscode/**
+src/**
+webview/**
+test/**
+node_modules/**
+grammars/**
+trueforge/**
+**/*.map
+**/*.ts
+tsconfig*.json
+vitest.config.ts
+esbuild.mjs
+package-lock.json
+*.vsix
+dist/contexo.vsix
