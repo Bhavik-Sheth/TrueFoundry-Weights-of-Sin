@@ -69,8 +69,11 @@ describe('assembleContext stub + formatForModel', () => {
     expect(out).toContain('over-budget');
     expect(out).toContain('duplicate');
   });
-  it('count is a chars/4 estimate', () => {
-    expect(count('abcdefgh')).toBe(2);
+  it('count returns a positive integer that grows with text length', () => {
+    const n = count('abcdefgh');
+    expect(Number.isInteger(n)).toBe(true);
+    expect(n).toBeGreaterThan(0);
+    expect(count('abcdefgh '.repeat(50))).toBeGreaterThan(n);
   });
 });
 

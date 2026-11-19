@@ -2,22 +2,24 @@
  * ChatTab.tsx - Chat tab (C1).
  *
  * Exports:
- *  - ChatTab (React component): host-relayed renderer (the S0 spike decision is applied by whoever
- *    edits this file; this is the fallback renderer from the plan). Renders 'stream' and 'session'
- *    messages: merged model text, tool-call chips (with a "deferred" badge), approval chips, turn
- *    status, and an "Open in TrueForge" link. A send box posts { type: 'send' }.
+ *  - ChatTab (React component): host-relayed renderer (the S0 spike chose this over TrueForgeUI).
+ *    Renders 'stream' and 'session' messages: model text merged per thread (preformatted wrapped
+ *    text, never HTML), tool-call chips (name, collapsible args JSON, result summary, "deferred"
+ *    badge), approval chips with status, a turn status line, and an "Open in TrueForge" link.
+ *    Auto-scrolls to the bottom unless the user scrolled up. A new 'session' clears the history.
+ *    The send box lives in App.tsx.
  *  - State lives at module level (subscribed once) so history survives tab switches.
  *
  * Depends on: bridge.ts, ../../src/types. Depended on by: App.tsx.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { UiStreamEvent } from '../../src/types';
-import { post, subscribe } from './bridge';
+import { subscribe } from './bridge';
 
 type Item =
-  | { kind: 'text'; text: string }
-  | { kind: 'tool'; toolCallId: string; name: string; deferred?: boolean; result?: string }
+  | { kind: 'text'; text: string; threadId?: string }
+  | { kind: 'tool'; toolCallId: string; name: string; args?: unknown; deferred?: boolean; result?: string }
   | { kind: 'approval'; toolCallId: string; name: string; status: 'pending' | 'allowed' | 'denied'; reason?: string }
   | { kind: 'done'; status: string; error?: string }
   | { kind: 'info'; text: string };
@@ -34,12 +36,12 @@ function applyEvents(items: Item[], events: UiStreamEvent[]): Item[] {
     switch (e.kind) {
       case 'text-delta': {
         const last = out[out.length - 1];
-        if (last && last.kind === 'text') out[out.length - 1] = { kind: 'text', text: last.text + e.text };
-        else out.push({ kind: 'text', text: e.text });
+        if (last && last.kind === 'text' && last.threadId === e.threadId) out[out.length - 1] = { ...last, text: last.text + e.text };
+        else out.push({ kind: 'text', text: e.text, threadId: e.threadId });
         break;
       }
       case 'tool-call':
-        out.push({ kind: 'tool', toolCallId: e.toolCallId, name: e.name, deferred: e.deferred });
+        out.push({ kind: 'tool', toolCallId: e.toolCallId, name: e.name, args: e.args, deferred: e.deferred });
         break;
       case 'tool-result': {
         const i = out.findIndex((x) => x.kind === 'tool' && x.toolCallId === e.toolCallId);
@@ -61,25 +63,30 @@ function applyEvents(items: Item[], events: UiStreamEvent[]): Item[] {
 
 subscribe((m) => {
   if (m.type === 'stream') set({ ...state, items: applyEvents(state.items, m.events) });
-  else if (m.type === 'session') set({ ...state, session: { sessionId: m.sessionId, agent: m.agent, url: m.url } });
+  else if (m.type === 'session') set({ items: [], session: { sessionId: m.sessionId, agent: m.agent, url: m.url } });
 });
+
+function argsJson(args: unknown): string {
+  try { return JSON.stringify(args, null, 2) ?? ''; } catch { return String(args); }
+}
 
 const s: Record<string, CSSProperties> = {
   root: { display: 'flex', flexDirection: 'column', gap: 8, padding: 8, color: 'var(--vscode-foreground)', fontFamily: 'var(--vscode-font-family)', fontSize: 'var(--vscode-font-size)' },
-  text: { whiteSpace: 'pre-wrap', margin: 0 },
+  text: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, fontFamily: 'inherit' },
   chip: { display: 'inline-block', padding: '1px 8px', borderRadius: 10, fontSize: 11, background: 'var(--vscode-badge-background)', color: 'var(--vscode-badge-foreground)', marginRight: 6 },
   badge: { padding: '0 6px', borderRadius: 8, fontSize: 10, border: '1px solid var(--vscode-focusBorder)', marginLeft: 6 },
   muted: { color: 'var(--vscode-descriptionForeground)', fontSize: 12 },
   link: { color: 'var(--vscode-textLink-foreground)', cursor: 'pointer' },
-  input: { flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border, transparent)', padding: '4px 6px' },
-  btn: { background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 0, padding: '4px 10px', cursor: 'pointer' },
+  args: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '4px 0 0', fontSize: 11, background: 'var(--vscode-textCodeBlock-background)', padding: 6 },
 };
 
 const approvalColor = { pending: 'var(--vscode-editorWarning-foreground)', allowed: 'var(--vscode-testing-iconPassed)', denied: 'var(--vscode-errorForeground)' };
 
 export function ChatTab() {
   const [st, setSt] = useState(state);
-  const [draft, setDraft] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+
   useEffect(() => {
     const l = () => setSt(state);
     listeners.add(l);
@@ -87,12 +94,18 @@ export function ChatTab() {
     return () => { listeners.delete(l); };
   }, []);
 
-  const send = () => {
-    const text = draft.trim();
-    if (!text) return;
-    post({ type: 'send', text });
-    setDraft('');
-  };
+  // The scroll container is the nearest scrollable ancestor (App's .content).
+  useEffect(() => {
+    const parent = endRef.current?.closest('.content') ?? endRef.current?.parentElement;
+    if (!parent) return;
+    const onScroll = () => { stick.current = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 40; };
+    parent.addEventListener('scroll', onScroll);
+    return () => parent.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (stick.current) endRef.current?.scrollIntoView({ block: 'end' });
+  }, [st]);
 
   return (
     <div style={s.root}>
@@ -105,14 +118,23 @@ export function ChatTab() {
       {st.items.length === 0 && <div style={s.muted}>No messages yet. Send a request below.</div>}
       {st.items.map((it, i) => {
         switch (it.kind) {
-          case 'text': return <p key={i} style={s.text}>{it.text}</p>;
-          case 'tool': return (
-            <div key={i}>
-              <span style={s.chip}>tool: {it.name}</span>
-              {it.deferred && <span style={s.badge}>deferred</span>}
-              {it.result && <span style={s.muted}> {it.result}</span>}
-            </div>
-          );
+          case 'text': return <pre key={i} style={s.text}>{it.text}</pre>;
+          case 'tool': {
+            const json = it.args === undefined ? '' : argsJson(it.args);
+            return (
+              <div key={i}>
+                <span style={s.chip}>tool: {it.name}</span>
+                {it.deferred && <span style={s.badge}>deferred</span>}
+                {it.result !== undefined && <span style={s.muted}> {it.result.length > 80 ? `${it.result.slice(0, 80)}… (${it.result.length} chars)` : it.result}</span>}
+                {json && (
+                  <details>
+                    <summary style={s.muted}>args</summary>
+                    <pre style={s.args}>{json}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          }
           case 'approval': return (
             <div key={i}>
               <span style={{ ...s.chip, background: approvalColor[it.status] }}>approval: {it.name} · {it.status}</span>
@@ -123,10 +145,7 @@ export function ChatTab() {
           case 'info': return <div key={i} style={s.muted}>{it.text}</div>;
         }
       })}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input style={s.input} value={draft} placeholder="Message Contexo" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
-        <button style={s.btn} onClick={send}>Send</button>
-      </div>
+      <div ref={endRef} />
     </div>
   );
 }

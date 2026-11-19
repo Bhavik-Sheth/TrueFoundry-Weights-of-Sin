@@ -10,9 +10,9 @@
  *    propose_write {summary,edits[]} (approval-gated); run_command {argv,timeoutSec<=180}
  *    (deferred, approval).
  *
- * SLICE 0 STATE: schemas and descriptions are FINAL; handlers return canned fixture data.
- * propose_write returns {applied:[],rejected:[],note:'stub'}; run_command refuses ("not implemented
- * in base"). Every handler first checks runs.isToolCallAllowed() -> error RUN_NOT_AUTHORIZED.
+ * STATE (Slice 2): search_workspace, read_file, list_symbols, propose_write are real; assemble_context is
+ * still fixture-based (Slice 5) but awaits index.ready; run_command refuses ("not implemented in base").
+ * propose_write returns review.finalize(proposalKey(args)), falling back to review.finalizeLatest(). Every handler first checks runs.isToolCallAllowed() -> error RUN_NOT_AUTHORIZED.
  * Tool results are MCP text content (JSON.stringify).
  *
  * Rules: tool descriptions tell the agent to call assemble_context before editing and to use
@@ -20,19 +20,36 @@
  * Depends on: zod, @modelcontextprotocol/sdk, context/indexer, review/diffView, run/runManager, dev/fixtures.
  * Depended on by: extension.
  */
+import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { IndexApi } from '../context/indexer';
 import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
 import type { ToWebview } from '../types';
-import { samplePacket, sampleSearchHits } from '../dev/fixtures';
+import { samplePacket } from '../dev/fixtures';
+import { capOutput, resolveInWorkspace } from './server';
+import { sha256, proposalKey } from '../review/proposal';
+import { ripgrepSearch, symbolNameMatch, tokenize } from '../context/search';
 
 export interface ToolDeps { index: IndexApi; review: ReviewEngine; runs: RunManager; post: (m: ToWebview) => void }
 
 interface ToolResult { [k: string]: unknown; content: Array<{ type: 'text'; text: string }>; isError?: boolean }
 
 const ok = (v: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(v) }] });
+interface Hit { path: string; line: number; preview: string; source: 'ripgrep' | 'symbol'; symbol?: string }
+
+/** Open (possibly dirty) editor text for an absolute path, else undefined. */
+function openDocText(abs: string): string | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const vs = require('vscode') as typeof import('vscode');
+  const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const doc = vs.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && norm(d.uri.fsPath) === norm(abs));
+  return doc?.getText();
+}
+
+const toRel = (p: string) => p.replace(/\\/g, '/').replace(/^\.\//, '');
+
 const err = (code: string, message: string): ToolResult => ({
   isError: true,
   content: [{ type: 'text', text: JSON.stringify({ error: code, message }) }],
@@ -60,7 +77,32 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         glob: z.string().optional().describe('Optional file glob, e.g. "src/**/*.py"'),
         limit: z.number().int().min(1).max(30).optional().describe('Max hits (default 20, max 30)'),
       },
-    }, guarded(() => ok(sampleSearchHits.map((h) => ({ ...h, source: 'ripgrep' })))));
+    }, guarded(async (a: { query: string; glob?: string; limit?: number }) => {
+      const limit = a.limit ?? 20;
+      const rg = await ripgrepSearch(a.query, { glob: a.glob, max: limit * 2 });
+      const hits: Hit[] = rg.map((h) => ({
+        path: h.path, line: h.line, preview: h.preview, source: 'ripgrep',
+        symbol: deps.index.enclosing(h.path, h.line)?.qualifiedName,
+      }));
+      const terms = [...new Set([a.query.trim(), ...tokenize(a.query)])].filter(Boolean);
+      const matches = a.glob ? [] : symbolNameMatch(terms, deps.index.symbols().filter((s) => s.kind !== 'doc')).slice(0, limit);
+      const toHit = (m: (typeof matches)[number]): Hit => ({
+        path: m.symbol.path, line: m.symbol.startLine, preview: `${m.symbol.kind} ${m.symbol.qualifiedName}`,
+        source: 'symbol', symbol: m.symbol.qualifiedName,
+      });
+      const strong = matches.filter((m) => m.score >= 2).map(toHit);
+      const weak = matches.filter((m) => m.score < 2).map(toHit);
+      const seen = new Set<string>();
+      const out: Hit[] = [];
+      for (const h of [...strong, ...hits, ...weak]) {
+        const k = `${h.path}:${h.line}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(h);
+        if (out.length >= limit) break;
+      }
+      return ok(out);
+    }));
 
     server.registerTool('read_file', {
       description:
@@ -72,7 +114,28 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         startLine: z.number().int().min(1).optional().describe('First line, 1-based'),
         endLine: z.number().int().min(1).optional().describe('Last line, 1-based, inclusive'),
       },
-    }, guarded((a: { path: string }) => ok({ path: a.path, text: '# stub: read_file is not implemented in base\n', hash: 'stub', totalLines: 1, truncated: false })));
+    }, guarded(async (a: { path: string; startLine?: number; endLine?: number }) => {
+      const abs = resolveInWorkspace(a.path);
+      let full = openDocText(abs);
+      if (full === undefined) {
+        try {
+          full = await readFile(abs, 'utf8');
+        } catch {
+          return err('FILE_NOT_FOUND', `Cannot read ${a.path}`);
+        }
+      }
+      const lines = full.split(/\r?\n/);
+      if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+      const totalLines = lines.length;
+      let text = full;
+      if (a.startLine !== undefined || a.endLine !== undefined) {
+        const s = Math.max(1, a.startLine ?? 1);
+        const e = Math.min(totalLines, a.endLine ?? totalLines);
+        text = s > e ? '' : lines.slice(s - 1, e).join('\n');
+      }
+      const capped = capOutput(text);
+      return ok({ path: toRel(a.path), text: capped.text, hash: sha256(full), totalLines, truncated: capped.truncated });
+    }));
 
     server.registerTool('assemble_context', {
       description:
@@ -84,7 +147,8 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         mentions: z.array(z.string()).optional().describe('Explicit @mentions: file paths or symbol names'),
         budget: z.number().int().min(500).max(32000).optional().describe('Token budget for excerpts (default from settings)'),
       },
-    }, guarded(() => {
+    }, guarded(async () => {
+      await deps.index.ready;
       deps.post({ type: 'packet', packet: samplePacket });
       const { graph: _graph, ...forModel } = samplePacket;
       void _graph;
@@ -99,7 +163,16 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         path: z.string().optional().describe('Workspace-relative file to list symbols for'),
         query: z.string().optional().describe('Case-insensitive name substring'),
       },
-    }, guarded(() => ok([])));
+    }, guarded((a: { path?: string; query?: string }) => {
+      const q = a.query?.toLowerCase();
+      let syms = deps.index.symbols();
+      if (a.path) {
+        resolveInWorkspace(a.path); // path guard
+        syms = deps.index.inFile(toRel(a.path));
+      }
+      if (q) syms = syms.filter((s) => s.name.toLowerCase().includes(q) || s.qualifiedName.toLowerCase().includes(q));
+      return ok(syms.slice(0, 200).map((s) => ({ id: s.id, kind: s.kind, path: s.path, lines: [s.startLine, s.endLine] })));
+    }));
 
     server.registerTool('propose_write', {
       description:
@@ -117,7 +190,11 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
           newText: z.string().describe('Replacement text'),
         })).min(1).describe('Edits to stage'),
       },
-    }, guarded(() => ok({ applied: [], rejected: [], note: 'stub' })));
+    }, guarded((args: unknown) => {
+      const r = deps.review.finalize(proposalKey(args));
+      const out = 'error' in r ? deps.review.finalizeLatest() : r;
+      return ok(out);
+    }));
 
     server.registerTool('run_command', {
       description:

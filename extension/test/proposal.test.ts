@@ -94,7 +94,21 @@ describe('buildHunks / rebuildFromAccepted', () => {
   });
 });
 
+describe('single-file edge cases', () => {
+  it('create builds one hunk and rebuilds to the new text', () => {
+    const p = applyEditExact('', '', 'one\ntwo\n');
+    const hs = buildHunks('n.py', '', p, 'new').map((h) => ({ ...h, decision: 'accepted' as const }));
+    expect(hs).toHaveLength(1);
+    expect(rebuildFromAccepted('', hs)).toBe(p);
+  });
+  it('hunk ids depend on path and baseHash', () => {
+    const p = applyEditExact(base, 'line 3\n', 'line 3 changed\n');
+    const a = buildHunks('a.py', base, p, 'h1')[0].id;
+    expect(buildHunks('b.py', base, p, 'h1')[0].id).not.toBe(a);
+    expect(buildHunks('a.py', base, p, 'h2')[0].id).not.toBe(a);
+  });
+});
+
 describe('later slices', () => {
-  it.todo('STALE_BASE auto-deny in ReviewEngine.beginProposal (Slice 3)');
   it.todo('undo/redo patch round-trip; undo refuses when text changed at the hunk (Slice 4)');
 });

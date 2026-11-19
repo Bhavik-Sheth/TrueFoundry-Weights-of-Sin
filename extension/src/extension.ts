@@ -40,6 +40,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   ctx.subscriptions.push(status);
   const index = startIndexing();
   const review = registerReview(ctx, post);
+  review.index = index;
   const tf = createTfClient(cfg);
   const runs = new RunManager({ tf, review, cfg });
   runsRef = runs;

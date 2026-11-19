@@ -42,7 +42,7 @@ export function App() {
   const busy = run.state === 'streaming' || run.state === 'awaiting-review';
   const send = () => {
     const t = text.trim();
-    if (!t) return;
+    if (!t || busy) return;
     post({ type: 'send', text: t });
     setText('');
   };
@@ -73,7 +73,8 @@ export function App() {
       <div className="composer">
         <textarea
           value={text}
-          placeholder="Ask the agent..."
+          disabled={busy}
+          placeholder={busy ? 'Run in progress...' : 'Ask the agent... (Enter to send, Shift+Enter for a new line)'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -82,7 +83,7 @@ export function App() {
             }
           }}
         />
-        <button className="btn" onClick={send}>
+        <button className="btn" disabled={busy} onClick={send}>
           Send
         </button>
       </div>

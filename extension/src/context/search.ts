@@ -2,14 +2,19 @@
  * context/search.ts - C3 lexical retrieval primitives.
  *
  * Exports:
- *  - tokenize(text): identifier tokenizer with snake_case/camelCase splitting and stopword removal (REAL).
- *  - class Bm25 / bm25Rank(query, docs): small BM25 over symbol entries and doc sections (REAL, generic over {id,text}).
- *  - symbolNameMatch(terms, symbols): ranked symbol-name matches (REAL).
- *  - ripgrepSearch(term, opts): S0 STUB returning []; Slice 2 runs rg --json with VS Code's bundled rg.
+ *  - tokenize(text): identifier tokenizer with snake_case/camelCase splitting and stopword removal.
+ *  - class Bm25 / bm25Rank(query, docs): small BM25 (k1=1.2, b=0.75) over {id,text} docs; query is text or terms[].
+ *  - symbolNameMatch(terms, symbols): ranked symbol-name matches (exact 3, prefix 2, contains 1).
+ *  - resolveRgPath(appRoot?): VS Code's bundled rg (node_modules[.asar.unpacked]/@vscode/ripgrep/bin), else `rg` on PATH.
+ *  - ripgrepSearch(term, opts): runs rg --json -n -i -F --max-count 50 and returns {path, line, preview}.
  *
- * Rules: pure (no vscode import, so stubs log via console.debug, not log()).
- * Depends on: types. Depended on by: context/assembler, mcp/tools.
+ * Rules: no top-level vscode import (vscode is required lazily, only when cwd/rgPath are not passed in opts),
+ * so this module is importable under Vitest.
+ * Depends on: types, node:child_process. Depended on by: context/indexer, context/assembler, mcp/tools.
  */
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { SymbolEntry } from '../types';
 
 export const STOPWORDS = new Set([
@@ -43,7 +48,7 @@ export class Bm25 {
   private len: number[] = [];
   private df = new Map<string, number>();
   private avg = 0;
-  constructor(private docs: Bm25Doc[], private k1 = 1.5, private b = 0.75) {
+  constructor(private docs: Bm25Doc[], private k1 = 1.2, private b = 0.75) {
     let total = 0;
     for (const d of docs) {
       const toks = tokenize(d.text);
@@ -56,9 +61,9 @@ export class Bm25 {
     }
     this.avg = docs.length ? total / docs.length : 0;
   }
-  /** Returns docs with score > 0, best first. */
-  rank(query: string): Array<{ id: string; score: number }> {
-    const q = [...new Set(tokenize(query))];
+  /** `query` is free text or a list of terms (each tokenized). Returns docs with score > 0, best first, at most k. */
+  rank(query: string | string[], k?: number): Array<{ id: string; score: number }> {
+    const q = [...new Set(tokenize(Array.isArray(query) ? query.join(' ') : query))];
     const n = this.docs.length;
     const res: Array<{ id: string; score: number }> = [];
     this.docs.forEach((d, i) => {
@@ -72,15 +77,16 @@ export class Bm25 {
       }
       if (s > 0) res.push({ id: d.id, score: s });
     });
-    return res.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    res.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    return k ? res.slice(0, k) : res;
   }
 }
 
-export function bm25Rank(query: string, docs: Bm25Doc[]): Array<{ id: string; score: number }> {
-  return new Bm25(docs).rank(query);
+export function bm25Rank(query: string | string[], docs: Bm25Doc[], k?: number): Array<{ id: string; score: number }> {
+  return new Bm25(docs).rank(query, k);
 }
 
-/** Exact name match scores 2, qualified-name suffix 1.5, substring 1; best first. */
+/** Exact name match scores 3, prefix 2, substring 1; best first. */
 export function symbolNameMatch(
   terms: string[],
   symbols: SymbolEntry[],
@@ -91,7 +97,8 @@ export function symbolNameMatch(
     let best: { term: string; score: number } | undefined;
     for (const t of terms) {
       const tl = t.toLowerCase();
-      const score = name === tl ? 2 : s.qualifiedName.toLowerCase().endsWith('.' + tl) ? 1.5 : name.includes(tl) ? 1 : 0;
+      if (!tl) continue;
+      const score = name === tl ? 3 : name.startsWith(tl) ? 2 : name.includes(tl) ? 1 : 0;
       if (score > 0 && (!best || score > best.score)) best = { term: t, score };
     }
     if (best) out.push({ symbol: s, ...best });
@@ -99,10 +106,71 @@ export function symbolNameMatch(
   return out.sort((a, b) => b.score - a.score || a.symbol.id.localeCompare(b.symbol.id));
 }
 
+/** Pure: VS Code's bundled ripgrep under `appRoot`, else plain `rg` (PATH). */
+export function resolveRgPath(appRoot?: string): string {
+  if (appRoot) {
+    const exe = process.platform === 'win32' ? 'rg.exe' : 'rg';
+    for (const mod of ['node_modules', 'node_modules.asar.unpacked']) {
+      const p = path.join(appRoot, mod, '@vscode', 'ripgrep', 'bin', exe);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return 'rg';
+}
+
+/** Lazily reads appRoot and the first workspace folder from vscode (not importable under Vitest). */
+export function vscodeRgContext(): { rgPath: string; cwd?: string } {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const vs = require('vscode') as typeof import('vscode');
+  return { rgPath: resolveRgPath(vs.env.appRoot), cwd: vs.workspace.workspaceFolders?.[0]?.uri.fsPath };
+}
+
+export interface RgOptions { glob?: string; max?: number; cwd?: string; rgPath?: string }
+
 export async function ripgrepSearch(
   term: string,
-  o?: { glob?: string; max?: number },
+  o: RgOptions = {},
 ): Promise<Array<{ path: string; line: number; preview: string }>> {
-  console.debug('[stub] ripgrepSearch', term, o);
-  return [];
+  const ctx = o.cwd && o.rgPath ? { rgPath: o.rgPath, cwd: o.cwd } : vscodeRgContext();
+  const cwd = o.cwd ?? ctx.cwd;
+  const rgPath = o.rgPath ?? ctx.rgPath;
+  if (!cwd) return [];
+  const max = o.max ?? 50;
+  const args = ['--json', '-n', '-i', '-F', '--max-count', '50'];
+  if (o.glob) args.push('-g', o.glob);
+  args.push('-e', term, '.');
+  return new Promise((resolve) => {
+    const hits: Array<{ path: string; line: number; preview: string }> = [];
+    let buf = '';
+    let done = false;
+    const child = spawn(rgPath, args, { cwd, windowsHide: true });
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve(hits);
+    };
+    const handle = (line: string) => {
+      if (!line || hits.length >= max) return;
+      try {
+        const m = JSON.parse(line);
+        if (m.type !== 'match') return;
+        const p: string | undefined = m.data?.path?.text;
+        if (!p) return;
+        hits.push({
+          path: p.replace(/\\/g, '/').replace(/^\.\//, ''),
+          line: m.data.line_number as number,
+          preview: String(m.data.lines?.text ?? '').replace(/\r?\n$/, '').slice(0, 200),
+        });
+      } catch { /* ignore malformed line */ }
+    };
+    child.stdout.on('data', (d: Buffer) => {
+      buf += d.toString('utf8');
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      lines.forEach(handle);
+      if (hits.length >= max) { child.kill(); finish(); }
+    });
+    child.on('error', finish);
+    child.on('close', () => { handle(buf); finish(); });
+  });
 }

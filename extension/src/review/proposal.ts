@@ -89,3 +89,47 @@ export function rebuildFromAccepted(base: string, hunks: Hunk[]): string {
   if (result === false) throw new Error('REBUILD_FAILED: accepted hunks do not apply to the base text');
   return result;
 }
+
+// ---- Pure decision bookkeeping (used by ReviewEngine; no vscode) ----
+
+export type Decision = 'accepted' | 'rejected';
+
+/** Sets one hunk's decision in place. Returns false if the hunk id is unknown. */
+export function setHunkDecision(hunks: Hunk[], hunkId: string, d: Decision): boolean {
+  const h = hunks.find((x) => x.id === hunkId);
+  if (!h) return false;
+  h.decision = d;
+  return true;
+}
+
+/** Sets every hunk's decision in place. */
+export function setAllDecisions(hunks: Hunk[], d: Decision): void {
+  for (const h of hunks) h.decision = d;
+}
+
+export function acceptedCount(hunks: Hunk[]): number {
+  return hunks.filter((h) => h.decision === 'accepted').length;
+}
+
+/** applied = accepted hunk ids; rejected = every other hunk id (pending counts as rejected). */
+export function computeResult(hunks: Hunk[]): { applied: string[]; rejected: string[] } {
+  return {
+    applied: hunks.filter((h) => h.decision === 'accepted').map((h) => h.id),
+    rejected: hunks.filter((h) => h.decision !== 'accepted').map((h) => h.id),
+  };
+}
+
+/** Wraps a resolver so it runs at most once. */
+export function once<A extends unknown[]>(fn: ((...a: A) => void) | undefined): (...a: A) => void {
+  let done = false;
+  return (...a: A) => {
+    if (done) return;
+    done = true;
+    fn?.(...a);
+  };
+}
+
+/** Accepted hunks of one file rebuilt onto its base text (path filter + rebuildFromAccepted). */
+export function rebuildFile(base: string, path: string, hunks: Hunk[]): string {
+  return rebuildFromAccepted(base, hunks.filter((h) => h.path === path));
+}

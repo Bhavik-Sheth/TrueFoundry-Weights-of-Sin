@@ -52,6 +52,10 @@
         "title": "Contexo: Reject All Hunks"
       },
       {
+        "command": "contexo.proposal.acceptAll",
+        "title": "Contexo: Accept All Hunks"
+      },
+      {
         "command": "contexo.dev.pingTrueForge",
         "title": "Contexo Dev: Ping TrueForge"
       },
@@ -104,6 +108,10 @@
         },
         {
           "command": "contexo.proposal.rejectAll",
+          "when": "false"
+        },
+        {
+          "command": "contexo.proposal.acceptAll",
           "when": "false"
         },
         {

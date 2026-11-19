@@ -33,8 +33,11 @@ export class StatusBar implements vscode.Disposable {
       case 'awaiting-review':
         text = `awaiting review (${s.hunks ?? 0} hunks)`;
         break;
+      case 'cancelled':
+        text = 'stopped';
+        break;
       default:
-        text = s.state;
+        text = s.state; // idle | done | failed
     }
     this.item.text = `Contexo: ${text}`;
   }

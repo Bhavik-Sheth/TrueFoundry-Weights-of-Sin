@@ -3,16 +3,23 @@
  *
  * Exports:
  *  - IndexApi: ready, symbols(), byName(name), inFile(path), enclosing(path, line), reindexFile(path), reindexAll().
- *  - startIndexing(): S0 STUB - empty index, ready resolved. Slice 2 walks *.py, *.rst, *.md (ripgrep --files,
- *    honouring .gitignore), parses Python with web-tree-sitter (grammars/tree-sitter-python.wasm) into
- *    SymbolEntry, splits docs into heading sections, works in chunks with setImmediate yields.
+ *  - startIndexing(): walks *.py, *.rst, *.md (VS Code's bundled ripgrep --files, honouring .gitignore), parses
+ *    Python with web-tree-sitter into SymbolEntry, splits docs into heading sections, works in chunks of 20 files
+ *    with setImmediate yields, re-indexes a file on save. Logs counts and duration when ready.
+ *  - Pure (no vscode) helpers, unit-tested: loadParser(wasmDir), parsePython(parser, path, text),
+ *    splitRst(path, text), splitMarkdown(path, text), indexText(parser, path, text), class SymbolIndex.
  *
- * Rules: search must work before the index is ready (ripgrep only).
- * Depends on: web-tree-sitter, @vscode/ripgrep, types, log. Depended on by: context/search,
- * context/assembler, review/guards, mcp/tools.
+ * Lines in SymbolEntry are 1-based inclusive; paths are workspace-relative POSIX.
+ * Rules: search must work before the index is ready (ripgrep only). vscode and log are loaded lazily so the
+ * pure helpers import under Vitest. When bundled into dist/extension.js the wasm files sit next to it (__dirname).
+ * Depends on: web-tree-sitter, search (rg path), types. Depended on by: context/assembler, review/guards, mcp/tools.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { spawn } from 'node:child_process';
+import type { Node, Parser } from 'web-tree-sitter';
 import type { SymbolEntry } from '../types';
-import { log } from '../log';
+import { resolveRgPath } from './search';
 
 export interface IndexApi {
   ready: Promise<void>;
@@ -24,15 +31,304 @@ export interface IndexApi {
   reindexAll(): Promise<void>;
 }
 
+function log(...args: unknown[]): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('../log').log(...args);
+  } catch {
+    console.debug(...args);
+  }
+}
+
+const MAX_TEXT = 6000;
+const CHUNK = 20;
+
+// ---------------------------------------------------------------- pure parsing
+
+export async function loadParser(wasmDir: string = __dirname): Promise<Parser> {
+  // require() (not import) so esbuild's cjs bundle picks the package's .cjs build; the ESM build needs import.meta.url.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Parser, Language } = require('web-tree-sitter') as typeof import('web-tree-sitter');
+  await Parser.init({ locateFile: (name: string) => path.join(wasmDir, name) });
+  const lang = await Language.load(path.join(wasmDir, 'tree-sitter-python.wasm'));
+  const p = new Parser();
+  p.setLanguage(lang);
+  return p;
+}
+
+const isTestPath = (p: string) => /(^|\/)tests?\//.test(p) || /(^|\/)test_[^/]*\.py$/.test(p);
+
+function lastIdent(fn: Node | null): string | undefined {
+  if (!fn) return undefined;
+  if (fn.type === 'identifier') return fn.text;
+  if (fn.type === 'attribute') return fn.childForFieldName('attribute')?.text;
+  return undefined;
+}
+
+/** Call names inside `node`, not descending into nested defs/classes. */
+function collectCalls(node: Node, out: Set<string>, root = true): void {
+  for (const c of node.namedChildren) {
+    if (c.type === 'function_definition' || c.type === 'class_definition') continue;
+    if (c.type === 'decorated_definition') continue;
+    if (c.type === 'call') {
+      const n = lastIdent(c.childForFieldName('function'));
+      if (n) out.add(n);
+    }
+    collectCalls(c, out, false);
+  }
+  void root;
+}
+
+function importNames(n: Node): string[] {
+  const out: string[] = [];
+  if (n.type === 'import_statement') {
+    for (const c of n.namedChildren) {
+      if (c.type === 'dotted_name') out.push(c.text);
+      else if (c.type === 'aliased_import') out.push(c.childForFieldName('name')?.text ?? c.text);
+    }
+  } else {
+    const mod = n.childForFieldName('module_name')?.text;
+    if (mod) out.push(mod);
+    for (const c of n.namedChildren) {
+      if (c === n.childForFieldName('module_name')) continue;
+      if (c.type === 'dotted_name') out.push(c.text);
+      else if (c.type === 'aliased_import') out.push(c.childForFieldName('name')?.text ?? c.text);
+      else if (c.type === 'wildcard_import') out.push('*');
+    }
+  }
+  return out;
+}
+
+/** Python symbols (functions, classes, methods qualified by class, tests) from source text. */
+export function parsePython(parser: Parser, relPath: string, text: string): SymbolEntry[] {
+  const tree = parser.parse(text);
+  if (!tree) return [];
+  const root = tree.rootNode;
+  const imports = new Set<string>();
+  for (const c of root.namedChildren) if (c.type === 'import_statement' || c.type === 'import_from_statement') importNames(c).forEach((i) => imports.add(i));
+  const fileImports = [...imports];
+  const lines = text.split('\n');
+  const out: SymbolEntry[] = [];
+  const seen = new Set<string>();
+  const testFile = isTestPath(relPath);
+
+  const visit = (node: Node, classStack: string[], inFunc: boolean): void => {
+    for (const child of node.namedChildren) {
+      let def = child;
+      const decorators: string[] = [];
+      if (child.type === 'decorated_definition') {
+        for (const d of child.namedChildren) if (d.type === 'decorator') decorators.push(d.text.replace(/^@\s*/, ''));
+        const inner = child.childForFieldName('definition');
+        if (!inner) continue;
+        def = inner;
+      }
+      if (def.type === 'function_definition' || def.type === 'class_definition') {
+        const name = def.childForFieldName('name')?.text;
+        const body = def.childForFieldName('body');
+        if (name && body) {
+          const isClass = def.type === 'class_definition';
+          const qualified = [...classStack, name].join('.');
+          const startLine = child.startPosition.row + 1;
+          const endLine = child.endPosition.row + 1;
+          const calls = new Set<string>();
+          collectCalls(body, calls);
+          let kind: SymbolEntry['kind'] = isClass ? 'class' : classStack.length && !inFunc ? 'method' : 'function';
+          if (!isClass && name.startsWith('test_') && testFile) kind = 'test';
+          let id = `${relPath}#${qualified}`;
+          if (seen.has(id)) id += `@${startLine}`;
+          seen.add(id);
+          out.push({
+            id, path: relPath, name, qualifiedName: qualified, kind, startLine, endLine, decorators,
+            calls: [...calls], imports: fileImports, text: lines.slice(startLine - 1, endLine).join('\n').slice(0, MAX_TEXT),
+          });
+          if (isClass) visit(body, [...classStack, name], false);
+          else if (!inFunc) visit(body, classStack, true);
+          continue;
+        }
+      }
+      // descend into if/try/with blocks etc. at module/class level
+      if (!inFunc) visit(child, classStack, inFunc);
+    }
+  };
+  visit(root, [], false);
+  tree.delete();
+  return out;
+}
+
+function docEntries(
+  relPath: string,
+  lines: string[],
+  heads: Array<{ title: string; line: number; bodyStart: number }>,
+): SymbolEntry[] {
+  return heads.map((h, i) => {
+    const endLine = i + 1 < heads.length ? heads[i + 1].line - 1 : lines.length;
+    return {
+      id: `${relPath}#${h.title}${heads.slice(0, i).some((x) => x.title === h.title) ? `@${h.line}` : ''}`,
+      path: relPath, name: h.title, qualifiedName: h.title, kind: 'doc' as const,
+      startLine: h.line, endLine: Math.max(endLine, h.line), decorators: [], calls: [], imports: [],
+      text: lines.slice(h.line - 1, Math.max(endLine, h.line)).join('\n').slice(0, MAX_TEXT),
+    };
+  });
+}
+
+const RST_ADORN = /^([=\-~^"'`#*+:._<>])\1{2,}\s*$/;
+
+/** .rst sections: a title line followed by an underline (optionally also overlined) of repeated punctuation. */
+export function splitRst(relPath: string, text: string): SymbolEntry[] {
+  const lines = text.split(/\r?\n/);
+  const heads: Array<{ title: string; line: number; bodyStart: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cur = lines[i];
+    if (!cur.trim()) continue;
+    // overline + title + underline
+    if (RST_ADORN.test(cur) && i + 2 < lines.length && lines[i + 1].trim() && !RST_ADORN.test(lines[i + 1])
+      && lines[i + 2].trim() === cur.trim()) {
+      heads.push({ title: lines[i + 1].trim(), line: i + 1, bodyStart: i + 3 });
+      i += 2;
+      continue;
+    }
+    const next = lines[i + 1];
+    if (next !== undefined && !RST_ADORN.test(cur) && !/^\s/.test(cur) && RST_ADORN.test(next)
+      && next.trim().length >= cur.trim().length && !cur.startsWith('..')) {
+      heads.push({ title: cur.trim(), line: i + 1, bodyStart: i + 2 });
+      i += 1;
+    }
+  }
+  if (lines[lines.length - 1] === '') lines.pop();
+  return docEntries(relPath, lines, heads);
+}
+
+/** .md sections on # headings (fenced code ignored). */
+export function splitMarkdown(relPath: string, text: string): SymbolEntry[] {
+  const lines = text.split(/\r?\n/);
+  const heads: Array<{ title: string; line: number; bodyStart: number }> = [];
+  let fence = false;
+  lines.forEach((l, i) => {
+    if (/^\s{0,3}(```|~~~)/.test(l)) { fence = !fence; return; }
+    if (fence) return;
+    const m = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(l);
+    if (m) heads.push({ title: m[1], line: i + 1, bodyStart: i + 1 });
+  });
+  if (lines[lines.length - 1] === '') lines.pop();
+  return docEntries(relPath, lines, heads);
+}
+
+/** Dispatch by extension; unknown extensions yield nothing. */
+export function indexText(parser: Parser | undefined, relPath: string, text: string): SymbolEntry[] {
+  if (relPath.endsWith('.py')) return parser ? parsePython(parser, relPath, text) : [];
+  if (relPath.endsWith('.rst')) return splitRst(relPath, text);
+  if (relPath.endsWith('.md')) return splitMarkdown(relPath, text);
+  return [];
+}
+
+/** Pure in-memory index with the IndexApi lookups. */
+export class SymbolIndex {
+  private files = new Map<string, SymbolEntry[]>();
+  private names = new Map<string, SymbolEntry[]>();
+  private flat: SymbolEntry[] | undefined;
+
+  setFile(p: string, entries: SymbolEntry[]): void {
+    this.removeFile(p);
+    this.files.set(p, entries);
+    for (const e of entries) {
+      const k = e.name.toLowerCase();
+      const a = this.names.get(k);
+      if (a) a.push(e); else this.names.set(k, [e]);
+    }
+    this.flat = undefined;
+  }
+  removeFile(p: string): void {
+    const old = this.files.get(p);
+    if (!old) return;
+    for (const e of old) {
+      const k = e.name.toLowerCase();
+      const a = (this.names.get(k) ?? []).filter((x) => x !== e);
+      if (a.length) this.names.set(k, a); else this.names.delete(k);
+    }
+    this.files.delete(p);
+    this.flat = undefined;
+  }
+  clear(): void { this.files.clear(); this.names.clear(); this.flat = undefined; }
+  symbols(): SymbolEntry[] { return (this.flat ??= [...this.files.values()].flat()); }
+  byName(n: string): SymbolEntry[] { return this.names.get(n.toLowerCase()) ?? []; }
+  inFile(p: string): SymbolEntry[] { return this.files.get(p) ?? []; }
+  fileCount(): number { return this.files.size; }
+  /** Smallest symbol (by line span) containing `line` (1-based). */
+  enclosing(p: string, line: number): SymbolEntry | undefined {
+    let best: SymbolEntry | undefined;
+    for (const e of this.inFile(p)) {
+      if (e.startLine <= line && line <= e.endLine
+        && (!best || e.endLine - e.startLine < best.endLine - best.startLine)) best = e;
+    }
+    return best;
+  }
+}
+
+// ---------------------------------------------------------------- vscode-bound driver
+
+function listFiles(rgPath: string, cwd: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const args = ['--files', '-g', '*.py', '-g', '*.rst', '-g', '*.md', '-g', '!node_modules', '-g', '!.venv', '-g', '!venv'];
+    const child = spawn(rgPath, args, { cwd, windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => { out += d.toString('utf8'); });
+    child.on('error', (e) => { log('[index] rg failed', String(e)); resolve([]); });
+    child.on('close', () => resolve(out.split(/\r?\n/).filter(Boolean).map((p) => p.replace(/\\/g, '/'))));
+  });
+}
+
 export function startIndexing(): IndexApi {
-  log('[stub] startIndexing');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const vs = require('vscode') as typeof import('vscode');
+  const idx = new SymbolIndex();
+  let parser: Parser | undefined;
+  const root = () => vs.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  const indexOne = async (rel: string): Promise<void> => {
+    const r = root();
+    if (!r) return;
+    try {
+      const text = await fs.promises.readFile(path.join(r, rel), 'utf8');
+      idx.setFile(rel, indexText(parser, rel, text));
+    } catch {
+      idx.removeFile(rel); // deleted or unreadable
+    }
+  };
+
+  const reindexAll = async (): Promise<void> => {
+    const r = root();
+    if (!r) return;
+    const t0 = Date.now();
+    parser ??= await loadParser().catch((e) => { log('[index] tree-sitter failed to load; docs only', String(e)); return undefined; });
+    const rg = resolveRgPath(vs.env.appRoot);
+    const files = await listFiles(rg, r);
+    idx.clear();
+    for (let i = 0; i < files.length; i += CHUNK) {
+      await Promise.all(files.slice(i, i + CHUNK).map(indexOne));
+      vs.window.setStatusBarMessage(`Contexo: indexing ${Math.min(i + CHUNK, files.length)}/${files.length}`, 1500);
+      await new Promise<void>((res) => setImmediate(res));
+    }
+    const all = idx.symbols();
+    log(`[index] ready: ${idx.fileCount()} files, ${all.filter((s) => s.kind !== 'doc').length} symbols, ${all.filter((s) => s.kind === 'doc').length} doc sections in ${Date.now() - t0} ms`);
+  };
+
+  const ready = reindexAll().catch((e) => log('[index] failed', String(e)));
+
+  vs.workspace.onDidSaveTextDocument((doc) => {
+    const r = root();
+    if (!r || doc.uri.scheme !== 'file') return;
+    const rel = path.relative(r, doc.uri.fsPath).replace(/\\/g, '/');
+    if (rel.startsWith('..') || !/\.(py|rst|md)$/.test(rel)) return;
+    void ready.then(() => indexOne(rel));
+  });
+
   return {
-    ready: Promise.resolve(),
-    symbols: () => [],
-    byName: () => [],
-    inFile: () => [],
-    enclosing: () => undefined,
-    reindexFile: async (p: string) => { log('[stub] reindexFile', p); },
-    reindexAll: async () => { log('[stub] reindexAll'); },
+    ready,
+    symbols: () => idx.symbols(),
+    byName: (n) => idx.byName(n),
+    inFile: (p) => idx.inFile(p),
+    enclosing: (p, line) => idx.enclosing(p, line),
+    reindexFile: (p) => indexOne(p.replace(/\\/g, '/')),
+    reindexAll,
   };
 }

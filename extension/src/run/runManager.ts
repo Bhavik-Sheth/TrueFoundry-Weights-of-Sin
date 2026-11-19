@@ -1,36 +1,41 @@
 /**
- * run/runManager.ts - C2 owner of the single active Run. (Slice 0: minimal but real.)
+ * run/runManager.ts - C2 owner of the single active Run. (Slice 1: streaming, approvals, Stop.)
  *
  * Exports:
  *  - class RunManager extends EventEmitter. Events: 'state'(RunStateMsg), 'stream'(UiStreamEvent[]),
  *    'session'({sessionId, agent, url}).
  *    - start(mode, text, selection?): create session on cfg.primaryAgent, build first message
  *      (inline: path/lines/baseHash/selected text template; agent: the text), consume() the turn.
+ *      Rejects while a run is streaming or awaiting review; allowed again after done/cancelled/failed.
  *    - send(text): follow-up turn on the same session (starts a new agent run if none usable).
  *    - consume(): loops over the turn stream, tracks turnId (turn.created) and lastEventId, maps
  *      events to UiStreamEvent, ignores events once cancelled / sealed.
- *    - tool.approval_required: Slice 0 = AUTO-DENY with "not implemented in base" through
- *      resolveApproval(false, ...) after the stream pauses (S1/S3 replace this with the review flow).
- *    - resolveApproval(allow, reason?): approve() resumed stream (subscribeToTurn + user.tool_approval).
- *    - stop(): synchronous first (state='cancelled', abort stream, review.discardPending()), then
- *      await tf.cancel(). Late events are ignored.
+ *    - tool.approval_required: queued, then handled one at a time once the stream pauses.
+ *      propose_write -> review.beginProposal (onResolve wired to resolveApproval); {deny} -> deny at
+ *      once, else state 'awaiting-review' (hunk count from review.pending). run_command and any other
+ *      tool are auto-denied ("not implemented until slice 7").
+ *    - resolveApproval(allow, reason?): approve() resumed stream (subscribeToTurn + user.tool_approval),
+ *      which is consumed in turn.
+ *    - stop(): synchronous first (state='cancelled', abort stream, review.discardPending(), killAll()),
+ *      emits state, logs the local latency, then awaits tf.cancel(). Late events are ignored.
  *    - isToolCallAllowed(): false only while the active run is cancelled (MCP tools check this).
  *
- * Not yet (later slices): fallback (S8), real approvals (S1/S3/S7), runCommand.killAll.
+ * Not yet (later slices): fallback (S8), run_command approvals (S7).
  * Rules: one active run only; never writes to disk.
- * Depends on: types, config, run/tfClient, review/diffView, log. Depended on by: extension, mcp/tools, shell/inlineEdit.
+ * Depends on: types, config, run/tfClient, review/diffView, mcp/runCommand, log. Depended on by: extension, mcp/tools, shell/inlineEdit.
  */
 import { EventEmitter } from 'node:events';
 import type { ContexoConfig } from '../config';
 import type { ReviewEngine } from '../review/diffView';
-import type { Run, RunStateMsg, Selection, TfEvent, UiStreamEvent } from '../types';
+import type { ProposeArgs, Run, RunStateMsg, Selection, TfEvent, UiStreamEvent } from '../types';
 import type { TfClient } from './tfClient';
+import { killAll } from '../mcp/runCommand';
 import { log } from '../log';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ev = { type: string; id?: string; [k: string]: any };
 
-interface PendingApproval { threadId: string; toolCallId: string; name: string }
+interface PendingApproval { threadId: string; toolCallId: string; name: string; args: unknown }
 
 export class RunManager extends EventEmitter {
   active?: Run;
@@ -99,28 +104,34 @@ export class RunManager extends EventEmitter {
   async stop(): Promise<void> {
     const run = this.active;
     if (!run || run.state === 'cancelled' || run.state === 'done' || run.state === 'failed') return;
+    const t0 = performance.now();
     // Synchronous part first: nothing after this point may reach the workspace.
     run.state = 'cancelled';
     run.sealedSessions.push(run.sessionId);
     this.pending = [];
     this.abort?.abort();
     try { this.review.discardPending(); } catch (e) { log('stop: discardPending failed', String(e)); }
+    try { killAll(); } catch (e) { log('stop: killAll failed', String(e)); }
     this.setState('cancelled');
     this.emit('stream', [{ kind: 'turn-done', status: 'cancelled' }] as UiStreamEvent[]);
-    log('run.stop', run.id);
-    if (run.sessionId) await this.tf.cancel(run.sessionId);
+    log(`[stop] local stop in ${Math.round(performance.now() - t0)}ms`, run.id);
+    if (run.sessionId) {
+      try { await this.tf.cancel(run.sessionId); } catch (e) { log('stop: tf.cancel failed', String(e)); }
+    }
   }
 
   async resolveApproval(allow: boolean, reason?: string): Promise<void> {
     const run = this.active;
+    if (!run || run.state === 'cancelled' || run.state === 'done' || run.state === 'failed') return;
     const p = this.pending.shift();
-    if (!run || !p || run.state === 'cancelled') return;
+    if (!p) return;
     this.emit('stream', [{ kind: 'approval', toolCallId: p.toolCallId, name: p.name, status: allow ? 'allowed' : 'denied', reason }] as UiStreamEvent[]);
     run.state = 'streaming';
     this.setState('streaming');
+    this.abort ??= new AbortController();
     const stream = this.tf.approve({
       sessionId: run.sessionId, turnId: this.turnId, threadId: p.threadId, toolCallId: p.toolCallId,
-      allow, reason, afterEventId: this.lastEventId,
+      allow, reason, afterEventId: this.lastEventId, signal: this.abort.signal,
     });
     await this.consume(run, stream);
   }
@@ -136,7 +147,7 @@ export class RunManager extends EventEmitter {
     await this.consume(run, this.tf.streamTurn(run.sessionId, content, this.abort.signal));
   }
 
-  /** Reads one stream until it ends or pauses on approvals; auto-denies pending approvals (S0). */
+  /** Reads one stream until it ends or pauses on approvals, then routes the pending approvals. */
   private async consume(run: Run, stream: AsyncIterable<TfEvent>): Promise<void> {
     try {
       for await (const raw of stream) {
@@ -153,10 +164,9 @@ export class RunManager extends EventEmitter {
       this.fail(run, String((e as Error)?.message ?? e));
       return;
     }
-    if (run.state === 'cancelled') return;
+    if (run.state === 'cancelled' || run.sealedSessions.includes(run.sessionId)) return;
     if (this.pending.length) {
-      // Slice 0: no review flow yet.
-      await this.resolveApproval(false, 'not implemented in base');
+      await this.processPending(run);
       return;
     }
     if (run.state === 'streaming') {
@@ -164,6 +174,41 @@ export class RunManager extends EventEmitter {
       log('run: stream ended without turn.done', run.id);
       run.state = 'done';
       this.setState('done');
+    }
+  }
+
+  /** Handles the head of the pending-approval queue; the rest follow after each resolution. */
+  private async processPending(run: Run): Promise<void> {
+    const p = this.pending[0];
+    if (!p || run.state === 'cancelled') return;
+    if (p.name !== 'propose_write') {
+      await this.resolveApproval(false, 'not implemented until slice 7');
+      return;
+    }
+    const args = parseProposeArgs(p.args);
+    if (!args) {
+      await this.resolveApproval(false, 'propose_write arguments could not be parsed');
+      return;
+    }
+    this.review.onResolve = (allow, reason) => {
+      void this.resolveApproval(allow, reason).catch((e) => this.fail(run, String((e as Error)?.message ?? e)));
+    };
+    let res: 'reviewing' | { deny: string };
+    try {
+      res = await this.review.beginProposal(run, p.toolCallId, p.threadId, args);
+    } catch (e) {
+      res = { deny: `review failed: ${String((e as Error)?.message ?? e)}` };
+    }
+    if ((run.state as Run["state"]) === "cancelled") return;
+    if (typeof res === 'object') {
+      this.review.onResolve = undefined;
+      await this.resolveApproval(false, res.deny);
+      return;
+    }
+    if (run.state === 'streaming') {
+      run.state = 'awaiting-review';
+      const hunks = this.review.pending?.hunks.length;
+      this.emit('state', { state: 'awaiting-review', agent: run.agent, hunks } satisfies RunStateMsg);
     }
   }
 
@@ -198,9 +243,10 @@ export class RunManager extends EventEmitter {
           const msg = this.messages.get(ref.sourceEventId);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tc = ((msg?.toolCalls ?? []) as any[]).find((t) => t.id === ref.id);
-          const name = tc ? describeCall(tc).name : 'unknown';
+          const d = tc ? describeCall(tc) : undefined;
+          const name = d?.name ?? 'unknown';
           log('approval_required', JSON.stringify({ ref, name, args: tc?.function?.arguments }));
-          this.pending.push({ threadId: ev.threadId, toolCallId: ref.id, name });
+          this.pending.push({ threadId: ev.threadId, toolCallId: ref.id, name, args: d?.args });
           out.push({ kind: 'approval', toolCallId: ref.id, name, status: 'pending' });
         }
         return out;
@@ -217,9 +263,13 @@ export class RunManager extends EventEmitter {
           this.setState('cancelled');
           return [{ kind: 'turn-done', status: 'cancelled' }];
         }
+        const msg = String(st.message ?? 'turn error');
         run.state = 'failed';
-        this.setState('failed', String(st.message ?? 'turn error'));
-        return [{ kind: 'turn-done', status: 'error', error: String(st.message ?? 'turn error') }];
+        this.setState('failed', msg);
+        return [
+          { kind: 'info', text: `Run failed: ${msg}` },
+          { kind: 'turn-done', status: 'error', error: msg },
+        ];
       }
       default:
         log('tf event', ev.type);
@@ -231,7 +281,10 @@ export class RunManager extends EventEmitter {
     log('run.failed', run.id, message);
     run.state = 'failed';
     this.setState('failed', message);
-    this.emit('stream', [{ kind: 'turn-done', status: 'error', error: message }] as UiStreamEvent[]);
+    this.emit('stream', [
+      { kind: 'info', text: `Run failed: ${message}` },
+      { kind: 'turn-done', status: 'error', error: message },
+    ] as UiStreamEvent[]);
   }
 
   private setState(state: Run['state'], banner?: string): void {
@@ -251,6 +304,19 @@ function describeCall(tc: any): { name: string; args: unknown; deferred: boolean
     return { name: String(args.tool_name), args, deferred: true };
   }
   return { name: String(fn.name ?? 'unknown'), args, deferred: false };
+}
+
+/** Extracts ProposeArgs from a call's args; deferred calls may wrap them inside call_tool's args. */
+function parseProposeArgs(raw: unknown): ProposeArgs | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tryOne = (v: any): ProposeArgs | undefined => {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return undefined; } }
+    return v && typeof v === 'object' && Array.isArray(v.edits) ? (v as ProposeArgs) : undefined;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const o = raw as any;
+  if (!o || typeof o !== 'object') return tryOne(o);
+  return tryOne(o) ?? tryOne(o.arguments) ?? tryOne(o.args) ?? tryOne(o.tool_arguments) ?? tryOne(o.input);
 }
 
 function buildFirstMessage(mode: 'inline' | 'agent', text: string, sel?: Selection): string {

@@ -28,7 +28,7 @@ import { log } from '../log';
 export interface TfClient {
   createSession(agent: string): Promise<string>;
   streamTurn(sessionId: string, content: string, signal?: AbortSignal): AsyncIterable<TfEvent>;
-  approve(a: { sessionId: string; turnId: string; threadId: string; toolCallId: string; allow: boolean; reason?: string; afterEventId: string }): AsyncIterable<TfEvent>;
+  approve(a: { sessionId: string; turnId: string; threadId: string; toolCallId: string; allow: boolean; reason?: string; afterEventId: string; signal?: AbortSignal }): AsyncIterable<TfEvent>;
   cancel(sessionId: string): Promise<void>;
   sessionUrl(sessionId: string): string;
   ping(): Promise<boolean>;
@@ -94,7 +94,7 @@ export function createTfClient(cfg: ContexoConfig): TfClient {
 
     approve(a) {
       return (async function* () {
-        const stream = await client.sessions.subscribeToTurn(a.sessionId, a.turnId, { afterEventId: a.afterEventId });
+        const stream = await client.sessions.subscribeToTurn(a.sessionId, a.turnId, { afterEventId: a.afterEventId }, { abortSignal: a.signal });
         await client.sessions.createTurnEvents(a.sessionId, a.turnId, {
           events: [{
             type: 'user.tool_approval',
