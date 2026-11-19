@@ -641,7 +641,7 @@ The extension implements these tools; TrueForge dispatches their calls.
 
 ## Round 1 marking scheme and fixed tasks
 
-**Eligibility.** Use the local TrueForge SDK and stream to drive the editor experience. Expose editor actions through MCP. Configure models in TrueForge. Include the agent definition in the public repo and show the TrueForge session in Task B. [Forge-a-thon problem statement, pp. 6–9](../TrueFoundry_Forge-a-thon_compressed_UvvRJ9C_261109_172141.pdf)
+**Eligibility.** Use the local TrueForge SDK and stream to drive the editor experience. Expose editor actions through MCP. Configure models in TrueForge. Include the agent definition in the public repo and show the TrueForge session in Task B. [Forge-a-thon problem statement, pp. 6–9](../../TrueFoundry_Forge-a-thon_compressed_UvvRJ9C_261109_172141.pdf)
 
 | Criterion | Points | V2 component and on-screen evidence |
 |---|---:|---|

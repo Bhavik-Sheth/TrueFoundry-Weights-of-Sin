@@ -1,0 +1,16 @@
+{
+  "$comment": "Minimal TS config for the extension host (src/) and tests (test/). The webview (webview/) is built by Vite and may need its own jsx settings (jsx: react-jsx) via a nested tsconfig or Vite's esbuild.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "test", "webview/src", "vite.config.ts"]
+}

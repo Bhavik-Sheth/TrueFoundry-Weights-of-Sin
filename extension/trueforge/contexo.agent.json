@@ -1,0 +1,23 @@
+{
+  "$comment": [
+    "Skeleton TrueForge agent definition (primary). The schema MUST be verified against TrueForge docs (create-agent/overview.mdx, key-features/deferred-tool-loading.mdx) in the hour-0 spike; field names below are assumptions.",
+    "Model is a placeholder: configure real models in TrueForge only (see models.example.md). Never put keys here.",
+    "The extension writes the real MCP port and token into a copy under global storage at activation; this committed file keeps placeholders.",
+    "Instructions are shared via instructions.md. Tool policy per PRD_Lite 9.2."
+  ],
+  "name": "contexo",
+  "model": "<PRIMARY_MODEL>",
+  "instructions": "@instructions.md",
+  "mcpServers": [
+    {
+      "name": "contexo-editor",
+      "url": "http://127.0.0.1:<PORT>/mcp",
+      "headers": { "X-Contexo-Token": "<TOKEN>" }
+    }
+  ],
+  "tools": {
+    "preloaded": ["search_workspace", "read_file", "assemble_context", "propose_write"],
+    "deferred": ["run_command", "list_symbols"],
+    "approvalRequired": ["propose_write", "run_command"]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "$comment": "Minimal VS Code manifest skeleton (C1). main is the esbuild bundle of src/extension.ts; contributes holds commands, the ctrl+alt+e / cmd+alt+e keybinding (editorHasSelection), the secondary-sidebar webview view contexo.panel and the PRD_Lite 9.6 settings. Scripts, dependencies and devDependencies (see UPSTREAMS.md) are added when packages are installed. Include a 'check' script that greps for provider SDKs/URLs.",
+  "name": "contexo",
+  "displayName": "Contexo",
+  "description": "Context-aware, staged per-hunk code edits driven by a TrueForge agent.",
+  "version": "0.0.1",
+  "publisher": "contexo",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "contexo.inlineEdit", "title": "Contexo: Inline Edit" },
+      { "command": "contexo.stop", "title": "Contexo: Stop" },
+      { "command": "contexo.undoHunk", "title": "Contexo: Undo Hunk" },
+      { "command": "contexo.redoHunk", "title": "Contexo: Redo Hunk" }
+    ],
+    "keybindings": [
+      { "command": "contexo.inlineEdit", "key": "ctrl+alt+e", "mac": "cmd+alt+e", "when": "editorHasSelection" }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        { "id": "contexo", "title": "Contexo", "icon": "$(sparkle)" }
+      ]
+    },
+    "views": {
+      "contexo": [
+        { "type": "webview", "id": "contexo.panel", "name": "Contexo" }
+      ]
+    },
+    "configuration": {
+      "title": "Contexo",
+      "properties": {
+        "contexo.trueforgeUrl": { "type": "string", "default": "http://localhost:8790", "description": "TrueForge local server URL." },
+        "contexo.primaryAgent": { "type": "string", "default": "contexo", "description": "Primary TrueForge agent name." },
+        "contexo.fallbackAgent": { "type": "string", "default": "contexo-fallback", "description": "Fallback TrueForge agent name." },
+        "contexo.excerptBudget": { "type": "number", "default": 8000, "description": "Token budget for assembled excerpts." },
+        "contexo.firstEventTimeoutMs": { "type": "number", "default": 20000, "description": "Time to wait for the first stream event before treating the model as failed." },
+        "contexo.commandAllowlist": { "type": "array", "items": { "type": "string" }, "default": ["python", "pytest", "flask"], "description": "Allowed argv[0] values for run_command." }
+      }
+    }
+  }
+}

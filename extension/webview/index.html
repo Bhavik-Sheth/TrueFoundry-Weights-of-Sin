@@ -1,0 +1,18 @@
+<!--
+  webview/index.html - Vite entry for the Contexo panel (C1).
+  Purpose: mounts the React app (src/main.tsx) into #root. At runtime shell/panel.ts rewrites
+  asset URLs and injects the CSP + nonce; keep this file free of inline scripts.
+  Depends on: src/main.tsx. Depended on by: vite.config.ts.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contexo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
