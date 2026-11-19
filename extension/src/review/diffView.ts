@@ -193,7 +193,7 @@ export class ReviewEngine {
     this.codeLensChanged.fire();
 
     let first = true;
-    for (const f of files) {
+    for (const [i, f] of files.entries()) {
       const n = hunks.filter((h) => h.path === f.path).length;
       const name = f.path.split('/').pop() ?? f.path;
       try {
@@ -201,7 +201,7 @@ export class ReviewEngine {
           'vscode.diff',
           docUri(BASE_SCHEME, key, f.path),
           docUri(PROPOSED_SCHEME, key, f.path),
-          `${name} · Contexo proposal (${n} hunks)`,
+          `${name} · Contexo proposal file ${i + 1}/${files.length} (${n} hunks)`,
           { preview: false, preserveFocus: !first },
         );
       } catch (err) {

@@ -11,7 +11,7 @@
  *    (deferred, approval).
  *
  * STATE (Slice 2): search_workspace, read_file, list_symbols, propose_write are real; assemble_context is
- * still fixture-based (Slice 5) but awaits index.ready; run_command refuses ("not implemented in base").
+ * still fixture-based (Slice 5) but awaits index.ready; run_command is real (Slice 7).
  * propose_write returns review.finalize(proposalKey(args)), falling back to review.finalizeLatest(). Every handler first checks runs.isToolCallAllowed() -> error RUN_NOT_AUTHORIZED.
  * Tool results are MCP text content (JSON.stringify).
  *
@@ -29,6 +29,7 @@ import type { RunManager } from '../run/runManager';
 import type { ToWebview } from '../types';
 import { assembleContext, formatForModel } from '../context/assembler';
 import { capOutput, resolveInWorkspace } from './server';
+import { runCommand } from './runCommand';
 import { sha256, proposalKey } from '../review/proposal';
 import { ripgrepSearch, symbolNameMatch, tokenize } from '../context/search';
 
@@ -205,11 +206,15 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
     server.registerTool('run_command', {
       description:
         'Run an allowlisted command (argv array, no shell; e.g. ["pytest","tests/test_cli.py"]) in the workspace root and return ' +
-        '{exitCode, stdout, stderr, truncated}. Requires user approval. Use it to run tests after your edits have been applied.',
+        '{exitCode, stdout, stderr, truncated, durationMs}. Requires user approval. Use it to run tests after your edits have been applied.',
       inputSchema: {
         argv: z.array(z.string()).min(1).describe('Command and arguments, e.g. ["pytest","-q"]'),
-        timeoutSec: z.number().int().min(1).max(180).optional().describe('Timeout in seconds (default 60, max 180)'),
+        timeoutSec: z.number().int().min(1).max(180).optional().describe('Timeout in seconds (default 120, max 180)'),
       },
-    }, guarded(() => err('NOT_IMPLEMENTED', 'run_command is not implemented in base')));
+    }, guarded(async (a: { argv: string[]; timeoutSec?: number }) => {
+      const r = await runCommand(a.argv, a.timeoutSec);
+      if (r.exitCode === 126) return err('COMMAND_REFUSED', r.stderr);
+      return ok(r);
+    }));
   };
 }

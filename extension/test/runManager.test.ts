@@ -26,7 +26,7 @@ const approval = (srcId: string): TfEvent => ({
 
 const PROPOSE = { summary: 's', edits: [{ path: 'a.py', baseHash: 'h', oldText: 'x', newText: 'y' }] };
 
-function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<'reviewing' | { deny: string }> = async () => 'reviewing', cfgOver: Record<string, unknown> = {}) {
+function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<'reviewing' | { deny: string }> = async () => 'reviewing', cfgOver: Record<string, unknown> = {}, ask?: (argv: string[]) => Promise<boolean>) {
   const tf = new FakeTfClient(turn, resumes);
   const order: string[] = [];
   const review = {
@@ -36,7 +36,7 @@ function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<
     discardPending: vi.fn(() => { order.push('discard'); }),
   };
   killAll.mockImplementation(() => { order.push('killAll'); });
-  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo', fallbackAgent: 'contexo-fallback', firstEventTimeoutMs: 0, trueforgeUrl: 'http://tf:8790', ...cfgOver } as never });
+  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo', fallbackAgent: 'contexo-fallback', firstEventTimeoutMs: 0, trueforgeUrl: 'http://tf:8790', ...cfgOver } as never, askCommandApproval: ask });
   const events: UiStreamEvent[] = [];
   const states: Array<{ state: string; hunks?: number; banner?: string; agent?: string }> = [];
   const sessions: Array<{ sessionId: string; agent: string }> = [];
@@ -128,14 +128,37 @@ describe('RunManager', () => {
     await expect(rm.start('agent', 'x')).rejects.toThrow(/already active/);
   });
 
-  it('run_command is auto-denied', async () => {
-    const { rm, tf, review } = setup(
-      [created, call('m1', 'run_command', { argv: ['pytest'] }), approval('m1'), paused],
-      [[done]],
-    );
-    await rm.start('agent', 'run');
-    expect(review.beginProposal).not.toHaveBeenCalled();
-    expect(tf.approveCalls[0]).toMatchObject({ allow: false, reason: 'not implemented until slice 7' });
+  describe('run_command approval', () => {
+    const turn = [created, call('m1', 'run_command', { argv: ['pytest', '-q'] }), approval('m1'), paused];
+
+    it('asks and approves on Allow', async () => {
+      const ask = vi.fn(async () => true);
+      const { rm, tf, review } = setup(turn, [[done]], undefined, {}, ask);
+      await rm.start('agent', 'run');
+      expect(ask).toHaveBeenCalledWith(['pytest', '-q']);
+      expect(review.beginProposal).not.toHaveBeenCalled();
+      expect(tf.approveCalls[0]).toMatchObject({ allow: true });
+    });
+
+    it('denies with a reason on Deny', async () => {
+      const ask = vi.fn(async () => false);
+      const { rm, tf } = setup(turn, [[done]], undefined, {}, ask);
+      await rm.start('agent', 'run');
+      expect(tf.approveCalls[0]).toMatchObject({ allow: false, reason: 'user denied command' });
+    });
+
+    it('denies by default without a handler, and sends one approval only', async () => {
+      const { rm, tf } = setup(turn, [[done]]);
+      await rm.start('agent', 'run');
+      expect(tf.approveCalls).toHaveLength(1);
+      expect(tf.approveCalls[0]).toMatchObject({ allow: false });
+    });
+  });
+
+  it('agent first message carries the workflow hint', async () => {
+    const { rm, tf } = setup([created, done]);
+    await rm.start('agent', 'add config');
+    expect(tf.streamCalls[0].content).toContain('Use assemble_context first');
   });
 
   it('ignores events of a sealed session', async () => {

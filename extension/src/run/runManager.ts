@@ -12,8 +12,7 @@
  *      events to UiStreamEvent, ignores events once cancelled / sealed.
  *    - tool.approval_required: queued, then handled one at a time once the stream pauses.
  *      propose_write -> review.beginProposal (onResolve wired to resolveApproval); {deny} -> deny at
- *      once, else state 'awaiting-review' (hunk count from review.pending). run_command and any other
- *      tool are auto-denied ("not implemented until slice 7").
+ *      once, else state 'awaiting-review' (hunk count from review.pending). run_command asks the user; any other tool is auto-denied.
  *    - resolveApproval(allow, reason?): approve() resumed stream (subscribeToTurn + user.tool_approval),
  *      which is consumed in turn.
  *    - stop(): synchronous first (state='cancelled', abort stream, review.discardPending(), killAll()),
@@ -25,7 +24,8 @@
  * approved write); trueforgeDown => failed "TrueForge not reachable at <url>"; fallback failing too =>
  * failed "Both models failed: ...". The original first message is kept for replay.
  *
- * Not yet (later slices): run_command approvals (S7).
+ * run_command (S7): approval goes through the injected askCommandApproval(argv) (default deny); Allow ->
+ * resolveApproval(true), Deny/dismiss -> resolveApproval(false,'user denied command'); duplicates ignored.
  * Rules: one active run only; never writes to disk.
  * Depends on: types, config, run/tfClient, review/diffView, mcp/runCommand, log. Depended on by: extension, mcp/tools, shell/inlineEdit.
  */
@@ -64,8 +64,11 @@ export class RunManager extends EventEmitter {
   private sawActivity = false;                     // a model/tool event arrived in the current turn
   private approvedAny = false;                     // a write was approved: fallback replay would be unsafe
 
-  constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig }) {
+  private askCommandApproval: (argv: string[]) => Promise<boolean>;
+
+  constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig; askCommandApproval?: (argv: string[]) => Promise<boolean> }) {
     super();
+    this.askCommandApproval = deps.askCommandApproval ?? (async () => false);
     this.tf = deps.tf;
     this.review = deps.review;
     this.cfg = deps.cfg;
@@ -275,8 +278,26 @@ export class RunManager extends EventEmitter {
   private async processPending(run: Run): Promise<void> {
     const p = this.pending[0];
     if (!p || run.state === 'cancelled') return;
+    if (p.name === 'run_command') {
+      const argv = parseArgv(p.args);
+      if (!argv) {
+        await this.resolveApproval(false, 'run_command arguments could not be parsed');
+        return;
+      }
+      const id = p.toolCallId;
+      let answered = false; // a duplicate answer for the same toolCallId is ignored
+      const answer = async (allow: boolean) => {
+        if (answered || this.pending[0]?.toolCallId !== id) return;
+        answered = true;
+        await this.resolveApproval(allow, allow ? undefined : 'user denied command');
+      };
+      let allow = false;
+      try { allow = await this.askCommandApproval(argv); } catch (e) { log('askCommandApproval failed', String(e)); }
+      await answer(allow);
+      return;
+    }
     if (p.name !== 'propose_write') {
-      await this.resolveApproval(false, 'not implemented until slice 7');
+      await this.resolveApproval(false, `tool ${p.name} is not supported`);
       return;
     }
     const args = parseProposeArgs(p.args);
@@ -416,8 +437,29 @@ function parseProposeArgs(raw: unknown): ProposeArgs | undefined {
   return tryOne(o) ?? tryOne(o.arguments) ?? tryOne(o.args) ?? tryOne(o.tool_arguments) ?? tryOne(o.input);
 }
 
+/** Extracts argv from a run_command call's args (possibly wrapped by call_tool). */
+function parseArgv(raw: unknown): string[] | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const find = (v: any): string[] | undefined => {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return undefined; } }
+    if (!v || typeof v !== 'object') return undefined;
+    if (Array.isArray(v.argv) && v.argv.length && v.argv.every((x: unknown) => typeof x === 'string')) return v.argv;
+    return undefined;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const o = raw as any;
+  return find(o) ?? (o && typeof o === 'object' ? find(o.arguments) ?? find(o.args) ?? find(o.tool_arguments) ?? find(o.input) : undefined);
+}
+
+const AGENT_HINT =
+  'Use assemble_context first. Stage related edits (implementation, tests, docs) in as few propose_write calls as is natural. ' +
+  'After the user applies, run the relevant tests with run_command.';
+
 function buildFirstMessage(mode: 'inline' | 'agent', text: string, sel?: Selection): string {
-  if (mode !== 'inline' || !sel) return text;
+  if (mode === 'agent') return `${text}
+
+${AGENT_HINT}`;
+  if (!sel) return text;
   return [
     `[INLINE EDIT] File: ${sel.path} lines ${sel.startLine + 1}-${sel.endLine + 1} (baseHash ${sel.hash}).`,
     `Instruction: ${text}`,

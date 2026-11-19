@@ -42,7 +42,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const review = registerReview(ctx, post);
   review.index = index;
   const tf = createTfClient(cfg);
-  const runs = new RunManager({ tf, review, cfg });
+  const runs = new RunManager({
+    tf, review, cfg,
+    askCommandApproval: async (argv) =>
+      (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, 'Allow', 'Deny')) === 'Allow',
+  });
   runsRef = runs;
   const token = await getOrCreateToken(ctx.secrets);
   const mcp = await startServer({
