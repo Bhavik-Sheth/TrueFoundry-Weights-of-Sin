@@ -72,7 +72,15 @@ export async function pickHunk(stack: UndoStack, mode: 'undo' | 'redo'): Promise
 export class UndoStack {
   private history: AppliedHunk[] = [];
 
-  constructor(private post: (m: ToWebview) => void = () => {}) {}
+  constructor(private post: (m: ToWebview) => void = () => {}, private storage?: vscode.Memento) {
+    this.history = storage?.get<AppliedHunk[]>('review.history.v1', []) ?? [];
+  }
+
+  private async saveHistory(): Promise<void> {
+    const hunks = this.list();
+    this.post({ type: 'changes', hunks });
+    await this.storage?.update('review.history.v1', hunks);
+  }
 
   async applyFiles(m: Map<string, string>): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
@@ -98,12 +106,12 @@ export class UndoStack {
     if (!ok) throw new Error('workspace.applyEdit returned false');
     for (const { uri, text } of docs) {
       const doc = await vscode.workspace.openTextDocument(uri);
-      await doc.save();
+      if (!await doc.save()) throw new Error('Could not save ' + uri.fsPath);
       if (sha256(doc.getText()) !== sha256(text)) log('external-transform: saved text differs from expected for', uri.fsPath);
     }
   }
 
-  recordApplied(runId: string, hunks: Hunk[]): void {
+  async recordApplied(runId: string, hunks: Hunk[]): Promise<void> {
     const now = Date.now();
     for (const h of hunks) {
       const patch = formatPatch({
@@ -115,7 +123,7 @@ export class UndoStack {
       });
       this.history.push({ hunkId: h.id, path: h.path, runId, patch, appliedAt: now, undone: false });
     }
-    this.post({ type: 'changes', hunks: this.list() });
+    await this.saveHistory();
   }
 
   private async readCurrent(rel: string): Promise<string> {
@@ -140,7 +148,7 @@ export class UndoStack {
     }
     await this.applyFiles(new Map([[rec.path, next]]));
     rec.undone = undo;
-    this.post({ type: 'changes', hunks: this.list() });
+    await this.saveHistory();
     return true;
   }
 

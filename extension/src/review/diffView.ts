@@ -103,8 +103,8 @@ export class ReviewEngine {
   private pendingKey?: Sha;
   private outsideDeco?: vscode.TextEditorDecorationType;
 
-  constructor(post: (m: ToWebview) => void = () => {}) {
-    this.undo = new UndoStack(post);
+  constructor(post: (m: ToWebview) => void = () => {}, storage?: vscode.Memento) {
+    this.undo = new UndoStack(post, storage);
   }
 
   setDoc(uri: string, text: string): void {
@@ -251,7 +251,7 @@ export class ReviewEngine {
         if (text !== f.base) out.set(f.path, text);
       }
       await this.undo.applyFiles(out);
-      this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
+      await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
     } catch (err) {
       log('applyAccepted failed', errText(err));
       this.finish(p, 'rejected', { applied: [], rejected: p.hunks.map((h) => h.id) });
@@ -398,7 +398,7 @@ export class ReviewEngine {
 }
 
 export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview) => void): ReviewEngine {
-  const review = new ReviewEngine(post);
+  const review = new ReviewEngine(post, ctx.workspaceState);
 
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: (uri) => review.docs.get(uri.toString()) ?? '',

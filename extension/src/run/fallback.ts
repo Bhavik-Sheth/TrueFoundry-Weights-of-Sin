@@ -82,6 +82,9 @@ export function classifyDetailed(x: unknown, ctx: ClassifyCtx = {}): Classificat
     if (st.status === 'cancelled') return { kind: 'cancelled', reason: 'cancelled', trueforgeDown: false };
     if (st.status === 'error') {
       const msg = String(st.message ?? 'turn error');
+      if (/\[MCP Error\]|failed to connect to remote MCP server/i.test(msg)) {
+        return { kind: 'other', reason: firstLine(msg), trueforgeDown: false };
+      }
       return { kind: TEXT_RE.test(msg) ? 'model-failure' : 'other', reason: firstLine(msg), trueforgeDown: false };
     }
     return { kind: 'other', reason: `turn ${String(st.status)}`, trueforgeDown: false };

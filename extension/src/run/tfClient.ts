@@ -33,6 +33,7 @@ export interface TfClient {
   createSession(agent: string): Promise<string>;
   streamTurn(sessionId: string, content: string, signal?: AbortSignal): AsyncIterable<TfEvent>;
   approve(a: { sessionId: string; turnId: string; threadId: string; toolCallId: string; allow: boolean; reason?: string; afterEventId: string; signal?: AbortSignal }): AsyncIterable<TfEvent>;
+  readTurnState?(sessionId: string, turnId: string): Promise<{ status: string; message?: string }>;
   cancel(sessionId: string): Promise<void>;
   sessionUrl(sessionId: string): string;
   ping(): Promise<boolean>;
@@ -114,6 +115,12 @@ export function createTfClient(cfg: ContexoConfig): TfClient {
         });
         yield* withMerge(stream);
       })();
+    },
+
+    async readTurnState(sessionId, turnId) {
+      const { data } = await client.sessions.getTurn(sessionId, turnId, { timeoutInSeconds: 5, maxRetries: 0 });
+      const state = data.state;
+      return { status: state.status, message: 'message' in state && typeof state.message === 'string' ? state.message : undefined };
     },
 
     async cancel(sessionId) {

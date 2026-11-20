@@ -33,6 +33,7 @@ const options = {
   platform: 'node',
   target: 'node18',
   external: ['vscode'],
+  minify: !watch,
   sourcemap: true,
   loader: { '.md': 'text' },
   logLevel: 'info',

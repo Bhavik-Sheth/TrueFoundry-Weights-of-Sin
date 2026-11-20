@@ -268,7 +268,7 @@ export class SymbolIndex {
 
 function listFiles(rgPath: string, cwd: string): Promise<string[]> {
   return new Promise((resolve) => {
-    const args = ['--files', '-g', '*.py', '-g', '*.rst', '-g', '*.md', '-g', '!node_modules', '-g', '!.venv', '-g', '!venv'];
+    const args = ['--files', '-g', '*.py', '-g', '*.rst', '-g', '*.md', '-g', '*.{ts,tsx,js,jsx,go,rs,java}', '-g', '!node_modules', '-g', '!.venv', '-g', '!venv'];
     const child = spawn(rgPath, args, { cwd, windowsHide: true });
     let out = '';
     child.stdout.on('data', (d: Buffer) => { out += d.toString('utf8'); });
@@ -289,7 +289,31 @@ export function startIndexing(): IndexApi {
     if (!r) return;
     try {
       const text = await fs.promises.readFile(path.join(r, rel), 'utf8');
-      idx.setFile(rel, indexText(parser, rel, text));
+      if (/\.(ts|tsx|js|jsx|go|rs|java)$/.test(rel)) {
+        const uri = vs.Uri.file(path.join(r, rel));
+        const symbols = await vs.commands.executeCommand<import('vscode').DocumentSymbol[]>(
+          'vscode.executeDocumentSymbolProvider', uri);
+        const entries: SymbolEntry[] = [];
+        const lines = text.split(/\r?\n/);
+        const visit = (symbol: import('vscode').DocumentSymbol, parent: string) => {
+          const qualifiedName = parent ? parent + '.' + symbol.name : symbol.name;
+          const kind = symbol.kind === vs.SymbolKind.Class ? 'class'
+            : symbol.kind === vs.SymbolKind.Function ? 'function'
+            : symbol.kind === vs.SymbolKind.Method ? 'method' : undefined;
+          if (kind) {
+            const startLine = symbol.range.start.line + 1;
+            const endLine = symbol.range.end.line + 1;
+            entries.push({ id: rel + ':' + startLine + ':' + qualifiedName, path: rel, name: symbol.name,
+              qualifiedName, kind, startLine, endLine, calls: [], decorators: [], imports: [],
+              text: lines.slice(startLine - 1, endLine).join('\n') });
+          }
+          for (const child of symbol.children ?? []) visit(child, qualifiedName);
+        };
+        for (const symbol of symbols ?? []) visit(symbol, '');
+        idx.setFile(rel, entries);
+      } else {
+        idx.setFile(rel, indexText(parser, rel, text));
+      }
     } catch {
       idx.removeFile(rel); // deleted or unreadable
     }
@@ -318,7 +342,7 @@ export function startIndexing(): IndexApi {
     const r = root();
     if (!r || doc.uri.scheme !== 'file') return;
     const rel = path.relative(r, doc.uri.fsPath).replace(/\\/g, '/');
-    if (rel.startsWith('..') || !/\.(py|rst|md)$/.test(rel)) return;
+    if (rel.startsWith('..') || !/\.(py|rst|md|ts|tsx|js|jsx|go|rs|java)$/.test(rel)) return;
     void ready.then(() => indexOne(rel));
   });
 

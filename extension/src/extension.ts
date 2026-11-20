@@ -30,6 +30,10 @@ import { registerDevCommands } from './dev/devCommands';
 import { SetupController } from './shell/setupController';
 import { SessionController } from './shell/sessionController';
 
+import { RunJournal } from './run/journal';
+import { readdir } from 'node:fs/promises';
+
+let journalRef: RunJournal | undefined;
 let mcpHandle: McpHandle | undefined;
 let runsRef: RunManager | undefined;
 let setupRef: SetupController | undefined;
@@ -45,7 +49,55 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const review = registerReview(ctx, post);
   review.index = index;
   const tf = createTfClient(cfg);
+  const journalDirectory = ctx.storageUri && vscode.Uri.joinPath(ctx.storageUri, 'runs').fsPath;
+  const journal = journalDirectory
+    ? new RunJournal(journalDirectory, error => console.error('Contexo run recording failed', error))
+    : undefined;
+  journalRef = journal;
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.openRunRecord', async () => {
+    await journal?.flush();
+    const files = journalDirectory
+      ? await readdir(journalDirectory).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        })
+      : [];
+    const ids = files.filter(file => file.endsWith('.jsonl')).map(file => file.slice(0, -6));
+    if (!journal || !ids.length) {
+      await vscode.window.showInformationMessage('No recorded runs in this workspace yet.');
+      return;
+    }
+    const id = await vscode.window.showQuickPick(ids, { placeHolder: 'Open a recorded run' });
+    if (id) {
+      const content = await journal.read(id);
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ content, language: 'jsonl' }));
+    }
+  }));
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.importSecurityReport', async () => {
+    const run = runs.active;
+    if (!journal || !run) {
+      await vscode.window.showInformationMessage('Start a workspace run before attaching a report.');
+      return;
+    }
+    const selection = await vscode.window.showOpenDialog({ filters: { SARIF: ['sarif', 'json'] }, canSelectMany: false });
+    if (!selection?.length) return;
+    const report = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(selection[0])).toString('utf8'));
+    if (report.version !== '2.1.0' || !Array.isArray(report.runs)) {
+      throw new Error('Expected a SARIF 2.1.0 report.');
+    }
+    const findings = report.runs.flatMap((scan: { tool: { driver: { name: string } }; results?: Array<{
+      ruleId?: string; level?: string; message: { text?: string }; locations?: Array<{ physicalLocation?: { artifactLocation?: { uri?: string } } }>;
+    }> }) => (scan.results ?? []).map(result => ({
+      kind: 'check' as const, source: scan.tool.driver.name, name: result.message.text ?? result.ruleId ?? 'Finding',
+      status: result.level ?? 'warning', location: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri,
+    })));
+    for (const finding of findings) journal.record(run.id, finding);
+    journal.record(run.id, { kind: 'check', source: 'SARIF', name: 'Imported security report', status: findings.length + ' findings' });
+    await journal.flush();
+    await vscode.window.showInformationMessage('Attached ' + findings.length + ' findings to the run record.');
+  }));
   const runs = new RunManager({
+    record: journal?.record,
     tf, review, cfg,
     askCommandApproval: async (argv) =>
       (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, 'Allow', 'Deny')) === 'Allow',
@@ -121,6 +173,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           void vscode.commands.executeCommand('contexo.redoHunk', m.hunkId);
           break;
         case 'ready':
+          post({ type: 'changes', hunks: review.undo.list() });
           setup.onReady();
           break;
         case 'sessionLoad':

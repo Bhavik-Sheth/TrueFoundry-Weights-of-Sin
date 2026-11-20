@@ -19,6 +19,8 @@
   ],
   "contributes": {
     "commands": [
+      { "command": "contexo.importSecurityReport", "title": "Contexo: Attach SARIF Security Report" },
+      { "command": "contexo.openRunRecord", "title": "Contexo: Open Run Record" },
       {
         "command": "contexo.inlineEdit",
         "title": "Contexo: Inline Edit"

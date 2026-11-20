@@ -29,6 +29,8 @@
  * Rules: one active run only; never writes to disk.
  * Depends on: types, config, run/tfClient, review/diffView, mcp/runCommand, log. Depended on by: extension, mcp/tools, shell/inlineEdit.
  */
+import { randomUUID } from 'node:crypto';
+import type { RecordEvidence, RunEvidence } from './journal';
 import { EventEmitter } from 'node:events';
 import type { ContexoConfig } from '../config';
 import type { ReviewEngine } from '../review/diffView';
@@ -49,7 +51,7 @@ export class RunManager extends EventEmitter {
   private tf: TfClient;
   private review: ReviewEngine;
   private cfg: ContexoConfig;
-  private runCounter = 0;
+  private readonly record?: RecordEvidence;
   private turnId = '';
   private lastEventId = '';
   private abort?: AbortController;
@@ -66,10 +68,11 @@ export class RunManager extends EventEmitter {
 
   private askCommandApproval: (argv: string[]) => Promise<boolean>;
 
-  constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig; askCommandApproval?: (argv: string[]) => Promise<boolean> }) {
+  constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig; record?: RecordEvidence; askCommandApproval?: (argv: string[]) => Promise<boolean> }) {
     super();
     this.askCommandApproval = deps.askCommandApproval ?? (async () => false);
     this.tf = deps.tf;
+    this.record = deps.record;
     this.review = deps.review;
     this.cfg = deps.cfg;
   }
@@ -81,7 +84,7 @@ export class RunManager extends EventEmitter {
     }
     const agent = this.cfg.primaryAgent;
     const run: Run = {
-      id: `run_${++this.runCounter}`, mode, request: text, selection,
+      id: randomUUID(), mode, request: text, selection,
       sessionId: '', agent: agent as Run['agent'], state: 'streaming', sealedSessions: [],
     };
     this.active = run;
@@ -96,6 +99,7 @@ export class RunManager extends EventEmitter {
     this.approvedAny = false;
     this.clearTimer();
     this.firstMessage = buildFirstMessage(mode, text, selection);
+    this.capture(run, { kind: 'request', mode, text });
     this.setState('streaming');
     try {
       run.sessionId = await this.tf.createSession(agent);
@@ -104,7 +108,7 @@ export class RunManager extends EventEmitter {
       return;
     }
     if (run.state === 'cancelled') return;
-    this.emit('session', { sessionId: run.sessionId, agent, url: this.tf.sessionUrl(run.sessionId) });
+    this.publishSession(run, { sessionId: run.sessionId, agent, url: this.tf.sessionUrl(run.sessionId) });
     log('run.start', run.id, mode, run.sessionId);
     await this.runTurn(run, this.firstMessage);
   }
@@ -119,6 +123,7 @@ export class RunManager extends EventEmitter {
       return;
     }
     run.state = 'streaming';
+    this.capture(run, { kind: 'request', mode: run.mode, text }, false);
     this.setState('streaming');
     await this.runTurn(run, text);
   }
@@ -148,7 +153,7 @@ export class RunManager extends EventEmitter {
     if (!run || run.state === 'cancelled' || run.state === 'done' || run.state === 'failed') return;
     const p = this.pending.shift();
     if (!p) return;
-    this.emit('stream', [{ kind: 'approval', toolCallId: p.toolCallId, name: p.name, status: allow ? 'allowed' : 'denied', reason }] as UiStreamEvent[]);
+    this.publishEvents(run, [{ kind: 'approval', toolCallId: p.toolCallId, name: p.name, status: allow ? 'allowed' : 'denied', reason }]);
     if (allow) this.approvedAny = true;
     run.state = 'streaming';
     this.setState('streaming');
@@ -169,6 +174,10 @@ export class RunManager extends EventEmitter {
   private async runTurn(run: Run, content: string): Promise<void> {
     this.abort = new AbortController();
     this.sawActivity = false;
+    this.turnId = '';
+    this.lastEventId = '';
+    this.messages.clear();
+    this.streamedIds.clear();
     this.armTimer(run);
     try {
       await this.consume(run, this.tf.streamTurn(run.sessionId, content, this.abort.signal));
@@ -221,8 +230,8 @@ export class RunManager extends EventEmitter {
             this.lastEventId = '';
             try { this.review.discardPending(); } catch (e) { log('takeOver: discardPending failed', String(e)); }
           },
-          emitSession: (info) => this.emit('session', info),
-          emitState: (m) => { this.banner = m.banner; this.emit('state', m); },
+          emitSession: (info) => this.publishSession(run, info),
+          emitState: (m) => { this.banner = m.banner; this.publishState(m); },
           runTurn: (r, content) => this.runTurn(r, content),
         });
       } catch (e) {
@@ -252,7 +261,10 @@ export class RunManager extends EventEmitter {
           return;
         }
         const out = this.map(run, ev);
-        if (out.length) this.emit('stream', out);
+        if (ev.type === 'tool.response' && typeof ev.toolCallId === 'string') {
+          this.capture(run, { kind: 'tool-output', toolCallId: ev.toolCallId, content: ev.content });
+        }
+        this.publishEvents(run, out);
         if (ev.type === 'turn.update' && ev.state?.status === 'paused' && this.pending.length) break;
         if (ev.type === 'turn.done') return;
       }
@@ -266,11 +278,23 @@ export class RunManager extends EventEmitter {
       await this.processPending(run);
       return;
     }
-    if (run.state === 'streaming') {
-      // Stream ended without turn.done (dropped connection): treat as done, log it.
-      log('run: stream ended without turn.done', run.id);
-      run.state = 'done';
-      this.setState('done');
+    if (run.state !== 'streaming') return;
+    const turnId = this.turnId;
+    try {
+      const state = turnId ? await this.tf.readTurnState?.(sid, turnId) : undefined;
+      if (stale()) return;
+      if (state) this.capture(run, { kind: 'reconciliation', status: state.status });
+      if (state?.status === 'error') {
+        await this.handleFailure(run, classifyDetailed({ type: 'turn.done', state }), state.message ?? 'TrueForge reported a failed turn.');
+        return;
+      }
+      if (state?.status === 'done' || state?.status === 'cancelled') {
+        this.publishEvents(run, this.map(run, { type: 'turn.done', state }));
+        return;
+      }
+      this.fail(run, 'The stream ended before TrueForge confirmed completion. Check the Session tab for the latest state.', true);
+    } catch (error) {
+      if (!stale()) this.fail(run, `Could not confirm the final TrueForge turn state: ${String(error)}`, true);
     }
   }
 
@@ -323,7 +347,7 @@ export class RunManager extends EventEmitter {
     if (run.state === 'streaming') {
       run.state = 'awaiting-review';
       const hunks = this.review.pending?.hunks.length;
-      this.emit('state', { state: 'awaiting-review', agent: run.agent, hunks } satisfies RunStateMsg);
+      this.publishState({ state: 'awaiting-review', agent: run.agent, hunks });
     }
   }
 
@@ -407,7 +431,31 @@ export class RunManager extends EventEmitter {
 
   private setState(state: Run['state'], failure?: string): void {
     const msg: RunStateMsg = { state, agent: this.active?.agent, banner: state === 'failed' ? failure : this.banner };
-    this.emit('state', msg);
+    this.publishState(msg);
+  }
+
+  private capture(run: Run, evidence: RunEvidence, includeTurn = true): void {
+    this.record?.(run.id, evidence, {
+      sessionId: run.sessionId || undefined,
+      turnId: includeTurn ? this.turnId || undefined : undefined,
+    });
+  }
+
+  private publishState(message: RunStateMsg): void {
+    if (this.active) this.capture(this.active, { kind: 'state', state: message.state, detail: message.banner });
+    this.emit('state', message);
+  }
+
+  private publishSession(run: Run, session: { sessionId: string; agent: string; url: string }): void {
+    this.capture(run, { kind: 'session', agent: session.agent }, false);
+    this.emit('session', session);
+  }
+
+  private publishEvents(run: Run, events: UiStreamEvent[]): void {
+    for (const event of events) {
+      if (event.kind !== 'text-delta') this.capture(run, { kind: 'agent-event', event });
+    }
+    if (events.length) this.emit('stream', events);
   }
 }
 
