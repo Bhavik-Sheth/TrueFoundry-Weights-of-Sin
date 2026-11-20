@@ -199,6 +199,11 @@
           "default": "contexo-fallback",
           "description": "Fallback TrueForge agent name."
         },
+        "contexo.embeddingModel": {
+          "type": "string",
+          "default": "",
+          "description": "Installed local Ollama embedding model for reranking context. Leave blank to disable."
+        },
         "contexo.excerptBudget": {
           "type": "number",
           "default": 8000,

@@ -153,6 +153,7 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const cfg = (require('../config') as typeof import('../config')).getConfig();
       const packet = await assembleContext({
+        embeddingModel: cfg.embeddingModel,
         request: a.request,
         mentions: a.mentions,
         budget: a.budget ?? cfg.excerptBudget,

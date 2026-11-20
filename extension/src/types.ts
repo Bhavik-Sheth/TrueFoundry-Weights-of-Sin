@@ -52,6 +52,7 @@ export interface SymbolEntry {
 export type Reason =
   | { kind: 'mention'; token: string }
   | { kind: 'selection' }
+  | { kind: 'semantic'; rank: number }
   | { kind: 'lexical'; term: string; rank: number }
   | { kind: 'symbol-name'; term: string; rank: number }
   | { kind: 'calls' | 'called-by' | 'registers' | 'tests' | 'documents'; from: string };

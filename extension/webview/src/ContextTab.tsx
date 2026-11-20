@@ -38,6 +38,7 @@ function reasonLabel(r: Reason): string {
   switch (r.kind) {
     case 'mention': return `you mentioned ${r.token}`;
     case 'selection': return 'your selection';
+    case 'semantic': return `semantic match #${r.rank}`;
     case 'lexical': return `text match "${r.term}" (#${r.rank})`;
     case 'symbol-name': return `name match "${r.term}" (#${r.rank})`;
     case 'calls': return `called by ${r.from}`;

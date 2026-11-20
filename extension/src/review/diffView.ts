@@ -96,6 +96,7 @@ export class ReviewEngine {
   /** Set by extension.ts (integration) so symbolCheck can see the workspace index. */
   index?: IndexApi;
 
+  onProposal?: (p: Proposal) => void;
   private proposals = new Map<Sha, Proposal>();
   private runs = new Map<Sha, Run>();
   private resolvers = new Map<Sha, (allow: boolean, reason?: string) => void>();
@@ -182,6 +183,7 @@ export class ReviewEngine {
 
     const proposal: Proposal = { key, runId: run.id, toolCallId, threadId, files, hunks, status: 'reviewing' };
     this.proposals.set(key, proposal);
+    this.onProposal?.(proposal);
     this.runs.set(key, run);
     this.resolvers.set(key, once((allow, reason) => this.onResolve?.(allow, reason)));
     this.pendingKey = key;
@@ -318,6 +320,7 @@ export class ReviewEngine {
     const p = this.pending;
     if (!p) return;
     p.status = 'discarded';
+    this.onProposal?.(p);
     this.pendingKey = undefined;
     void this.closeDiffs(p.key);
     this.dropDocs(p);
@@ -328,6 +331,7 @@ export class ReviewEngine {
   private finish(p: Proposal, status: Proposal['status'], result: Result): void {
     p.status = status;
     p.result = result;
+    this.onProposal?.(p);
     this.latest = result;
     if (this.pendingKey === p.key) this.pendingKey = undefined;
     void this.closeDiffs(p.key);

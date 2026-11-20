@@ -54,6 +54,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     ? new RunJournal(journalDirectory, error => console.error('Contexo run recording failed', error))
     : undefined;
   journalRef = journal;
+  review.onProposal = p => journal?.record(p.runId, {
+    kind: 'proposal',
+    proposal: { key: p.key, toolCallId: p.toolCallId, hunks: p.hunks, status: p.status, result: p.result },
+    bases: p.files.map(file => ({ path: file.path, hash: file.baseHash })),
+  });
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.openRunRecord', async () => {
     await journal?.flush();
     const files = journalDirectory
@@ -79,6 +84,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       await vscode.window.showInformationMessage('Start a workspace run before attaching a report.');
       return;
     }
+    const reviewed = review.pending;
     const selection = await vscode.window.showOpenDialog({ filters: { SARIF: ['sarif', 'json'] }, canSelectMany: false });
     if (!selection?.length) return;
     const report = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(selection[0])).toString('utf8'));
@@ -91,7 +97,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       kind: 'check' as const, source: scan.tool.driver.name, name: result.message.text ?? result.ruleId ?? 'Finding',
       status: result.level ?? 'warning', location: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri,
     })));
-    for (const finding of findings) journal.record(run.id, finding);
+    for (const finding of findings) {
+      const related = reviewed?.runId === run.id
+        ? reviewed.hunks.filter(h => h.path === finding.location).map(h => h.id) : [];
+      journal.record(run.id, { ...finding, proposalKey: related.length ? reviewed?.key : undefined, hunkIds: related });
+    }
     journal.record(run.id, { kind: 'check', source: 'SARIF', name: 'Imported security report', status: findings.length + ' findings' });
     await journal.flush();
     await vscode.window.showInformationMessage('Attached ' + findings.length + ' findings to the run record.');

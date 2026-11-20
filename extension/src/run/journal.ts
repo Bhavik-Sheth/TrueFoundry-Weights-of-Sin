@@ -10,7 +10,7 @@ export type RunEvidence =
   | { kind: 'tool-output'; toolCallId: string; content: unknown }
   | { kind: 'proposal'; proposal: Pick<Proposal, 'key' | 'toolCallId' | 'hunks' | 'status' | 'result'>; bases: Array<{ path: string; hash: string }> }
   | { kind: 'hunk-history'; operation: 'undo' | 'redo'; hunkId: string; path: string }
-  | { kind: 'check'; source: string; name: string; status: string; location?: string }
+  | { kind: 'check'; source: string; name: string; status: string; proposalKey?: string; hunkIds?: string[]; location?: string }
   | { kind: 'reconciliation'; status: string };
 
 export interface RunRecord {

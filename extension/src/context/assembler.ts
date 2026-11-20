@@ -47,7 +47,10 @@ export interface RankedList {
 
 export type RgFn = (term: string) => Promise<Array<{ path: string; line: number; preview: string }>>;
 
+import { semanticOrder } from './embeddings';
+
 export interface AssembleInput {
+  embeddingModel?: string;
   request: string;
   mentions?: string[];
   budget?: number;
@@ -573,6 +576,9 @@ export function buildGraph(request: string, _terms: string[], excerpts: Excerpt[
     const sid = symId(e);
     for (const r of e.reasons) {
       switch (r.kind) {
+        case 'semantic':
+          edge('req', sid, 'semantic', true);
+          break;
         case 'lexical':
         case 'symbol-name': {
           const tid = `term:${r.term}`;
@@ -606,6 +612,17 @@ export async function assembleContext(i: AssembleInput, index: IndexApi): Promis
   const budget = i.budget ?? DEFAULT_BUDGET;
   const { terms, mandatory } = extractAnchors(i.request, i.mentions ?? [], i.selection, index, budget);
   const primary = await candidateLists(terms, index, i.rg);
+  if (i.embeddingModel) {
+    const candidates = rrfFuse(primary).slice(0, 32);
+    try {
+      const indices = await semanticOrder(i.embeddingModel, i.request, candidates.map(c => c.path + '\n' + c.text));
+      primary.push({ name: 'embeddings', items: indices.map((index, rank) => ({
+        ...candidates[index], reasons: [{ kind: 'semantic', rank: rank + 1 }],
+      })) });
+    } catch (error) {
+      console.warn('Contexo semantic ranking unavailable:', String(error));
+    }
+  }
   const firstPass = rrfFuse(primary);
   const topImpl = firstPass.filter((c) => c.category !== 'docs').slice(0, 10);
   const expanded = expandOneHop(topImpl, index, terms);
@@ -628,6 +645,7 @@ function reasonText(r: Reason): string {
   switch (r.kind) {
     case 'mention': return `mention ${r.token}`;
     case 'selection': return 'selection';
+    case 'semantic': return `semantic match #${r.rank}`;
     case 'lexical': return `lexical "${r.term}" #${r.rank}`;
     case 'symbol-name': return `name "${r.term}" #${r.rank}`;
     default: return `${r.kind} ${r.from}`;
