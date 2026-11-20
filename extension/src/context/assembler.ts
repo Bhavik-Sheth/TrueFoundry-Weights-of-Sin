@@ -613,7 +613,7 @@ export async function assembleContext(i: AssembleInput, index: IndexApi): Promis
   const { terms, mandatory } = extractAnchors(i.request, i.mentions ?? [], i.selection, index, budget);
   const primary = await candidateLists(terms, index, i.rg);
   if (i.embeddingModel) {
-    const candidates = rrfFuse(primary).slice(0, 32);
+    const candidates = index.symbols().map(symbol => fromSymbol(symbol, []));
     try {
       const indices = await semanticOrder(i.embeddingModel, i.request, candidates.map(c => c.path + '\n' + c.text));
       primary.push({ name: 'embeddings', items: indices.map((index, rank) => ({
