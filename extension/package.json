@@ -3,7 +3,7 @@
   "name": "contexo",
   "displayName": "Contexo",
   "description": "Context-aware, staged per-hunk code edits driven by a TrueForge agent.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "contexo",
   "license": "MIT",
   "repository": {
@@ -18,21 +18,67 @@
     "onStartupFinished"
   ],
   "contributes": {
-    "chatParticipants": [{ "id": "contexo.assistant", "name": "contexo", "fullName": "Contexo", "description": "Review repository changes with your TrueForge agent" }],
+    "chatParticipants": [
+      {
+        "id": "contexo.assistant",
+        "name": "contexo",
+        "fullName": "Contexo",
+        "description": "Review repository changes with your TrueForge agent"
+      }
+    ],
     "commands": [
-      { "command": "contexo.ask", "title": "Contexo: Ask Assistant" },
-      { "command": "contexo.openWorkbench", "title": "Contexo: Open Review Workbench" },
-      { "command": "contexo.restorePendingReview", "title": "Contexo: Restore Pending Review" },
-      { "command": "contexo.syncReviewEvidence", "title": "Contexo: Fetch External Review Evidence" },
-      { "command": "contexo.compareProposalImpact", "title": "Contexo: Compare Proposal Impact" },
-      { "command": "contexo.showSymbolImpact", "title": "Contexo: Show Symbol Impact" },
-      { "command": "contexo.linkRequirement", "title": "Contexo: Link Requirement to Review Evidence" },
-      { "command": "contexo.replayRun", "title": "Contexo: Replay Run Events" },
-      { "command": "contexo.importRun", "title": "Contexo: Import Agent Run" },
-      { "command": "contexo.recoverApply", "title": "Contexo: Recover Interrupted Apply" },
-      { "command": "contexo.checkCandidate", "title": "Contexo: Test Accepted Hunks Before Apply" },
-      { "command": "contexo.importSecurityReport", "title": "Contexo: Attach SARIF Security Report" },
-      { "command": "contexo.openRunRecord", "title": "Contexo: Open Run Record" },
+      {
+        "command": "contexo.ask",
+        "title": "Contexo: Ask Assistant"
+      },
+      {
+        "command": "contexo.openWorkbench",
+        "title": "Contexo: Open Assistant and Review Workbench"
+      },
+      {
+        "command": "contexo.restorePendingReview",
+        "title": "Contexo: Restore Pending Review"
+      },
+      {
+        "command": "contexo.syncReviewEvidence",
+        "title": "Contexo: Fetch External Review Evidence"
+      },
+      {
+        "command": "contexo.compareProposalImpact",
+        "title": "Contexo: Compare Proposal Impact"
+      },
+      {
+        "command": "contexo.showSymbolImpact",
+        "title": "Contexo: Show Symbol Impact"
+      },
+      {
+        "command": "contexo.linkRequirement",
+        "title": "Contexo: Link Requirement to Review Evidence"
+      },
+      {
+        "command": "contexo.replayRun",
+        "title": "Contexo: Replay Run Events"
+      },
+      {
+        "command": "contexo.importRun",
+        "title": "Contexo: Import Agent Run"
+      },
+      {
+        "command": "contexo.recoverApply",
+        "title": "Contexo: Recover Interrupted Apply"
+      },
+      {
+        "command": "contexo.checkCandidate",
+        "title": "Contexo: Test Accepted Hunks Before Apply"
+      },
+      {
+        "command": "contexo.importSecurityReport",
+        "title": "Contexo: Attach SARIF Security Report"
+      },
+      {
+        "command": "contexo.openRunRecord",
+        "title": "Contexo: Open Run Record"
+      },
       {
         "command": "contexo.inlineEdit",
         "title": "Contexo: Inline Edit"
@@ -174,11 +220,11 @@
       }
     ],
     "viewsContainers": {
-      "secondarySidebar": [
+      "activitybar": [
         {
           "id": "contexo",
           "title": "Contexo",
-          "icon": "$(sparkle)"
+          "icon": "media/contexo.svg"
         }
       ]
     },
@@ -238,7 +284,11 @@
         },
         "contexo.stopTrueForgeOnExit": {
           "type": "string",
-          "enum": ["startedByContexo", "always", "never"],
+          "enum": [
+            "startedByContexo",
+            "always",
+            "never"
+          ],
           "enumDescriptions": [
             "Stop TrueForge when VS Code closes only if Contexo started it.",
             "Always stop the local TrueForge when VS Code closes, even one you started yourself.",
@@ -254,7 +304,7 @@
         },
         "contexo.primaryModel": {
           "type": "string",
-          "default": "",
+          "default": "inception/mercury-3",
           "description": "Primary model (provider/model) chosen in the Contexo setup. Models and keys are configured in TrueForge; this stores only the model name."
         },
         "contexo.fallbackModel": {

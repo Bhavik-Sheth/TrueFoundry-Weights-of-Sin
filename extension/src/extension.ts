@@ -80,7 +80,6 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     ? new RunJournal(journalDirectory, error => console.error('Contexo run recording failed', error))
     : undefined;
   journalRef = journal;
-  registerWorkbench(ctx, review, journal, () => runsRef?.active?.id);
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.compareProposalImpact', async () => {
     const proposal = review.pending;
     if (!proposal) throw new Error('Open a proposal and accept the hunks to compare.');
@@ -216,6 +215,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   };
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.ask', ask));
   runsRef = runs;
+  registerWorkbench(ctx, review, journal, runs, cfg.trueforgeUrl);
   registerAssistant(ctx, runs);
   const rootId = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString();
   review.persistDecision = async proposal => {

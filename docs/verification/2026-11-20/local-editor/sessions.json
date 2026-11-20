@@ -1,0 +1,96 @@
+[
+  {
+    "task": "A-mercury",
+    "session": "01m7wshae4dkjpdnmc45sc74h3",
+    "state": "done",
+    "metrics": {
+      "totalDurationMs": 3940,
+      "totalTurns": 1
+    },
+    "turns": [
+      {
+        "id": "01m7wshah88d1eh818ghsnn6k6",
+        "state": "done",
+        "metrics": {
+          "totalInputTokens": 10400,
+          "totalOutputTokens": 1101,
+          "totalTokens": 11501,
+          "totalCacheReadTokens": 4179,
+          "totalReasoningTokens": 644
+        }
+      }
+    ],
+    "tools": [
+      "propose_write"
+    ]
+  },
+  {
+    "task": "B-mercury",
+    "session": "01m7wspcg76r2p6q0409hxwysy",
+    "state": "cancelled",
+    "metrics": {
+      "totalDurationMs": 36604,
+      "totalTurns": 1
+    },
+    "turns": [
+      {
+        "id": "01m7wspcgjvdhz27cg05hx30d3",
+        "state": "cancelled",
+        "metrics": {
+          "totalInputTokens": 324845,
+          "totalOutputTokens": 8999,
+          "totalTokens": 333844,
+          "totalCacheReadTokens": 294811,
+          "totalReasoningTokens": 5471
+        }
+      }
+    ],
+    "tools": [
+      "assemble_context",
+      "search_workspace",
+      "read_file",
+      "read_file",
+      "read_file",
+      "search_workspace",
+      "search_workspace",
+      "search_workspace",
+      "read_file",
+      "read_file",
+      "search_workspace",
+      "search_workspace",
+      "search_workspace",
+      "search_workspace",
+      "search_workspace",
+      "read_file",
+      "read_file",
+      "search_workspace",
+      "search_workspace",
+      "propose_write",
+      "list_tools",
+      "get_tool_info",
+      "run_command",
+      "run_command"
+    ]
+  },
+  {
+    "task": "C-first",
+    "session": "01m7wrvrjz9qh3h9mkb2259mwf",
+    "state": "error",
+    "metrics": {
+      "totalDurationMs": 213,
+      "totalTurns": 1
+    },
+    "turns": [
+      {
+        "id": "01m7wrvrkx38gv1xkwj3kg1eev",
+        "state": "error",
+        "metrics": {
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalTokens": 0
+        }
+      }
+    ],
+    "tools": []
+  }
+]

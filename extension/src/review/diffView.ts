@@ -183,7 +183,7 @@ export class ReviewEngine {
       log('guards failed (ignored):', errText(err));
     }
 
-    const proposal: Proposal = { key, runId: run.id, toolCallId, threadId, files, hunks, status: 'reviewing' };
+    const proposal: Proposal = { summary: args.summary, key, runId: run.id, toolCallId, threadId, files, hunks, status: 'reviewing' };
     await this.attachProposal(run, proposal);
     return 'reviewing';
   }

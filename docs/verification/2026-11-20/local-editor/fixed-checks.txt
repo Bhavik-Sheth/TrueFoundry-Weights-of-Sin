@@ -1,0 +1,12 @@
+False
+............................................................             [100%]
+60 passed in 0.54s
+  config  Show the config for the app.
+{
+  "SECRET_SAMPLE": "***",
+  "DB_PASSWORD": "***",
+  "ACCESS_TOKEN": "***",
+  "PRIVATE_KEY": "***",
+  "PUBLIC_VALUE": "visible"
+}
+Task C checkout clean. Verify the error and editor responsiveness in the session recording.

@@ -1,0 +1,11 @@
+{
+  "task": "A",
+  "session": "01m7ws0qmvy0e25h81jzk5jhag",
+  "state": "failed",
+  "message": "[Model Error] Response stream ended without a finish reason.",
+  "ticks": 299,
+  "editor": "1.147.0",
+  "completed": true,
+  "gitStatus": "",
+  "toolCalls": 0
+}

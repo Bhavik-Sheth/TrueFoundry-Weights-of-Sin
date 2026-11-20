@@ -1,9 +1,13 @@
 # Contexo
 
+[![VSIX 0.0.2](https://img.shields.io/badge/VSIX-0.0.2-23699a)](#open-the-extension) [![Extension suite](https://img.shields.io/badge/Vitest-210_passed_·_1_TODO-286d80)](docs/verification/2026-11-20/local-editor/vitest.txt) [![Flask CLI](https://img.shields.io/badge/Flask_CLI-60_passed-25785c)](docs/verification/2026-11-20/local-editor/B-mercury-pytest.txt)
+
+**Competition evidence** · [Three-page A4 write-up](docs/Contexo-writeup.pdf) · [34-second evidence reel](docs/verification/2026-11-20/local-editor/evidence-reel.mp4) · [Run counters and tool calls](docs/verification/2026-11-20/local-editor/sessions.json) · [Run the checks yourself](#reproduce-the-checks)
+
 Contexo is a VS Code extension that adds a context-aware coding agent to the editor. Its agent loop runs entirely on [TrueForge](https://github.com/truefoundry/trueforge) (TrueFoundry's open-source agent harness) in local mode. Built for the TrueFoundry Forge-a-thon.
 
 - **Inline edit**: select code, press `Ctrl+K` then `E` (`Cmd+K` then `E` on macOS), type an instruction, review the diff hunk by hunk.
-- **Agent mode**: a panel in the secondary sidebar (Chat / Session / Context / Changes / Settings tabs) where one request drives a multi-file change. The agent finds the files itself.
+- **Agent mode**: a panel in the Contexo sidebar (Chat / Session / Context / Changes / Settings tabs) where one request drives a multi-file change. The agent finds the files itself.
 - **Context assembly**: `@file` / `@symbol` mentions plus automatic budgeted retrieval, with reasons and omissions visible in the Context tab.
 - **Safe review**: nothing is written until you accept; every hunk has Accept/Reject CodeLens; applied hunks can be undone.
 - **Streaming, Stop, fallback**: tokens stream in; Stop is immediate and leaves the workspace untouched; if the primary model fails, a second configured model takes over.
@@ -12,13 +16,17 @@ The extension never calls a model provider. It is a client of a TrueForge agent 
 
 ## Open the extension
 
+**Install the packaged extension.** In VS Code open Extensions, choose **… → Install from VSIX…** and select **Contexo.vsix**. Open a repository folder. Click the Contexo icon on the left or run **Contexo: Open Assistant and Review Workbench** from the Command Palette. Type a request in the composer. When the agent proposes an edit, the workbench opens with the summary, file cards, decisions and check evidence. Select the hunks to keep, then apply them.
+
+**Connect once.** A fresh installation defaults to Inception Mercury 3. Open **Contexo: Open Setup**, wait for TrueForge to start, enter your Inception key and save. TrueForge keeps the credential and Contexo registers its editor connector and agents. A previously configured model can be selected in Settings. On the prepared Mac the normal VS Code profile already points to the saved Inception provider on port 18790. Each request uses the model account configured in TrueForge.
+
 Build from source with Node 22.14 or newer. From `extension/`, run `npm ci` and `npm run build`. Open that directory in VS Code and choose **Run Extension** in Run and Debug. In the Extension Development Host window, open the repository you want to edit. On macOS the Desktop handoff includes an **Open Contexo.command** launcher and a clean Flask checkout. Run the launcher to load the built extension directly.
 
 **Inline review.** Select code inside the target file, right-click the selection and choose **Contexo: Inline Edit**. Enter the instruction in the prompt box. Review the proposed diff, accept or reject individual hunks, then choose **Apply Accepted Hunks**. The keyboard shortcut is also available. An open file with an empty selection does not expose the context-menu item.
 
 **Assistant.** Open the Contexo sidebar and send a request in Chat. VS Code installations with Chat Participants also expose `@contexo`. The command palette includes **Contexo: Ask Assistant**. Each surface submits turns to the configured TrueForge agent.
 
-**Review workbench.** Choose **Contexo: Open Review Workbench** for the before/proposed code cards, pending hunk decisions, requirement links, repository history and run replay. Click **Refresh active review** after moving to another proposal. The workbench applies accepted hunks through the same editor review engine. **Test Accepted Hunks Before Apply** runs pytest on a temporary copy. This isolates the candidate files. Tests still run with your account's OS permissions.
+**Review workbench.** Choose **Contexo: Open Assistant and Review Workbench** for the before/proposed code cards, pending hunk decisions, requirement links, repository history and run replay. Click **Refresh active review** after moving to another proposal. The workbench applies accepted hunks through the same editor review engine. **Test Accepted Hunks Before Apply** runs pytest on a temporary copy. This isolates the candidate files. Tests still run with your account's OS permissions.
 
 [Feature-by-feature readiness and remaining competition proof](docs/verification/2026-11-20/ASSESSMENT.md) · [Sidebar preview](docs/verification/2026-11-20/extension-sidebar.png) · [Review workbench preview](docs/verification/2026-11-20/review-gradient.png)
 
@@ -43,11 +51,43 @@ Live compatibility runs used Inception Mercury 3 and local Qwen3 1.7B through Tr
 
 | Case | Recorded result | Evidence |
 | --- | --- | --- |
-| A, inline | Mercury edited the selected function through the CLI. The specified command printed `False`. The separate VS Code fixture exercised editor activation, hunk apply and undo. The fixed editor run awaits manual verification. | [Task A replay](docs/verification/2026-11-20/flask-A-cli.jsonl) · [patch](docs/verification/2026-11-20/flask-A.patch) |
-| B, agent | Mercury independently selected implementation, tests and docs. The initial full CLI suite returned 59 passed and one failure serializing a timedelta. Mercury proposed a correction and the reviewer applied it. An independent post-fix run passed all 60 tests. The command appeared in help and masked synthetic values for SECRET, PASSWORD, TOKEN and KEY, while PUBLIC_VALUE stayed visible. The fixed editor recording remains open. | [Task B replay](docs/verification/2026-11-20/flask-B-cli.jsonl) · [passing pytest output](docs/verification/2026-11-20/flask-B-pytest.txt) · [masked JSON](docs/verification/2026-11-20/flask-B-config.json) · [final patch](docs/verification/2026-11-20/flask-B.patch) |
-| C, resilience | The unreachable-provider rehearsal was stopped for manual testing. A clean-status result and responsive editor demonstration remain open. | [Three-task runbook](docs/DEMO_SCRIPT.md) |
+| A, inline | Mercury edited the selected function in the packaged VS Code extension and CLI. After hunk approval the specified command printed `False`. [Editor record](docs/verification/2026-11-20/local-editor/A-mercury.json). | [Task A replay](docs/verification/2026-11-20/flask-A-cli.jsonl) · [patch](docs/verification/2026-11-20/flask-A.patch) |
+| B, agent | Mercury independently selected implementation, tests and docs. The initial full CLI suite returned 59 passed and one failure serializing a timedelta. Mercury proposed a correction and the reviewer applied it. An independent post-fix run passed all 60 tests. The command appeared in help and masked synthetic values for SECRET, PASSWORD, TOKEN and KEY, while PUBLIC_VALUE stayed visible. A separate installed-editor run applied 73 lines across three files. Its harness stopped at command approval. Independent verification on that checkout passed 60 tests and checked four masked keys. [Editor patch](docs/verification/2026-11-20/local-editor/B-mercury.patch). | [Task B replay](docs/verification/2026-11-20/flask-B-cli.jsonl) · [passing pytest output](docs/verification/2026-11-20/flask-B-pytest.txt) · [masked JSON](docs/verification/2026-11-20/flask-B-config.json) · [final patch](docs/verification/2026-11-20/flask-B.patch) |
+| C, resilience | The isolated VS Code host reported an unreachable endpoint, processed nine timer ticks and left Git clean. [Editor evidence](docs/verification/2026-11-20/local-editor/C-first.json). | [Three-task runbook](docs/DEMO_SCRIPT.md) |
 
 [Mercury edit replay](docs/verification/2026-11-20/mercury-edit.jsonl) · [Qwen edit replay](docs/verification/2026-11-20/qwen-edit.jsonl) · [Extension suite, 210 passed and one TODO](docs/verification/2026-11-20/vitest.txt). Replays contain task code and tool arguments. Review exported files before sharing. The roadmap tracks additional production work including concurrent editor runs, remote workspaces and live CI or sandbox validation. [Remaining work plan](docs/REMAINING_WORK_PLAN.md)
+
+## Reproduce the checks
+
+From the repository root, run the extension suite and build the installable package:
+
+```bash
+cd extension
+npm ci
+npm run typecheck
+npm test
+npm run package
+```
+
+The package is written to `extension/dist/contexo.vsix`. For the live rehearsal, open separate clean clones of Flask tag 3.1.3 for A, B and C. Enter the [fixed instructions](docs/DEMO_SCRIPT.md) in the editor and review each proposal. For C use the unreachable endpoint in a separate profile. To verify the three resulting directories with a Python environment containing the Flask test dependencies, run the following from the Contexo repo root:
+
+```bash
+PYTHON=/absolute/path/to/venv/bin/python ./scripts/verify-flask.sh /path/to/flask-A /path/to/flask-B /path/to/flask-C
+```
+
+The verifier imports Flask from each checkout, checks mixed-case false values, runs the CLI suite, tests help and all four masking patterns, and checks C for tracked and untracked changes. Use the session recording for the editor response during C. [Captured output](docs/verification/2026-11-20/local-editor/fixed-checks.txt).
+
+**Bonsai compatibility.** The requested Einstein prompt generated prose locally. The exact 1-bit checkpoint requires PrismML-compatible MLX kernels. On the tested GPU server the weights were losslessly repacked for MLX's 2-bit kernel. Through TrueForge the assistant returned tool syntax as text. In a separate VS Code Task A run it dispatched zero tools and made zero changes. Keep Mercury selected for the fixed tasks. [Story, repacker and run records](docs/verification/2026-11-20/local-editor/bonsai/).
+
+**Recorded inference.** TrueForge counted 10,400 input and 1,101 output tokens for editor A. B used 324,845 input and 8,999 output across repeated model calls. The bars show cached input as a percentage of total input for each run. [Session counters](docs/verification/2026-11-20/local-editor/sessions.json).
+
+```mermaid
+xychart-beta
+    title "Cached share of editor input tokens"
+    x-axis ["Task A", "Task B"]
+    y-axis "Percent" 0 --> 100
+    bar [40, 91]
+```
 
 ## Requirements
 
@@ -79,12 +119,12 @@ Live compatibility runs used Inception Mercury 3 and local Qwen3 1.7B through Tr
    npm run install:local   # builds, runs the provider check, packages dist/contexo.vsix, installs it
    ```
 
-3. Open the Flask folder in VS Code. The Contexo panel (secondary sidebar) opens a **setup wizard** the first time; no terminal and no TrueForge UI needed:
+3. Open the Flask folder in VS Code. The Contexo panel (Activity Bar) opens a **setup wizard** the first time; no terminal and no TrueForge UI needed:
 
    1. **TrueForge**: Contexo starts a local TrueForge for you (`npx @truefoundry/trueforge@latest`, needs Node 22.14+; the first run downloads it and can take a minute). If it is already running, Contexo uses it and never stops it.
    2. **Add provider**: pick a provider, paste its API key, press **Save to TrueForge**. The key is sent once to your local TrueForge's own API and is not kept by Contexo (no settings, no secret storage, no logs).
-   3. **Choose models**: pick a primary and a fallback model (ideally different providers).
-   4. **Register**: one click creates the `contexo-editor` connector and the `contexo` / `contexo-fallback` agents in TrueForge.
+   3. **Choose models**: Mercury 3 is preselected. Choose a distinct fallback if available.
+   4. **Register**: the Inception preset registers automatically when ready. Manual registration creates the `contexo-editor` connector and the `contexo` / `contexo-fallback` agents in TrueForge.
    5. **Done**: the tabs open. The gear tab (**Settings**) keeps the same controls plus health checks; **Contexo: Open Setup** reopens the wizard.
 
    Settings added: `contexo.autoStartTrueForge` (default `true`), `contexo.primaryModel`, `contexo.fallbackModel` (model names only).
@@ -113,7 +153,7 @@ Advanced alternative: use this if you prefer the terminal (or TrueForge's own we
 
    Required env vars: `CONTEXO_TOKEN` and `PRIMARY_MODEL`. Optional: `FALLBACK_MODEL` (defaults to the primary model), `TRUEFORGE_URL` (default `http://localhost:8790`), and `CONTEXO_PORT` (default `8791`, must match `contexo.mcpPort`). The CLI and wizard update existing Contexo resources and report errors per resource. Agent definitions are in [extension/trueforge/](extension/trueforge/).
 
-5. Reload the VS Code window. The Contexo icon appears in the secondary sidebar; the status bar shows the run state.
+5. Reload the VS Code window. The Contexo icon appears in the Contexo sidebar; the status bar shows the run state.
 
 ## Settings
 
@@ -128,7 +168,7 @@ Advanced alternative: use this if you prefer the terminal (or TrueForge's own we
 | `contexo.mcpPort` | `8791` | Fixed port of the local Contexo MCP server |
 | `contexo.autoStartTrueForge` | `true` | Start a local TrueForge when none is running |
 | `contexo.stopTrueForgeOnExit` | `startedByContexo` | When VS Code closes: stop TrueForge only if Contexo started it, `always` stop the local TrueForge, or `never` |
-| `contexo.primaryModel` / `contexo.fallbackModel` | empty | `provider/model` names chosen in the wizard (never keys) |
+| `contexo.primaryModel` / `contexo.fallbackModel` | inception/mercury-3 / empty | `provider/model` names chosen in the wizard (never keys) |
 | `contexo.devMode` | `false` | Show the dev/fixture commands in the Command Palette |
 
 ## Commands

@@ -261,3 +261,12 @@ input::placeholder { color: #5e7782; }
 .accept-action[aria-pressed="true"] { color: #115944; background: #e5f8ed; border-color: #94cab7; }
 .reject-action[aria-pressed="true"] { color: #902d43; background: #ffeeef; border-color: #e1a1ad; }
 @media (max-width: 620px) { .code-panes { grid-template-columns: minmax(0, 1fr); } }
+
+[hidden] { display: none !important; }
+#assistant, #review-summary { margin-bottom: 12px; }
+#ask-form { display: grid; gap: 10px; }
+#ask-form label { font-size: 1.12rem; font-weight: 650; }
+#ask { width: 100%; min-height: 62px; resize: vertical; }
+#run-status, #decision-summary { color: #3e5968; overflow-wrap: anywhere; }
+#run-answer { max-height: 14rem; }
+#file-summary { padding-left: 1.25rem; font: .82rem/1.65 ui-monospace, monospace; overflow-wrap: anywhere; }

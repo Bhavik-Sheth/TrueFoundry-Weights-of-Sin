@@ -1,0 +1,127 @@
+diff --git a/docs/cli.rst b/docs/cli.rst
+index a72e6d5..e0b4da2 100644
+--- a/docs/cli.rst
++++ b/docs/cli.rst
+@@ -146,6 +146,23 @@ context will be active, and the app instance will be imported. ::
+ Use :meth:`~Flask.shell_context_processor` to add other automatic imports.
+ 
+ 
++Show the App Configuration
++--------------------------
++
++The :func:`config <cli.config_command>` command will show the loaded
++application's configuration as JSON. Values of keys that contain ``SECRET``,
++``PASSWORD``, ``TOKEN``, or ``KEY`` are masked with ``***`` to avoid exposing
++sensitive data. ::
++
++    $ flask config
++    {
++      "APPLICATION_ROOT": "/",
++      "DEBUG": false,
++      "MY_SECRET": "***",
++      ...
++    }
++
++
+ .. _dotenv:
+ 
+ Environment Variables From dotenv
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index ed11f25..c125c9b 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -3,6 +3,7 @@ from __future__ import annotations
+ import ast
+ import collections.abc as cabc
+ import importlib.metadata
++import json
+ import inspect
+ import os
+ import platform
+@@ -594,6 +595,7 @@ class FlaskGroup(AppGroup):
+             self.add_command(run_command)
+             self.add_command(shell_command)
+             self.add_command(routes_command)
++            self.add_command(config_command)
+ 
+         self._loaded_plugin_commands = False
+ 
+@@ -1115,6 +1117,30 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         click.echo(template.format(*row))
+ 
+ 
++_SENSITIVE_CONFIG_KEYS = ("SECRET", "PASSWORD", "TOKEN", "KEY")
++
++
++@click.command("config", short_help="Show the config for the app.")
++@with_appcontext
++def config_command() -> None:
++    """Show the loaded application's configuration as JSON, masking values of
++    keys that contain "SECRET", "PASSWORD", "TOKEN", or "KEY".
++
++    Sensitive values are replaced with a masked placeholder instead of their
++    true value.
++    """
++    config = current_app.config.copy()
++
++    for key in config:
++        if any(word in key.upper() for word in _SENSITIVE_CONFIG_KEYS):
++            config[key] = "***"
++
++    def json_default(value: t.Any) -> t.Any:
++        return str(value)
++
++    click.echo(json.dumps(config, indent=2, default=json_default))
++
++
+ cli = FlaskGroup(
+     name="flask",
+     help="""\
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index e254c1d..cacc0b1 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,6 +1,7 @@
+ # This file was part of Flask-CLI and was modified under the terms of
+ # its Revised BSD License. Copyright © 2015 CERN.
+ import importlib.metadata
++import json
+ import os
+ import platform
+ import ssl
+@@ -518,6 +519,35 @@ class TestRoutes:
+         assert "Host" in result.output
+ 
+ 
++class TestConfig:
++    @pytest.fixture
++    def app(self):
++        app = Flask(__name__)
++        app.config["MY_SECRET"] = "a-secret-value"
++        app.config["API_KEY"] = "some-key"
++        app.config["DATABASE_URL"] = "postgres://localhost/db"
++        return app
++
++    @pytest.fixture
++    def invoke(self, app, runner):
++        cli = FlaskGroup(create_app=lambda: app)
++        return partial(runner.invoke, cli)
++
++    def test_config(self, invoke):
++        result = invoke(["config"])
++        assert result.exit_code == 0
++        data = json.loads(result.output)
++        assert data["MY_SECRET"] == "***"
++        assert data["API_KEY"] == "***"
++        assert data["SECRET_KEY"] == "***"
++        assert data["DATABASE_URL"] == "postgres://localhost/db"
++
++    def test_config_in_help(self, invoke):
++        result = invoke(["--help"])
++        assert result.exit_code == 0
++        assert "config" in result.output
++
++
+ def dotenv_not_available():
+     try:
+         import dotenv  # noqa: F401

@@ -81,7 +81,26 @@ async function analyze() {
   const result = await request('/api/review', editor ? undefined : JSON.parse(current));
   if (input.value !== current) return;
   review = result;
-  byId('save-review').disabled = false;
+  byId('review-summary').hidden = false;
+  const files = new Map();
+  for (const h of review.hunks) {
+    const counts = files.get(h.path) ?? { added: 0, removed: 0, hunks: 0 };
+    counts.hunks++;
+    for (const line of h.lines) {
+      if (line.startsWith('+')) counts.added++;
+      if (line.startsWith('-')) counts.removed++;
+    }
+    files.set(h.path, counts);
+  }
+  byId('proposal-summary').textContent = review.summary || ('Proposed changes in ' + files.size + (files.size === 1 ? ' file.' : ' files.'));
+  const pending = review.hunks.filter(h => h.decision === 'pending').length;
+  const accepted = review.hunks.filter(h => h.decision === 'accepted').length;
+  const verified = review.checks.filter(c => c.match === 'candidate digest matched');
+  byId('decision-summary').textContent = [pending + ' awaiting decision', accepted + ' accepted',
+    (review.hunks.length - pending - accepted) + ' rejected', verified.length ? verified.map(c => c.name + ' (' + c.status + ')').join(', ') : 'No checks verified for this candidate'].join(' · ');
+  byId('file-summary').replaceChildren(...[...files].map(([path, c]) => element('li', path + '   +' + c.added + ' / −' + c.removed)));
+
+  byId('save-review').disabled = !!editor && !accepted;
   byId('requirement').querySelector('button').disabled = !review.hunks.length;
   status.textContent = 'Candidate ' + review.candidateDigest.slice(0, 12) + ' · ' + review.hunks.length + (review.hunks.length === 1 ? ' hunk' : ' hunks');
   status.title = review.candidateDigest;
@@ -365,5 +384,30 @@ if (editor) {
     showEvent();
   });
   document.querySelector('.replay-actions').prepend(replay);
-  void perform(status, analyze);
+  byId('assistant').hidden = false;
+  document.querySelector('h1').textContent = 'Contexo workspace';
+  document.querySelector('.hero-content > p').textContent = 'Ask the assistant, review its edits, and trace each change to the checks behind it.';
+  function renderRun(run) {
+    const busy = ['streaming', 'awaiting-review'].includes(run.state);
+    byId('ask-stop').hidden = !busy;
+    byId('ask-submit').disabled = busy;
+    byId('run-status').textContent = [run.state, run.agent, run.endpoint, run.activity].filter(Boolean).join(' · ');
+    byId('run-answer').textContent = run.summary || '';
+    byId('run-answer').hidden = !run.summary;
+  }
+  byId('ask-form').onsubmit = event => { event.preventDefault(); void perform(status, async () => {
+    renderRun(await request('/api/ask', byId('ask').value)); byId('ask').value = '';
+  }); };
+  byId('ask-stop').onclick = () => perform(status, async () => renderRun(await request('/api/stop')));
+  byId('ask-setup').onclick = () => perform(status, () => request('/api/setup'));
+  window.addEventListener('message', ({ data }) => {
+    if (data?.type === 'run') renderRun(data.run);
+    if (data?.type === 'refresh') void perform(status, analyze);
+  });
+  void perform(status, async () => {
+    const run = await request('/api/run');
+    renderRun(run);
+    if (run.state === 'awaiting-review') await analyze();
+    else status.textContent = 'Proposed changes will appear here for review.';
+  });
 }

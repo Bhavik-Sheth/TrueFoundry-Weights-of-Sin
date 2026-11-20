@@ -1,0 +1,5 @@
+{"version":1,"runId":"ecd9c0a8-2c1b-4f46-90f8-d78e096a4dff","recordedAt":"2026-11-20T15:40:42.050Z","evidence":{"kind":"request","mode":"inline","text":"Change blue to teal."},"sequence":1}
+{"version":1,"runId":"ecd9c0a8-2c1b-4f46-90f8-d78e096a4dff","recordedAt":"2026-11-20T15:40:42.054Z","evidence":{"kind":"state","state":"streaming"},"sequence":2}
+{"version":1,"runId":"ecd9c0a8-2c1b-4f46-90f8-d78e096a4dff","recordedAt":"2026-11-20T15:40:42.080Z","sessionId":"01m7wsvy6xwkk031y7mwbcym4w","evidence":{"kind":"session","agent":"contexo-bonsai"},"sequence":3}
+{"version":1,"runId":"ecd9c0a8-2c1b-4f46-90f8-d78e096a4dff","recordedAt":"2026-11-20T15:41:09.017Z","sessionId":"01m7wsvy6xwkk031y7mwbcym4w","turnId":"01m7wsvy72yer654rypef8wvdf","evidence":{"kind":"state","state":"done"},"sequence":4}
+{"version":1,"runId":"ecd9c0a8-2c1b-4f46-90f8-d78e096a4dff","recordedAt":"2026-11-20T15:41:09.017Z","sessionId":"01m7wsvy6xwkk031y7mwbcym4w","turnId":"01m7wsvy72yer654rypef8wvdf","evidence":{"kind":"agent-event","event":{"kind":"turn-done","status":"done"}},"sequence":5}

@@ -109,6 +109,7 @@ export interface Hunk {
 }
 
 export interface Proposal {
+  summary?: string;
   key: Sha;
   runId: string;
   toolCallId: string;

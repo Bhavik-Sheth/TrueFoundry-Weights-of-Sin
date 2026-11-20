@@ -10,6 +10,7 @@
  * Depends on: bridge.ts, src/types.ts. Depended on by: App.tsx.
  */
 import { useState } from 'react';
+import { inception } from '../../src/run/inception';
 import { post } from './bridge';
 import type { CatalogProviderView, SettingsView, SetupStatus, SetupStep } from '../../src/types';
 
@@ -83,9 +84,10 @@ export function ProviderStep({ data }: { data: SetupData }) {
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [modelIds, setModelIds] = useState(OPENROUTER_DEFAULT_MODELS);
-  const chosen = type || data.catalog.find((c) => !c.custom)?.type || '';
+  const chosen = type || inception.name;
   // OpenRouter is not in TrueForge's catalog; it is OpenAI-compatible, so it is saved as a
   // TrueForge "custom" provider. TrueForge (not Contexo) calls this URL.
+  const isInception = chosen === inception.name;
   const openRouter = chosen === OPENROUTER;
   const custom = !openRouter && (data.catalog.find((c) => c.type === chosen)?.custom ?? false);
   const ids = modelIds.split(',').map((s) => s.trim()).filter(Boolean);
@@ -99,9 +101,11 @@ export function ProviderStep({ data }: { data: SetupData }) {
   const save = () => {
     post({
       type: 'saveProvider',
-      providerType: openRouter ? 'custom' : chosen,
+      providerType: isInception || openRouter ? 'custom' : chosen,
       key,
-      ...(openRouter
+      ...(isInception
+        ? { name: inception.name, baseUrl: inception.baseUrl, modelIds: [inception.model] }
+        : openRouter
         ? { name: 'openrouter', baseUrl: OPENROUTER_BASE_URL, modelIds: ids }
         : custom
           ? { name, baseUrl, modelIds: ids }
@@ -115,13 +119,15 @@ export function ProviderStep({ data }: { data: SetupData }) {
       <p>Your key is sent once to your local TrueForge, which stores it. Contexo never keeps it.</p>
       <label htmlFor="prov-type">Provider</label>
       <select id="prov-type" value={chosen} onChange={(e) => setType(e.target.value)}>
-        {data.catalog.map((c) => (
+        <option value={inception.name}>Inception · Mercury 3</option>
+        {data.catalog.filter(c => c.type !== inception.name).map((c) => (
           <option key={c.type} value={c.type}>
             {c.type}
           </option>
         ))}
         <option value={OPENROUTER}>openrouter</option>
       </select>
+      {isInception && <p>Mercury 3 · {inception.baseUrl}</p>}
       {openRouter && (
         <>
           <label htmlFor="prov-or-models">OpenRouter model ids (comma separated)</label>

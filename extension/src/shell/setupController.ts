@@ -23,6 +23,7 @@ import type { TfProcHandle, TfProcState } from '../run/trueforgeProcess';
 import { computeSetupStatus, isSetupComplete, repickModels } from './setup';
 import { createFailureSim, expectedPrimaryModel } from '../run/failureMode';
 import type { FailureSim } from '../run/failureMode';
+import { inceptionModel } from '../run/inception';
 import { BROKEN_PROVIDER } from '../run/manifests';
 
 export interface SetupDeps {
@@ -78,6 +79,11 @@ export class SetupController {
   async init(): Promise<void> {
     await this.start(getConfig().autoStartTrueForge);
     const status = await this.refresh();
+    if (status.trueforge === 'running' && status.primaryModel === inceptionModel &&
+        status.models.includes(inceptionModel) && !isSetupComplete(status)) {
+      await this.register(true);
+      return;
+    }
     if (isSetupComplete(status)) {
       try { await this.admin.ensureConnector(this.deps.mcpPort, this.deps.token); await this.refresh(); }
       catch (e) { log('setup: silent connector refresh failed', String(e)); }
@@ -195,6 +201,7 @@ export class SetupController {
           this.result('saveProvider', true, `Saved ${m.providerType} to TrueForge.`);
         } catch (e) {
           this.result('saveProvider', false, e instanceof Error ? e.message : 'Could not save the provider.');
+          return;
         } finally {
           key = '';
         }
@@ -202,6 +209,7 @@ export class SetupController {
         // Saving a provider replaces its model list. If the chosen models were removed, pick from the
         // models just saved so the agents never keep pointing at a model that no longer exists.
         const pick = repickModels(after.models, getConfig().primaryModel, getConfig().fallbackModel, m.name ?? m.providerType);
+        if (!pick && after.primaryModel === inceptionModel && after.models.includes(inceptionModel) && !isSetupComplete(after)) await this.register(true);
         if (pick) {
           const cfgW = vscode.workspace.getConfiguration('contexo');
           await cfgW.update('primaryModel', pick.primary, vscode.ConfigurationTarget.Global);

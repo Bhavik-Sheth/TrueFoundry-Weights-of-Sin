@@ -29,6 +29,12 @@
   </div>
 </div>
 <div class="content">
+<section id="assistant" hidden>
+  <form id="ask-form"><label for="ask">Ask Contexo</label><textarea id="ask" rows="2" placeholder="Describe a change to this repository" required></textarea>
+  <div class="actions"><button class="primary" id="ask-submit">Send request</button><button type="button" id="ask-stop" hidden>Stop run</button><button type="button" id="ask-setup">Connection settings</button></div></form>
+  <p id="run-status" role="status"></p><pre id="run-answer" hidden></pre>
+</section>
+<section id="review-summary" hidden><h2>Review summary</h2><p id="proposal-summary"></p><p id="decision-summary"></p><ul id="file-summary"></ul></section>
 <div class="review-bar">
   <p id="status" role="status">Open a review file or load the example to get started.</p>
   <details id="input-panel"><summary>Edit input JSON</summary>

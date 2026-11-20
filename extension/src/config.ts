@@ -9,6 +9,7 @@
  * Depends on: vscode API only.
  * Depended on by: extension, run/tfClient, run/runManager, mcp/runCommand, context/assembler.
  */
+import { inceptionModel } from './run/inception';
 import * as vscode from 'vscode';
 
 export interface ContexoConfig {
@@ -40,7 +41,7 @@ export function getConfig(): ContexoConfig {
     devMode: c.get<boolean>('devMode', false),
     autoStartTrueForge: c.get<boolean>('autoStartTrueForge', true),
     stopTrueForgeOnExit: c.get<'startedByContexo' | 'always' | 'never'>('stopTrueForgeOnExit', 'startedByContexo'),
-    primaryModel: c.get<string>('primaryModel', ''),
+    primaryModel: c.get<string>('primaryModel', inceptionModel),
     fallbackModel: c.get<string>('fallbackModel', ''),
   };
 }
