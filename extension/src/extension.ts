@@ -96,6 +96,25 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     await journal.flush();
     await vscode.window.showInformationMessage('Attached ' + findings.length + ' findings to the run record.');
   }));
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.checkCandidate', async () => {
+    const proposal = review.pending;
+    const root = vscode.workspace.workspaceFolders?.[0];
+    if (!proposal || !root) throw new Error('Open a proposal and accept the hunks to test first.');
+    const image = await vscode.window.showInputBox({ prompt: 'Local Docker image containing pytest and project dependencies' });
+    if (!image) return;
+    if (review.pending !== proposal) throw new Error('The proposal changed. Open the current proposal.');
+    const ids = proposal.hunks.filter(h => h.decision === 'accepted').map(h => h.id);
+    const name = 'pytest ' + proposal.key + ' hunks ' + ids.join(', ');
+    try {
+      const { checkCandidate } = await import('./review/candidateCheck');
+      await checkCandidate(root.uri.fsPath, proposal, image);
+      journal?.record(proposal.runId, { kind: 'check', source: image, name, status: 'passed' });
+      await vscode.window.showInformationMessage('Candidate tests passed for the selected hunks.');
+    } catch (error) {
+      journal?.record(proposal.runId, { kind: 'check', source: image, name, status: 'failed' });
+      throw error;
+    }
+  }));
   const runs = new RunManager({
     record: journal?.record,
     tf, review, cfg,
