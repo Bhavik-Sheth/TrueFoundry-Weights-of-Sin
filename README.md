@@ -63,7 +63,13 @@ You need Node.js 22.14+ installed (Contexo uses it to run TrueForge locally) and
 
 Use this if you prefer the terminal or the TrueForge UI.
 
-1. Start TrueForge yourself (leave it running): `npx @truefoundry/trueforge@latest` (http://localhost:8790; `--port <n>` or `PORT` to change). Set `contexo.autoStartTrueForge` to `false` to stop Contexo from starting one.
+1. Start TrueForge yourself (leave it running), allowing it to reach the local Contexo MCP server. TrueForge blocks connections to `127.0.0.1` by default, so set `OUTBOUND_URL_ALLOWED_HOSTS`:
+
+   ```bash
+   OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1"]' npx @truefoundry/trueforge@latest
+   ```
+
+   PowerShell: `$env:OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1"]'; npx @truefoundry/trueforge@latest`. It serves http://localhost:8790 (`--port <n>` or `PORT` to change). Contexo sets this variable itself when it starts TrueForge. Set `contexo.autoStartTrueForge` to `false` to stop Contexo from starting one.
 2. In the TrueForge UI, open **Settings -> Models** and configure two models (a primary and a fallback, ideally from different providers). See [extension/trueforge/models.example.md](extension/trueforge/models.example.md). Never commit keys.
 3. Run **Contexo: Copy MCP Connection** from the Command Palette (copies the MCP URL and the `X-Contexo-Token`).
 4. Register the connector and agents (from `extension/`):

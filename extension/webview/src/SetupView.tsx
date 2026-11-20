@@ -69,6 +69,9 @@ export function TrueForgeStep({ status }: { status: SetupStatus }) {
   );
 }
 
+const OPENROUTER = 'openrouter';
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
 export function ProviderStep({ data }: { data: SetupData }) {
   const status = data.status!;
   const [type, setType] = useState('');
@@ -77,14 +80,25 @@ export function ProviderStep({ data }: { data: SetupData }) {
   const [baseUrl, setBaseUrl] = useState('');
   const [modelIds, setModelIds] = useState('');
   const chosen = type || data.catalog.find((c) => !c.custom)?.type || '';
-  const custom = data.catalog.find((c) => c.type === chosen)?.custom ?? false;
-  const canSave = status.trueforge === 'running' && !!chosen && (custom ? !!name && !!baseUrl && !!modelIds.trim() : !!key);
+  // OpenRouter is not in TrueForge's catalog; it is OpenAI-compatible, so it is saved as a
+  // TrueForge "custom" provider. TrueForge (not Contexo) calls this URL.
+  const openRouter = chosen === OPENROUTER;
+  const custom = !openRouter && (data.catalog.find((c) => c.type === chosen)?.custom ?? false);
+  const ids = modelIds.split(',').map((s) => s.trim()).filter(Boolean);
+  const canSave =
+    status.trueforge === 'running' &&
+    !!chosen &&
+    (openRouter ? !!key && ids.length > 0 : custom ? !!name && !!baseUrl && ids.length > 0 : !!key);
   const save = () => {
     post({
       type: 'saveProvider',
-      providerType: chosen,
+      providerType: openRouter ? 'custom' : chosen,
       key,
-      ...(custom ? { name, baseUrl, modelIds: modelIds.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+      ...(openRouter
+        ? { name: 'openrouter', baseUrl: OPENROUTER_BASE_URL, modelIds: ids }
+        : custom
+          ? { name, baseUrl, modelIds: ids }
+          : {}),
     });
     setKey(''); // clear immediately: the key is never kept in the UI
   };
@@ -99,7 +113,20 @@ export function ProviderStep({ data }: { data: SetupData }) {
             {c.type}
           </option>
         ))}
+        <option value={OPENROUTER}>openrouter</option>
       </select>
+      {openRouter && (
+        <>
+          <label htmlFor="prov-or-models">OpenRouter model ids (comma separated)</label>
+          <input
+            id="prov-or-models"
+            placeholder="e.g. anthropic/claude-sonnet-4.5, openai/gpt-4o"
+            value={modelIds}
+            onChange={(e) => setModelIds(e.target.value)}
+          />
+          <p>Use the ids from openrouter.ai/models. Saved in TrueForge as a custom OpenAI-compatible provider.</p>
+        </>
+      )}
       {custom && (
         <>
           <label htmlFor="prov-name">Name</label>

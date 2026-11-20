@@ -25,12 +25,20 @@ export type AdminClient = Pick<TrueForge, 'server' | 'models' | 'settings' | 'ca
 
 export interface AdminDeps { client?: AdminClient; log?: (...a: unknown[]) => void }
 
+function bodyMessage(e: unknown): string {
+  const body = (e as { body?: { error?: { message?: unknown } } })?.body;
+  const m = body?.error?.message;
+  return typeof m === 'string' ? m : '';
+}
+
 export function friendlyError(e: unknown, secrets: string[] = []): Error {
   const err = e as { statusCode?: number; message?: string; cause?: { code?: string }; name?: string };
   let msg: string;
   if (err?.statusCode === 401 || err?.statusCode === 403) msg = 'TrueForge rejected the request (unauthorized).';
   else if (err?.statusCode === 409) msg = 'TrueForge reports a conflict (the resource already exists).';
-  else if (err?.statusCode === 400) msg = 'TrueForge rejected the request as invalid (check the key and fields).';
+  else if (err?.statusCode === 400 && /Outbound URL blocked/.test(bodyMessage(e))) {
+    msg = 'TrueForge blocks connections to 127.0.0.1. Restart TrueForge with OUTBOUND_URL_ALLOWED_HOSTS=["127.0.0.1"] (Contexo does this when it starts TrueForge itself).';
+  } else if (err?.statusCode === 400) msg = `TrueForge rejected the request as invalid${bodyMessage(e) ? `: ${bodyMessage(e)}` : ' (check the key and fields)'}.`;
   else if (err?.statusCode === 424) msg = 'TrueForge could not validate the provider (check the key and base URL).';
   else if (err?.name === 'TrueForgeTimeoutError') msg = 'TrueForge did not answer in time.';
   else if (!err?.statusCode && (err?.cause?.code === 'ECONNREFUSED' || /fetch failed|ECONNREFUSED/.test(String(err?.message)))) {

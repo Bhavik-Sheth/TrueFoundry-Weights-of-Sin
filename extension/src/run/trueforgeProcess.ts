@@ -73,8 +73,14 @@ function defaultSpawn(port: number): ChildProcess {
     detached: false,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
+    // TrueForge blocks outbound URLs to loopback by default (SSRF guard); the Contexo MCP
+    // connector lives on 127.0.0.1, so allow exactly that host.
+    env: { ...process.env, OUTBOUND_URL_ALLOWED_HOSTS: LOOPBACK_ALLOWLIST },
   });
 }
+
+/** Value for TrueForge's OUTBOUND_URL_ALLOWED_HOSTS so it can reach the local Contexo MCP server. */
+export const LOOPBACK_ALLOWLIST = '["127.0.0.1"]';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
