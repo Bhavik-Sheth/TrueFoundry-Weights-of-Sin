@@ -19,6 +19,7 @@
   ],
   "contributes": {
     "commands": [
+      { "command": "contexo.recoverApply", "title": "Contexo: Recover Interrupted Apply" },
       { "command": "contexo.checkCandidate", "title": "Contexo: Test Accepted Hunks Before Apply" },
       { "command": "contexo.importSecurityReport", "title": "Contexo: Attach SARIF Security Report" },
       { "command": "contexo.openRunRecord", "title": "Contexo: Open Run Record" },

@@ -103,7 +103,7 @@ export class ReviewEngine {
   private pendingKey?: Sha;
   private outsideDeco?: vscode.TextEditorDecorationType;
 
-  constructor(post: (m: ToWebview) => void = () => {}, storage?: vscode.Memento) {
+  constructor(post: (m: ToWebview) => void = () => {}, private readonly storage?: vscode.Memento) {
     this.undo = new UndoStack(post, storage);
   }
 
@@ -226,6 +226,31 @@ export class ReviewEngine {
     this.codeLensChanged.fire();
   }
 
+  private applying = false;
+
+  async recoverApply(): Promise<void> {
+    const saved = this.storage?.get<{ runId: string; hunks: Proposal['hunks']; files: Array<{ path: string; base: string; target: string }> }>('review.apply.v1');
+    if (!saved || this.applying) return;
+    this.applying = true;
+    try {
+      const pending = new Map<string, string>();
+      for (const file of saved.files) {
+        const text = await readLive(file.path);
+        if (text === file.target) continue;
+        if ((text === undefined ? 'new' : sha256(text)) !== file.base) {
+          throw new Error('Recovery paused because the file changed: ' + file.path);
+        }
+        pending.set(file.path, file.target);
+      }
+      if (pending.size) await this.undo.applyFiles(pending);
+      const known = new Set(this.undo.list().filter(h => h.runId === saved.runId).map(h => h.hunkId));
+      await this.undo.recordApplied(saved.runId, saved.hunks.filter(h => !known.has(h.id)));
+      await this.storage?.update('review.apply.v1', undefined);
+    } finally {
+      this.applying = false;
+    }
+  }
+
   async applyAccepted(key: Sha): Promise<void> {
     const p = this.proposals.get(key);
     if (!p || p.status !== 'reviewing') return;
@@ -233,6 +258,9 @@ export class ReviewEngine {
       this.rejectAll(key);
       return;
     }
+    if (this.applying) return;
+    if (this.storage?.get('review.apply.v1')) throw new Error('Recover the interrupted apply before applying another proposal.');
+    this.applying = true;
     const resolve = this.resolvers.get(key)!;
     const run = this.runs.get(key)!;
     try {
@@ -250,13 +278,20 @@ export class ReviewEngine {
         const text = rebuildFile(f.base, f.path, p.hunks);
         if (text !== f.base) out.set(f.path, text);
       }
+      await this.storage?.update('review.apply.v1', {
+        runId: run.id, hunks: p.hunks.filter(h => h.decision === 'accepted'),
+        files: p.files.filter(f => out.has(f.path)).map(f => ({ path: f.path, base: f.baseHash, target: out.get(f.path)! })),
+      });
       await this.undo.applyFiles(out);
       await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
+      await this.storage?.update('review.apply.v1', undefined);
     } catch (err) {
       log('applyAccepted failed', errText(err));
       this.finish(p, 'rejected', { applied: [], rejected: p.hunks.map((h) => h.id) });
       resolve(false, `APPLY_FAILED: ${errText(err)}`);
       return;
+    } finally {
+      this.applying = false;
     }
     this.finish(p, 'applied', computeResult(p.hunks));
     resolve(true);
@@ -400,6 +435,12 @@ export class ReviewEngine {
 export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview) => void): ReviewEngine {
   const review = new ReviewEngine(post, ctx.workspaceState);
 
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.recoverApply', () => review.recoverApply()));
+  if (ctx.workspaceState.get('review.apply.v1')) {
+    void vscode.window.showWarningMessage('Contexo found an interrupted apply.', 'Recover').then(choice => {
+      if (choice) void vscode.commands.executeCommand('contexo.recoverApply');
+    });
+  }
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: (uri) => review.docs.get(uri.toString()) ?? '',
   };
