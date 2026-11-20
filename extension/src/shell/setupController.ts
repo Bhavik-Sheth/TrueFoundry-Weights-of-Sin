@@ -20,7 +20,7 @@ import { createAdmin } from '../run/trueforgeAdmin';
 import type { ProviderList, TrueForgeAdmin } from '../run/trueforgeAdmin';
 import { ensureTrueForge, isLocalUrl, portOf, stopTrueForgeOnPort } from '../run/trueforgeProcess';
 import type { TfProcHandle, TfProcState } from '../run/trueforgeProcess';
-import { computeSetupStatus, isSetupComplete } from './setup';
+import { computeSetupStatus, isSetupComplete, repickModels } from './setup';
 import { createFailureSim, expectedPrimaryModel } from '../run/failureMode';
 import type { FailureSim } from '../run/failureMode';
 import { BROKEN_PROVIDER } from '../run/manifests';
@@ -197,7 +197,18 @@ export class SetupController {
         } finally {
           key = '';
         }
-        await this.refresh();
+        const after = await this.refresh();
+        // Saving a provider replaces its model list. If the chosen models were removed, pick from the
+        // models just saved so the agents never keep pointing at a model that no longer exists.
+        const pick = repickModels(after.models, getConfig().primaryModel, getConfig().fallbackModel, m.name ?? m.providerType);
+        if (pick) {
+          const cfgW = vscode.workspace.getConfiguration('contexo');
+          await cfgW.update('primaryModel', pick.primary, vscode.ConfigurationTarget.Global);
+          await cfgW.update('fallbackModel', pick.fallback, vscode.ConfigurationTarget.Global);
+          const s = await this.refresh();
+          if (s.connectorOk) await this.register(true);
+          this.result('saveProvider', true, `Saved ${m.providerType}. Models switched to ${pick.primary} (fallback ${pick.fallback}).`);
+        }
         break;
       }
       case 'setModels': {

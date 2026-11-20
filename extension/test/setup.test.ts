@@ -51,3 +51,21 @@ describe('setup flow needs no TrueForge web UI', () => {
     expect(setup).toMatch(/Advanced: open TrueForge web UI/);
   });
 });
+
+import { repickModels } from '../src/shell/setup';
+
+describe('repickModels', () => {
+  const models = ['openrouter/google-gemma-4-31b-it-free', 'openrouter/nvidia-nemotron-free', 'google-gemini/gemini-3-5-flash'];
+  it('keeps valid choices', () => {
+    expect(repickModels(models, models[0], models[2], 'openrouter')).toBeUndefined();
+  });
+  it('replaces models that were removed, using the saved provider (two different ones)', () => {
+    expect(repickModels(models, 'openrouter/recraft-free', 'openrouter/recraft-free', 'openrouter')).toEqual({
+      primary: 'openrouter/google-gemma-4-31b-it-free',
+      fallback: 'openrouter/nvidia-nemotron-free',
+    });
+  });
+  it('keeps a still-valid fallback', () => {
+    expect(repickModels(models, 'openrouter/gone', models[2], 'openrouter')).toEqual({ primary: models[0], fallback: models[2] });
+  });
+});

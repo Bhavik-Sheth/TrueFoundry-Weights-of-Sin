@@ -47,3 +47,23 @@ export function isSetupComplete(s: SetupStatus): boolean {
     s.agentsOk
   );
 }
+
+/**
+ * After a provider's model list changes: if the chosen primary/fallback no longer exist, choose models of that
+ * provider instead (first as primary, second if any as fallback). Returns undefined when nothing needs to change.
+ */
+export function repickModels(
+  models: string[],
+  primary: string | undefined,
+  fallback: string | undefined,
+  provider: string,
+): { primary: string; fallback: string } | undefined {
+  const has = (x?: string) => !!x && models.includes(x);
+  if (has(primary) && (!fallback || has(fallback))) return undefined;
+  const own = models.filter((x) => x.startsWith(`${provider}/`));
+  const pool = own.length ? own : models;
+  if (!pool.length) return undefined;
+  const p = has(primary) ? (primary as string) : pool[0];
+  const f = has(fallback) ? (fallback as string) : pool.find((x) => x !== p) ?? p;
+  return { primary: p, fallback: f };
+}

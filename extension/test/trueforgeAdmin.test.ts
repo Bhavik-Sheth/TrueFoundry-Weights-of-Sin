@@ -77,6 +77,28 @@ describe('trueforgeAdmin', () => {
     await createAdmin('http://x', { client }).configureProvider('openai', KEY);
     expect(calls.provider[0].manifest).toMatchObject({ type: 'openai', auth: { apiKey: KEY }, models: [{ modelId: 'gpt-x' }] });
   });
+  it('changing models of a saved custom provider with no key keeps the stored (masked) key', async () => {
+    const { client, calls } = fake();
+    (client.settings.modelProviders.list as any).mockResolvedValue({
+      data: [{ name: 'openrouter', manifest: { auth: { apiKey: 'sk--***REDACTED***-890' } } }],
+    });
+    await createAdmin('http://x', { client }).configureProvider('custom', '', {
+      name: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', modelIds: ['google/gemma-4-31b-it:free'],
+    });
+    expect(calls.provider[0].manifest).toMatchObject({
+      type: 'custom', name: 'openrouter', auth: { apiKey: 'sk--***REDACTED***-890' }, models: [{ modelId: 'google/gemma-4-31b-it:free' }],
+    });
+  });
+  it('a typed key replaces the stored one', async () => {
+    const { client, calls } = fake();
+    await createAdmin('http://x', { client }).configureProvider('custom', KEY, { name: 'openrouter', baseUrl: 'https://o/v1', modelIds: ['a/b'] });
+    expect(calls.provider[0].manifest.auth).toEqual({ apiKey: KEY });
+  });
+  it('a well-known provider that is not saved yet still needs a key', async () => {
+    const { client } = fake();
+    (client.settings.modelProviders.list as any).mockResolvedValue({ data: [] });
+    await expect(createAdmin('http://x', { client }).configureProvider('openai', '')).rejects.toThrow(/API key is required/);
+  });
   it('never leaks the key in thrown errors or logs', async () => {
     const logs: string[] = [];
     const bad = Object.assign(new Error(`upstream said bad key ${KEY}`), { statusCode: 500 });

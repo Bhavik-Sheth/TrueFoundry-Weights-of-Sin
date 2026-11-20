@@ -34,8 +34,27 @@ const FAIL_STATUS = (s: number) => s === 401 || s === 403 || s === 404 || s === 
 type Any = any;
 
 function firstLine(s: string, max = 120): string {
+  const friendly = explainModelError(s);
+  if (friendly) return friendly;
   const l = s.split('\n')[0].trim();
   return l.length > max ? `${l.slice(0, max - 1)}...` : l;
+}
+
+/** Plain-language reason for common provider errors, or undefined when the raw message is clear enough. */
+export function explainModelError(msg: string): string | undefined {
+  if (/support(s)? tool use|tool use is not supported|does not support tools|tools? (are|is) not supported|function calling is not supported/i.test(msg)) {
+    return 'the model does not support tool calling, which Contexo needs. Pick a chat model with tool support (on OpenRouter, filter models by "Tools")';
+  }
+  if (/\b429\b|rate.?limit|too many requests/i.test(msg)) {
+    return 'the provider is rate-limiting requests (free models have low limits). Wait a minute or pick another model';
+  }
+  if (/\b402\b|insufficient (credits|balance|quota)|payment required/i.test(msg)) {
+    return 'the provider account has no credits left for this model';
+  }
+  if (/model.{0,40}not (found|exist)|no such model|invalid model/i.test(msg)) {
+    return 'the provider does not know this model id. Check the model name';
+  }
+  return undefined;
 }
 
 /** Walks error -> cause chain (max 5) looking for a Node network code or 'fetch failed'. */

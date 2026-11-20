@@ -88,7 +88,18 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
     /** Posts the key to TrueForge once. Well-known providers use the catalog's models; custom needs name+baseUrl+modelIds. */
     configureProvider(providerId: string, key: string, extra: ExtraProviderFields = {}): Promise<void> {
       return wrap('configureProvider', [key], async () => {
-        if (!key && providerId !== 'custom') throw new Error('An API key is required.');
+        // No key typed: keep the key TrueForge already stores for this provider. TrueForge returns it masked
+        // ("sk--***REDACTED***-abc"); sending that mask back makes TrueForge keep the real key (verified live),
+        // so Contexo never sees the real key.
+        const savedName = providerId === 'custom' ? extra.name : providerId;
+        let keptAuth: { apiKey: string } | undefined;
+        if (!key) {
+          const conf = await client.settings.modelProviders.list();
+          const saved = conf.data.find((c) => c.name === savedName) as { manifest?: { auth?: { apiKey?: string } } } | undefined;
+          if (saved?.manifest?.auth?.apiKey) keptAuth = { apiKey: saved.manifest.auth.apiKey };
+          else if (providerId !== 'custom') throw new Error('An API key is required.');
+        }
+        const auth = key ? { apiKey: key } : keptAuth;
         const cat = await client.catalogs.modelProviders.list();
         const entry = cat.data.find((p) => p.type === providerId);
         if (!entry) throw new Error(`Unknown provider "${providerId}".`);
@@ -99,12 +110,12 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
             type: 'custom',
             name: extra.name,
             baseUrl: extra.baseUrl,
-            ...(key ? { auth: { apiKey: key } } : {}),
+            ...(auth ? { auth } : {}),
             models: extra.modelIds.map((id) => ({ modelId: id, name: id.replace(/[^A-Za-z0-9_-]/g, '-').toLowerCase(), properties: {} })),
           };
         } else {
           const models = entry.models.map((m) => ({ modelId: m.modelId, name: m.name, properties: m.properties }));
-          manifest = { type: entry.type, auth: { apiKey: key }, models, ...(extra.baseUrl ? { baseUrl: extra.baseUrl } : {}) } as typeof manifest;
+          manifest = { type: entry.type, auth, models, ...(extra.baseUrl ? { baseUrl: extra.baseUrl } : {}) } as typeof manifest;
         }
         await client.settings.modelProviders.createOrUpdate({ manifest });
         log(`admin.configureProvider ok: ${providerId}`);

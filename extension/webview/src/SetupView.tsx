@@ -73,6 +73,8 @@ export function TrueForgeStep({ status }: { status: SetupStatus }) {
 
 const OPENROUTER = 'openrouter';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+// Free OpenRouter chat models that list tool calling (checked 20 Nov 2026); editable before saving.
+const OPENROUTER_DEFAULT_MODELS = 'google/gemma-4-31b-it:free, nvidia/nemotron-3-ultra-550b-a55b:free';
 
 export function ProviderStep({ data }: { data: SetupData }) {
   const status = data.status!;
@@ -80,17 +82,20 @@ export function ProviderStep({ data }: { data: SetupData }) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
-  const [modelIds, setModelIds] = useState('');
+  const [modelIds, setModelIds] = useState(OPENROUTER_DEFAULT_MODELS);
   const chosen = type || data.catalog.find((c) => !c.custom)?.type || '';
   // OpenRouter is not in TrueForge's catalog; it is OpenAI-compatible, so it is saved as a
   // TrueForge "custom" provider. TrueForge (not Contexo) calls this URL.
   const openRouter = chosen === OPENROUTER;
   const custom = !openRouter && (data.catalog.find((c) => c.type === chosen)?.custom ?? false);
   const ids = modelIds.split(',').map((s) => s.trim()).filter(Boolean);
+  // A provider TrueForge already has keeps its stored key when the key field is left empty.
+  const alreadySaved = status.providersConfigured.includes(openRouter ? OPENROUTER : custom ? name : chosen);
+  const keyOk = !!key || alreadySaved;
   const canSave =
     status.trueforge === 'running' &&
     !!chosen &&
-    (openRouter ? !!key && ids.length > 0 : custom ? !!name && !!baseUrl && ids.length > 0 : !!key);
+    (openRouter ? keyOk && ids.length > 0 : custom ? !!name && !!baseUrl && ids.length > 0 : keyOk);
   const save = () => {
     post({
       type: 'saveProvider',
@@ -139,7 +144,9 @@ export function ProviderStep({ data }: { data: SetupData }) {
           <input id="prov-models" value={modelIds} onChange={(e) => setModelIds(e.target.value)} />
         </>
       )}
-      <label htmlFor="prov-key">API key{custom ? ' (optional)' : ''}</label>
+      <label htmlFor="prov-key">
+        API key{alreadySaved ? ' (saved in TrueForge; leave empty to keep it, or paste a new one)' : custom ? ' (optional)' : ''}
+      </label>
       <input id="prov-key" type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} />
       <div className="row">
         <button className="btn" disabled={!canSave} onClick={save}>
@@ -184,7 +191,15 @@ export function ModelStep({ data }: { data: SetupData }) {
           <select id="m-fallback" value={fallback} onChange={(e) => setFallback(e.target.value)}>
             {opts}
           </select>
-          {sameProvider && <p className="warn">Both models use the same provider, so a provider outage would take both down.</p>}
+          <p>
+            Pick chat models that support <strong>tool calling</strong>: Contexo's agent reads and edits code through tools.
+            Image, audio and embedding models will fail. On OpenRouter, filter models by "Tools".
+          </p>
+          {primary && primary === (fallback || primary) ? (
+            <p className="warn">Primary and fallback are the same model, so the fallback cannot help if that model fails. Pick a different fallback.</p>
+          ) : (
+            sameProvider && <p className="warn">Both models use the same provider, so a provider outage would take both down.</p>
+          )}
           <div className="row">
             <button className="btn" disabled={!primary} onClick={() => post({ type: 'setModels', primary, fallback: fallback || primary })}>
               Save models
