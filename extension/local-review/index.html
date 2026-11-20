@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contexo Review</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/glow.js" defer></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div class="workspace">
+<header class="topbar">
+  <a class="brand" href="#review"><span class="brand-mark" aria-hidden="true"></span>Contexo</a>
+  <nav aria-label="Workspace"><a href="#review">Review</a><a href="#history">Commits</a><a href="#replay">Run replay</a></nav>
+  <span class="environment"><span aria-hidden="true"></span>Local workspace</span>
+</header>
+<main>
+<div id="review" class="review-hero">
+  <contexo-glow aria-hidden="true"></contexo-glow>
+  <div class="hero-content">
+    <h1>Review a change</h1>
+    <p>Inspect the diff, follow its impact, and check the evidence for this candidate.</p>
+    <div class="actions review-actions">
+      <label class="pill primary file-picker"><input id="review-file" type="file" accept=".json"><span aria-hidden="true">↑</span> Open review JSON</label>
+      <button id="example">Load example</button>
+      <button id="save-review" disabled>Save review JSON</button>
+    </div>
+  </div>
+</div>
+<div class="content">
+<div class="review-bar">
+  <p id="status" role="status">Open a review file or load the example to get started.</p>
+  <details id="input-panel"><summary>Edit input JSON</summary>
+    <textarea id="review-input" aria-label="Review input JSON" spellcheck="false"></textarea>
+    <button id="analyze">Analyze</button>
+  </details>
+</div>
+<div class="grid">
+<section class="diff-panel"><h2>Diff</h2><div id="diff"><p class="empty">Proposed hunks will appear here.</p></div></section>
+<section class="impact-panel"><h2>Impact graph</h2><p id="scope" class="empty">See added and removed Python dependencies.</p><div id="graph"></div></section>
+<section class="checks-panel"><h2>Checks and findings</h2><div id="checks"><p class="empty">Evidence will be compared against the candidate.</p></div></section>
+<section class="requirements-panel"><h2>Requirements</h2><div id="requirements"></div><form id="requirement"><label class="field">Requirement <input id="requirement-text" placeholder="Enter a requirement" required></label><button type="submit" disabled>Link selected hunks</button></form></section>
+</div>
+<section id="history" class="history-panel">
+<div class="history-heading"><h2>Commit graph</h2><button id="refresh-history">Refresh history</button></div>
+<p id="history-status" role="status">Loading Git history…</p>
+<div id="history-workspace" class="history-workspace" hidden>
+  <div class="history-scroll" tabindex="0" aria-label="Git commit history">
+    <div id="history-track" class="history-track"><div id="commit-lanes" aria-hidden="true"></div><div id="commit-list"></div></div>
+  </div>
+  <aside id="commit-detail" class="commit-detail" aria-label="Selected commit"></aside>
+</div>
+</section>
+<section id="replay" class="replay-panel">
+<h2>Run replay</h2>
+<div class="actions replay-actions"><label class="field">Format <select id="format"><option value="native">Contexo JSONL</option><option value="acp">ACP JSONL</option><option value="otlp">OTLP JSON</option></select></label><label class="pill file-picker"><input id="replay-file" aria-label="Run record file" type="file" accept=".json,.jsonl"><span aria-hidden="true">↑</span> Open run record</label><div class="pager"><button id="prev" disabled>Previous</button><button id="next" disabled>Next</button></div></div>
+<p id="replay-status" role="status">Open a run record to step through its events.</p><pre id="event" tabindex="0"></pre>
+</section>
+</div>
+</main>
+</div>
+</body>
+</html>

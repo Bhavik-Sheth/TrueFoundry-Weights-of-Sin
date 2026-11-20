@@ -61,7 +61,8 @@ export class SetupController {
   }
 
   private makeAdmin(): TrueForgeAdmin {
-    return createAdmin(getConfig().trueforgeUrl, { log });
+    const cfg = getConfig();
+    return createAdmin(cfg.trueforgeUrl, { log, agentNames: { primary: cfg.primaryAgent, fallback: cfg.fallbackAgent } });
   }
 
   private makeSim(): FailureSim {
@@ -242,18 +243,13 @@ export class SetupController {
       this.result('register', false, 'Choose a primary model first.', steps);
       return;
     }
-    try {
-      await this.admin.ensureConnector(this.deps.mcpPort, this.deps.token);
-      steps.push({ label: 'MCP connector contexo-editor', ok: true });
-    } catch (e) {
-      steps.push({ label: 'MCP connector contexo-editor', ok: false, detail: e instanceof Error ? e.message : String(e) });
-    }
-    try {
-      const done = await this.admin.ensureAgents(expectedPrimaryModel(this.sim.active, cfg.primaryModel), cfg.fallbackModel || undefined, instructions);
-      for (const d of done) steps.push({ label: `Agent ${d.name}`, ok: true, detail: d.action });
-    } catch (e) {
-      steps.push({ label: 'Agents contexo / contexo-fallback', ok: false, detail: e instanceof Error ? e.message : String(e) });
-    }
+    steps.push(...await this.admin.register({
+      port: this.deps.mcpPort,
+      token: this.deps.token,
+      primaryModel: expectedPrimaryModel(this.sim.active, cfg.primaryModel),
+      fallbackModel: cfg.fallbackModel || undefined,
+      instructions,
+    }));
     const ok = steps.every((s) => s.ok);
     this.result('register', ok, ok ? (quiet ? 'Models updated.' : 'Registered in TrueForge.') : 'Registration failed.', steps);
     await this.refresh();

@@ -9,7 +9,7 @@
  *
  * Depends on: bridge.ts, ChatTab.tsx, ContextTab.tsx, ChangesTab.tsx. Depended on by: main.tsx.
  */
-import { useEffect, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import { getState, post, setState, subscribe } from './bridge';
 import type { RunStateMsg } from '../../src/types';
 import { ChatTab } from './ChatTab';
@@ -21,7 +21,7 @@ import type { SetupData } from './SetupView';
 import type { ToWebview } from '../../src/types';
 
 type Tab = 'chat' | 'session' | 'context' | 'changes' | 'settings';
-const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['session', 'Session'], ['context', 'Context'], ['changes', 'Changes'], ['settings', '⚙ Settings']];
+const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['session', 'Session'], ['context', 'Context'], ['changes', 'Changes'], ['settings', 'Settings']];
 
 export function App() {
   const [tab, setTab] = useState<Tab>(() => getState<{ tab?: Tab }>().tab ?? 'chat');
@@ -72,14 +72,16 @@ export function App() {
 
   return (
     <div className="app">
-      <div className="header">
-        <span className="pill">{run.state}</span>
-        {run.agent && <span>{run.agent}</span>}
-        <span className="spacer" />
-        <button className="btn" disabled={!busy} onClick={() => post({ type: 'stop' })}>
-          Stop
-        </button>
-      </div>
+      <header className="header">
+        {createElement('contexo-glow', { 'aria-hidden': true })}
+        <div className="identity"><strong>Contexo</strong><span className="pill" role="status">{run.state === 'awaiting-review' ? 'Awaiting review' : run.state}</span></div>
+        <div className="header-actions">
+          <button className="btn secondary" onClick={() => post({ type: 'reviewAction', action: 'workbench' })}>
+            {run.state === 'awaiting-review' ? 'Review hunks' : 'Open workbench'}
+          </button>
+          {busy && <button className="btn" onClick={() => post({ type: 'stop' })}>Stop</button>}
+        </div>
+      </header>
       {setup.settings?.simulatedFailure && (
         <div role="alert" className="banner" style={{ fontWeight: 'bold' }}>
           Primary model is in simulated-failure mode. Restore it in Settings, Test resilience.
@@ -104,23 +106,32 @@ export function App() {
         </div>
       ) : (
       <>
-      <div className="tabs">
+      <nav className="tabs" aria-label="Assistant views">
         {TABS.map(([id, label]) => (
-          <button key={id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => choose(id)}>
+          <button key={id} aria-current={tab === id ? 'page' : undefined} className={`tab${tab === id ? ' active' : ''}`} onClick={() => choose(id)}>
             {label}
           </button>
         ))}
-      </div>
+      </nav>
       <div className="content">
         {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} />}
-        {tab === 'session' && <SessionTab />}
+        {tab === 'session' && <><div className="review-tools">
+          <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'replay'})}>Replay run</button>
+          <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'import'})}>Import trace</button>
+        </div><SessionTab /></>}
         {tab === 'context' && <ContextTab />}
-        {tab === 'changes' && <ChangesTab />}
+        {tab === 'changes' && <>
+          <div className="review-tools" aria-label="Change review tools">
+            {run.state === 'awaiting-review' && <button className="btn" onClick={() => post({type: 'reviewAction', action: 'check'})}>Test candidate</button>}
+            <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'restore'})}>Restore review</button>
+            <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'sync'})}>Fetch evidence</button>
+          </div><ChangesTab /></>}
         {tab === 'settings' && <SettingsTab data={setup} />}
       </div>
       {tab !== 'settings' && tab !== 'session' && (
       <div className="composer">
         <textarea
+          aria-label="Message the Contexo assistant"
           value={text}
           disabled={busy}
           placeholder={busy ? 'Run in progress...' : 'Ask the agent... (Enter to send, Shift+Enter for a new line)'}
@@ -132,7 +143,7 @@ export function App() {
             }
           }}
         />
-        <button className="btn" disabled={busy} onClick={send}>
+        <button className="btn" disabled={busy || !text.trim()} onClick={send}>
           Send
         </button>
       </div>

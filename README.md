@@ -8,16 +8,46 @@ Contexo is a VS Code extension that adds a context-aware coding agent to the edi
 - **Safe review**: nothing is written until you accept; every hunk has Accept/Reject CodeLens; applied hunks can be undone.
 - **Streaming, Stop, fallback**: tokens stream in; Stop is immediate and leaves the workspace untouched; if the primary model fails, a second configured model takes over.
 
-The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge. TrueForge is a backend-only harness here: **Contexo is the only UI** (setup, models, session inspection and the resilience test all happen in the panel; you never need to open TrueForge's web UI).
+The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge. TrueForge is a backend-only harness here: **Contexo provides the editor UI** (setup, models, session inspection and the resilience test all happen in the panel; you never need to open TrueForge's web UI).
 
-## Quick start (just use it)
+## Open the extension
 
-1. Get `contexo.vsix` (build it with the steps below, or download it from the repository's releases if one is published).
-2. In VS Code: **Extensions → ⋯ → Install from VSIX…** and pick the file (or `code --install-extension contexo.vsix`).
-3. Open any project folder and click the **Contexo** icon in the secondary sidebar. The setup wizard starts TrueForge, takes your provider API key, lets you pick a primary and a fallback model, and registers the agents. No terminal and no TrueForge UI needed. The **Session** tab shows what TrueForge did for each run (turns, tool calls, approvals, fallback).
-4. Select code and press `Ctrl+K E` for an inline edit, or type a request in the Chat tab for agent mode.
+Build from source with Node 22.14 or newer. From `extension/`, run `npm ci` and `npm run build`. Open that directory in VS Code and choose **Run Extension** in Run and Debug. In the Extension Development Host window, open the repository you want to edit. On macOS the Desktop handoff includes an **Open Contexo.command** launcher and a clean Flask checkout. Run the launcher to load the built extension directly.
 
-You need Node.js 22.14+ installed (Contexo uses it to run TrueForge locally) and an API key for at least one model provider.
+**Inline review.** Select code inside the target file, right-click the selection and choose **Contexo: Inline Edit**. Enter the instruction in the prompt box. Review the proposed diff, accept or reject individual hunks, then choose **Apply Accepted Hunks**. The keyboard shortcut is also available. An open file with an empty selection does not expose the context-menu item.
+
+**Assistant.** Open the Contexo sidebar and send a request in Chat. VS Code installations with Chat Participants also expose `@contexo`. The command palette includes **Contexo: Ask Assistant**. Each surface submits turns to the configured TrueForge agent.
+
+**Review workbench.** Choose **Contexo: Open Review Workbench** for the before/proposed code cards, pending hunk decisions, requirement links, repository history and run replay. Click **Refresh active review** after moving to another proposal. The workbench applies accepted hunks through the same editor review engine. **Test Accepted Hunks Before Apply** runs pytest on a temporary copy. This isolates the candidate files. Tests still run with your account's OS permissions.
+
+[Feature-by-feature readiness and remaining competition proof](docs/verification/2026-11-20/ASSESSMENT.md) · [Sidebar preview](docs/verification/2026-11-20/extension-sidebar.png) · [Review workbench preview](docs/verification/2026-11-20/review-gradient.png)
+
+## Terminal assistant
+
+Run from `extension/` after building and registering the agents. `--root` selects the target Git repository. Each terminal invocation starts its own loopback MCP listener and scoped session. The terminal prompts for each hunk and command. Noninteractive input denies approvals.
+
+```bash
+npm run cli -- doctor
+npm run cli -- ask --root /path/to/project "Describe how configuration is loaded"
+npm run cli -- inline --root /path/to/project --file src/example.py --lines 10-16 "Update this function"
+npm run cli -- commits --root /path/to/project
+npm run cli -- review review.json
+npm run cli -- replay run.jsonl --format native
+```
+
+Set `TRUEFORGE_URL`, `CONTEXO_AGENT` and `CONTEXO_FALLBACK_AGENT` to override the default server and agent names. Use `--check` with ask or inline to run pytest against accepted hunks before writing them. CLI records live under `~/.contexo/runs` by default. Choose a directory outside the target repository when setting `CONTEXO_RUNS_DIR`.
+
+## Verification results
+
+Live compatibility runs used Inception Mercury 3 and local Qwen3 1.7B through TrueForge. Both models read the same colour function, requested a write, waited for approval, and applied the same hunk. The fixed Flask tasks have the following evidence on commit `22d924701a6ae2e4cd01e9a15bbaf3946094af65`.
+
+| Case | Recorded result | Evidence |
+| --- | --- | --- |
+| A, inline | Mercury edited the selected function through the CLI. The specified command printed `False`. The separate VS Code fixture exercised editor activation, hunk apply and undo. The fixed editor run awaits manual verification. | [Task A replay](docs/verification/2026-11-20/flask-A-cli.jsonl) · [patch](docs/verification/2026-11-20/flask-A.patch) |
+| B, agent | Mercury independently selected implementation, tests and docs. The initial full CLI suite returned 59 passed and one failure serializing a timedelta. Mercury proposed a correction and the reviewer applied it. An independent post-fix run passed all 60 tests. The command appeared in help and masked synthetic values for SECRET, PASSWORD, TOKEN and KEY, while PUBLIC_VALUE stayed visible. The fixed editor recording remains open. | [Task B replay](docs/verification/2026-11-20/flask-B-cli.jsonl) · [passing pytest output](docs/verification/2026-11-20/flask-B-pytest.txt) · [masked JSON](docs/verification/2026-11-20/flask-B-config.json) · [final patch](docs/verification/2026-11-20/flask-B.patch) |
+| C, resilience | The unreachable-provider rehearsal was stopped for manual testing. A clean-status result and responsive editor demonstration remain open. | [Three-task runbook](docs/DEMO_SCRIPT.md) |
+
+[Mercury edit replay](docs/verification/2026-11-20/mercury-edit.jsonl) · [Qwen edit replay](docs/verification/2026-11-20/qwen-edit.jsonl) · [Extension suite, 210 passed and one TODO](docs/verification/2026-11-20/vitest.txt). Replays contain task code and tool arguments. Review exported files before sharing. The roadmap tracks additional production work including concurrent editor runs, remote workspaces and live CI or sandbox validation. [Remaining work plan](docs/REMAINING_WORK_PLAN.md)
 
 ## Requirements
 
@@ -75,12 +105,13 @@ Advanced alternative: use this if you prefer the terminal (or TrueForge's own we
 4. Register the connector and agents (from `extension/`):
 
    ```bash
+   npm run build
    CONTEXO_TOKEN=<token>    PRIMARY_MODEL=<provider>/<primary model>    FALLBACK_MODEL=<provider>/<fallback model>    node trueforge/register.mjs
    ```
 
    PowerShell: `$env:CONTEXO_TOKEN='...'; $env:PRIMARY_MODEL='...'; $env:FALLBACK_MODEL='...'; node trueforge/register.mjs`.
 
-   Required env vars: `CONTEXO_TOKEN`, `PRIMARY_MODEL`, `FALLBACK_MODEL`. Optional: `TRUEFORGE_URL` (default `http://localhost:8790`), `CONTEXO_PORT` (default `8791`, must match `contexo.mcpPort`). Existing resources with the same name are left alone; the wizard's Register button updates them instead. Agent definitions are in [extension/trueforge/](extension/trueforge/).
+   Required env vars: `CONTEXO_TOKEN` and `PRIMARY_MODEL`. Optional: `FALLBACK_MODEL` (defaults to the primary model), `TRUEFORGE_URL` (default `http://localhost:8790`), and `CONTEXO_PORT` (default `8791`, must match `contexo.mcpPort`). The CLI and wizard update existing Contexo resources and report errors per resource. Agent definitions are in [extension/trueforge/](extension/trueforge/).
 
 5. Reload the VS Code window. The Contexo icon appears in the secondary sidebar; the status bar shows the run state.
 
@@ -210,3 +241,17 @@ UPSTREAMS.md              provenance and licences
 ## Licence
 
 MIT (see `LICENSE`); the upstream sample's MIT licence is kept in `extension/LICENSE.upstream`.
+
+## Standalone local review
+
+From `extension/`, run `npm run build` and then `npm run review:local`. Open
+`http://127.0.0.1:18792`. Set `CONTEXO_REVIEW_PORT` if the port is occupied.
+The app accepts a review JSON file containing before/after file text, optional
+checks and findings, and saved hunk decisions. **Load example** shows the input
+format. **Save review JSON** exports decisions and requirement links for reopening.
+Run replay accepts Contexo JSONL, recorded ACP session update JSONL, and OTLP span
+JSON. The standalone viewer reads evidence and computes candidate changes without
+writing project files or executing commands. The impact graph uses Python syntax
+from changed files. Provider fetch commands remain in the VS Code extension.
+
+Run `node local-review/smoke.mjs` after building to exercise the HTTP workflow.

@@ -25,6 +25,7 @@
 import type { ContextPacket, Excerpt, Reason, Selection, SymbolEntry } from '../types';
 import type { IndexApi } from './indexer';
 import { Bm25, STOPWORDS, ripgrepSearch, symbolNameMatch, tokenize, vscodeRgContext } from './search';
+import { corpusNeighbors } from './corpusVectors';
 import { count } from './tokens';
 
 export interface Candidate {
@@ -47,10 +48,7 @@ export interface RankedList {
 
 export type RgFn = (term: string) => Promise<Array<{ path: string; line: number; preview: string }>>;
 
-import { semanticOrder } from './embeddings';
-
 export interface AssembleInput {
-  embeddingModel?: string;
   request: string;
   mentions?: string[];
   budget?: number;
@@ -259,6 +257,8 @@ export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn
       }),
     };
   };
+  lists.push({ name: 'corpus-vectors', weight: 0.35, items: corpusNeighbors(all, q, LIST_CAP)
+    .map(({ symbol }, i) => fromSymbol(symbol, [{ kind: 'semantic', rank: i + 1 }])) });
   lists.push(bm('bm25-symbols', code));
   if (docs.length) lists.push(bm('bm25-docs', docs));
 
@@ -612,17 +612,6 @@ export async function assembleContext(i: AssembleInput, index: IndexApi): Promis
   const budget = i.budget ?? DEFAULT_BUDGET;
   const { terms, mandatory } = extractAnchors(i.request, i.mentions ?? [], i.selection, index, budget);
   const primary = await candidateLists(terms, index, i.rg);
-  if (i.embeddingModel) {
-    const candidates = index.symbols().map(symbol => fromSymbol(symbol, []));
-    try {
-      const indices = await semanticOrder(i.embeddingModel, i.request, candidates.map(c => c.path + '\n' + c.text));
-      primary.push({ name: 'embeddings', items: indices.map((index, rank) => ({
-        ...candidates[index], reasons: [{ kind: 'semantic', rank: rank + 1 }],
-      })) });
-    } catch (error) {
-      console.warn('Contexo semantic ranking unavailable:', String(error));
-    }
-  }
   const firstPass = rrfFuse(primary);
   const topImpl = firstPass.filter((c) => c.category !== 'docs').slice(0, 10);
   const expanded = expandOneHop(topImpl, index, terms);
@@ -654,22 +643,25 @@ function reasonText(r: Reason): string {
 
 /** Text handed to the model: budget line, excerpts under headers, then the Omitted list. */
 export function formatForModel(p: ContextPacket): string {
-  const out: string[] = [];
-  out.push(`Context for: ${p.query}`);
-  out.push(`Budget: ${p.used}/${p.budget} tokens used (≈ estimated)`);
-  out.push('');
+  // The runtime rejects tool responses above 24,000 characters. Include JSON
+  // escaping in the accounting and reserve space for the omission summary.
+  const out = [`Context for: ${p.query.slice(0, 1200)}`, `Budget: ${p.used}/${p.budget} tokens used (≈ estimated)`, ''];
+  let remaining = 22000 - JSON.stringify(out).length;
+  let excluded = 0;
+  function append(text: string) {
+    const cost = JSON.stringify(text).length + 2;
+    if (cost > remaining) { excluded++; return; }
+    remaining -= cost;
+    out.push(text);
+  }
   for (const e of p.excerpts) {
     const reasons = e.reasons.length ? e.reasons.map(reasonText).join('; ') : 'no reason recorded';
-    out.push(`### ${e.path}:${e.startLine}-${e.endLine} · ${e.category} · ${reasons} · ≈${e.tokens} tokens`);
-    out.push('```');
-    out.push(e.text);
-    out.push('```');
-    out.push('');
+    append([`### ${e.path}:${e.startLine}-${e.endLine} · ${e.category} · ${reasons} · ≈${e.tokens} tokens`,
+      '```', e.text, '```', ''].join('\n'));
   }
   out.push('## Omitted');
-  if (p.omitted.length === 0) out.push('(none)');
-  for (const o of p.omitted) {
-    out.push(`- ${o.path}:${o.startLine}-${o.endLine} · ${o.reason} · ≈${o.tokens} tokens`);
-  }
+  if (!p.omitted.length && !excluded) out.push('(none)');
+  for (const o of p.omitted) append(`- ${o.path}:${o.startLine}-${o.endLine} · ${o.reason} · ≈${o.tokens} tokens`);
+  if (excluded) out.push(excluded + ' entries omitted at the runtime response limit. Use read_file for exact source.');
   return out.join('\n');
 }

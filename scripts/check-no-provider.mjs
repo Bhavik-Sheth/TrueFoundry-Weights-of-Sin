@@ -6,6 +6,8 @@ import path from 'node:path';
 const root = process.argv[2] ?? 'dist';
 const markers = [
   'api.openai.com',
+  '127.0.0.1:11434',
+  'localhost:11434',
   'api.anthropic.com',
   'generativelanguage.googleapis.com',
   'api.mistral.ai',

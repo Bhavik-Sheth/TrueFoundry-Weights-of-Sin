@@ -3,22 +3,21 @@ import { promisify } from 'node:util';
 import { mkdtemp, mkdir, writeFile, copyFile, realpath, lstat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { scopedEnv } from '../mcp/runCommand';
 import { rebuildFile, sha256 } from './proposal';
 import type { Proposal } from '../types';
 
 const exec = promisify(execFile);
 
 /** Capture the reviewed selection synchronously before opening the test workspace. */
-export async function checkCandidate(root: string, proposal: Proposal, image: string) {
-  if (!/^[a-z0-9][a-z0-9._/:@-]*$/.test(image)) throw new Error('Invalid local container image name');
+export async function checkCandidate(root: string, proposal: Proposal) {
   const hunks = proposal.hunks.filter(h => h.decision === 'accepted').map(h => h.id);
   if (!hunks.length) throw new Error('Accept the hunks to test first.');
-  const changes = proposal.files.map(f => ({
+  const changes = proposal.files.filter(f => proposal.hunks.some(h => h.path === f.path && h.decision === 'accepted')).map(f => ({
     path: f.path, text: rebuildFile(f.base, f.path, proposal.hunks), base: f.baseHash,
   }));
   const dir = await mkdtemp(path.join(tmpdir(), 'contexo-check-'));
-  const container = 'contexo-' + randomUUID();
   try {
     const cwd = await realpath(root);
     const tracked = await exec('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd, maxBuffer: 32 << 20 });
@@ -46,13 +45,15 @@ export async function checkCandidate(root: string, proposal: Proposal, image: st
       await mkdir(path.dirname(dest), { recursive: true });
       await writeFile(dest, file.text);
     }
-    await exec('docker', ['run', '--rm', '--pull=never', '--name', container, '--network=none',
-      '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=1g', '--pids-limit=128',
-      '-v', dir + ':/candidate', '-w', '/candidate', '--entrypoint', 'python', image, '-m', 'pytest', '-q'],
-      { timeout: 120000, maxBuffer: 4 << 20 });
+    const venvPython = path.join(cwd, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const python = existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3';
+    const env = scopedEnv(cwd);
+    delete env.PYTHONPATH;
+    // Run the copied source ahead of editable installs pointing back to the checkout.
+    env.PYTHONPATH = [path.join(dir, 'src'), dir].join(path.delimiter);
+    await exec(python, ['-m', 'pytest', '-q'], { cwd: dir, env, timeout: 120000, maxBuffer: 4 << 20 });
     return { hunks, passed: true };
   } finally {
-    await exec('docker', ['rm', '-f', container], { timeout: 5000 }).catch(() => {});
     await rm(dir, { recursive: true, force: true });
   }
 }

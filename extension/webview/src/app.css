@@ -34,3 +34,40 @@ table.health { border-collapse: collapse; }
 table.health th { text-align: left; font-weight: normal; padding-right: 12px; }
 .muted { color: var(--vscode-descriptionForeground); font-size: 12px; }
 .muted a { color: var(--vscode-textLink-foreground); }
+
+.composer {
+  padding: 12px 10px 10px;
+  background: radial-gradient(ellipse at 76% 116%, #86b1fa, transparent 72%), linear-gradient(#fafafa, #d6e5fb);
+}
+.composer textarea { padding: 8px; border-radius: 9px; }
+.composer .btn { border-radius: 16px; }
+.vscode-dark .composer {
+  background: radial-gradient(ellipse at 76% 116%, #476da9, transparent 72%), linear-gradient(#20252c, #344458);
+}
+.vscode-high-contrast .composer, .vscode-high-contrast-light .composer { background: var(--vscode-editor-background); }
+.app { --line: var(--vscode-widget-border,var(--vscode-panel-border,#85858555)); min-width: 0; }
+.header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; position: relative; isolation: isolate; overflow: hidden; padding: 15px 12px; background: #eef5ff; color: #162c43; }
+.header contexo-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none; transform: rotate(180deg); }
+.header canvas { display: block; width: 100%; height: 100%; }
+.identity,.header-actions,.review-tools { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.identity strong { font-size: 19px; font-weight: 700; letter-spacing: -.045em; }
+.identity .pill { border: 1px solid #abc5d6; background: #ffffffbc; color: #294963; padding: 3px 8px; text-transform: capitalize; }
+.header-actions .btn.secondary { background: #ffffffdf; color: #183755; border: 1px solid #afc5da; }
+.tabs { padding: 4px; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+.tab { flex: 1 0 auto; padding: 6px; border-radius: 7px; }
+.tab.active { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+.content { padding: 10px; }
+.step,.tool-event { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--vscode-editorWidget-background); }
+.tool-event details { margin-top: 6px; }
+.tool-event summary { cursor: pointer; }
+.tool-event pre { overflow: auto; max-height: 15rem; }
+.review-tools { padding-bottom: 8px; }
+.app .btn { min-height: 28px; padding: 4px 10px; border-radius: 14px; transition: background-color 140ms ease, box-shadow 140ms ease; }
+.app .btn:enabled:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.composer { align-items: end; }
+.composer textarea { min-width: 0; font-size: inherit; }
+.vscode-dark .header contexo-glow { opacity: .23; }
+.vscode-dark .header { background: #102235; color: #f2f6ff; }
+.vscode-high-contrast .header,.vscode-high-contrast-light .header { color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+.vscode-high-contrast contexo-glow,.vscode-high-contrast-light contexo-glow { display: none; }
+@media (prefers-reduced-motion: reduce) { .app .btn { transition: none; } }

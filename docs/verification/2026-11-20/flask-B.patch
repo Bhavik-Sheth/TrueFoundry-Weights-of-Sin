@@ -1,0 +1,136 @@
+diff --git a/docs/cli.rst b/docs/cli.rst
+index a72e6d5..395d72d 100644
+--- a/docs/cli.rst
++++ b/docs/cli.rst
+@@ -146,6 +146,23 @@ context will be active, and the app instance will be imported. ::
+ Use :meth:`~Flask.shell_context_processor` to add other automatic imports.
+ 
+ 
++Show Configuration
++-----------------
++
++To see the entire configuration loaded for your application, you can
++print it as JSON with the :func:`config <cli.config_command>` command. ::
++
++    $ flask config
++    {
++      "DEBUG": false,
++      "ENV": "production",
++      ...
++    }
++
++Values for keys containing ``SECRET``, ``PASSWORD``, ``TOKEN``, or
++``KEY`` are masked as ``***`` so they never appear in the output.
++
++
+ .. _dotenv:
+ 
+ Environment Variables From dotenv
+diff --git a/src/flask/cli.py b/src/flask/cli.py
+index ed11f25..e50dc5d 100644
+--- a/src/flask/cli.py
++++ b/src/flask/cli.py
+@@ -4,6 +4,7 @@ import ast
+ import collections.abc as cabc
+ import importlib.metadata
+ import inspect
++import json
+ import os
+ import platform
+ import re
+@@ -594,6 +595,7 @@ class FlaskGroup(AppGroup):
+             self.add_command(run_command)
+             self.add_command(shell_command)
+             self.add_command(routes_command)
++            self.add_command(config_command)
+ 
+         self._loaded_plugin_commands = False
+ 
+@@ -1115,6 +1117,32 @@ def routes_command(sort: str, all_methods: bool) -> None:
+         click.echo(template.format(*row))
+ 
+ 
++def _is_sensitive_config_key(key: str) -> bool:
++    """Whether a config key's value should be masked in output."""
++    upper_key = key.upper()
++    sensitive_words = ("SECRET", "PASSWORD", "TOKEN", "KEY")
++    return any(word in upper_key for word in sensitive_words)
++
++
++@click.command("config", short_help="Show the application configuration.")
++@with_appcontext
++def config_command() -> None:
++    """Show the configuration for the current application.
++
++    Values for keys containing ``SECRET``, ``PASSWORD``, ``TOKEN``, or
++    ``KEY`` are masked as ``***``.
++    """
++    data: dict[str, t.Any] = {}
++
++    for key, value in current_app.config.items():
++        if _is_sensitive_config_key(key):
++            data[key] = "***"
++        else:
++            data[key] = value
++
++    click.echo(json.dumps(data, indent=2, sort_keys=True, default=str))
++
++
+ cli = FlaskGroup(
+     name="flask",
+     help="""\
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index e254c1d..f72671d 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,6 +1,7 @@
+ # This file was part of Flask-CLI and was modified under the terms of
+ # its Revised BSD License. Copyright © 2015 CERN.
+ import importlib.metadata
++import json
+ import os
+ import platform
+ import ssl
+@@ -518,6 +519,42 @@ class TestRoutes:
+         assert "Host" in result.output
+ 
+ 
++class TestConfig:
++    @pytest.fixture
++    def app(self):
++        app = Flask(__name__)
++        app.config.update(
++            FOO="bar",
++            SECRET_KEY="secret",
++            DB_PASSWORD="hunter2",
++            API_TOKEN="abc123",
++            PRIVATE_KEY="priv",
++            NORMAL_VALUE=42,
++        )
++        return app
++
++    @pytest.fixture
++    def invoke(self, app, runner):
++        cli = FlaskGroup(create_app=lambda: app)
++        return partial(runner.invoke, cli)
++
++    def test_simple(self, invoke):
++        result = invoke(["config"])
++        assert result.exit_code == 0
++        data = json.loads(result.output)
++        assert data["FOO"] == "bar"
++        assert data["NORMAL_VALUE"] == 42
++        assert data["SECRET_KEY"] == "***"
++        assert data["DB_PASSWORD"] == "***"
++        assert data["API_TOKEN"] == "***"
++        assert data["PRIVATE_KEY"] == "***"
++
++    def test_is_in_help(self, invoke):
++        result = invoke(["--help"])
++        assert result.exit_code == 0
++        assert "config" in result.output
++
++
+ def dotenv_not_available():
+     try:
+         import dotenv  # noqa: F401

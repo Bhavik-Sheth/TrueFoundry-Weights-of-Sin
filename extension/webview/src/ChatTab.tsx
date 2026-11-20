@@ -122,13 +122,13 @@ export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
           case 'tool': {
             const json = it.args === undefined ? '' : argsJson(it.args);
             return (
-              <div key={i}>
+              <div key={i} className="tool-event">
                 <span style={s.chip}>tool: {it.name}</span>
                 {it.deferred && <span style={s.badge}>deferred</span>}
-                {it.result !== undefined && <span style={s.muted}> {it.result.length > 80 ? `${it.result.slice(0, 80)}… (${it.result.length} chars)` : it.result}</span>}
+                {it.result !== undefined && <details><summary style={s.muted}>Tool result</summary><pre style={s.args}>{it.result}</pre></details>}
                 {json && (
                   <details>
-                    <summary style={s.muted}>args</summary>
+                    <summary style={s.muted}>Tool arguments</summary>
                     <pre style={s.args}>{json}</pre>
                   </details>
                 )}

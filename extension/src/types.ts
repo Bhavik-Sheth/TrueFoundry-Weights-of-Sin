@@ -156,6 +156,7 @@ export interface RunStateMsg {
 
 export type ToHost =
   | { type: 'ready' }
+  | { type: 'reviewAction'; action: 'workbench' | 'check' | 'restore' | 'sync' | 'replay' | 'import' }
   | { type: 'stop' }
   | { type: 'send'; text: string }
   | { type: 'openSource'; path: string; line: number }

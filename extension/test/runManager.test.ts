@@ -305,3 +305,47 @@ describe('RunManager', () => {
     });
   });
 });
+
+describe('pending review recovery', () => {
+  function recoverySetup() {
+    const { tf, review, rm } = setup([]);
+    const attach = vi.fn(async () => {});
+    Object.assign(review, { attachProposal: attach });
+    const reconcile = vi.fn(async () => 'saved-cursor');
+    Object.assign(tf, { resumeReview: reconcile });
+    const run = {
+      id: 'saved-run', mode: 'agent', request: 'Fix the review', sessionId: 'saved-session',
+      agent: 'contexo', state: 'awaiting-review', sealedSessions: [],
+    } as const;
+    const checkpoint = {
+      run: { ...run, sealedSessions: [] },
+      turnId: 'saved-turn', runtime: 'http://tf:8790', root: 'file:///workspace',
+      proposal: {
+        key: 'abcd', runId: run.id, toolCallId: 'saved-call', threadId: 'main',
+        status: 'reviewing', files: [], hunks: [{
+          id: 'h1', path: 'sample.py', oldStart: 1, oldLines: 1, newStart: 1, newLines: 1,
+          decision: 'accepted', outsideSelection: false, lines: ['-old', '+new'],
+        }],
+      },
+    } satisfies import('../src/run/reviewCheckpoint').ReviewCheckpoint;
+    return { rm, attach, reconcile, checkpoint };
+  }
+
+  it('reopens the same proposal and decisions after the server confirms the approval', async () => {
+    const { rm, attach, reconcile, checkpoint } = recoverySetup();
+    await rm.restoreReview(checkpoint);
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'saved-session' }), 'saved-turn', 'saved-call', 'main');
+    expect(attach).toHaveBeenCalledWith(expect.objectContaining({ id: 'saved-run' }), checkpoint.proposal);
+    expect(rm.active?.state).toBe('awaiting-review');
+    await rm.confirmReview(checkpoint.proposal);
+    expect(reconcile).toHaveBeenLastCalledWith(rm.active, 'saved-turn', 'saved-call', 'main', false);
+  });
+
+  it('leaves the saved review closed when the server cannot confirm the approval', async () => {
+    const { rm, attach, reconcile, checkpoint } = recoverySetup();
+    reconcile.mockRejectedValueOnce(new Error('TrueForge turn is cancelled.'));
+    await expect(rm.restoreReview(checkpoint)).rejects.toThrow('TrueForge turn is cancelled.');
+    expect(attach).not.toHaveBeenCalled();
+    expect(rm.active).toBeUndefined();
+  });
+});

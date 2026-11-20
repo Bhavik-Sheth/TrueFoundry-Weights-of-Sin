@@ -18,7 +18,17 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "chatParticipants": [{ "id": "contexo.assistant", "name": "contexo", "fullName": "Contexo", "description": "Review repository changes with your TrueForge agent" }],
     "commands": [
+      { "command": "contexo.ask", "title": "Contexo: Ask Assistant" },
+      { "command": "contexo.openWorkbench", "title": "Contexo: Open Review Workbench" },
+      { "command": "contexo.restorePendingReview", "title": "Contexo: Restore Pending Review" },
+      { "command": "contexo.syncReviewEvidence", "title": "Contexo: Fetch External Review Evidence" },
+      { "command": "contexo.compareProposalImpact", "title": "Contexo: Compare Proposal Impact" },
+      { "command": "contexo.showSymbolImpact", "title": "Contexo: Show Symbol Impact" },
+      { "command": "contexo.linkRequirement", "title": "Contexo: Link Requirement to Review Evidence" },
+      { "command": "contexo.replayRun", "title": "Contexo: Replay Run Events" },
+      { "command": "contexo.importRun", "title": "Contexo: Import Agent Run" },
       { "command": "contexo.recoverApply", "title": "Contexo: Recover Interrupted Apply" },
       { "command": "contexo.checkCandidate", "title": "Contexo: Test Accepted Hunks Before Apply" },
       { "command": "contexo.importSecurityReport", "title": "Contexo: Attach SARIF Security Report" },
@@ -199,11 +209,6 @@
           "default": "contexo-fallback",
           "description": "Fallback TrueForge agent name."
         },
-        "contexo.embeddingModel": {
-          "type": "string",
-          "default": "",
-          "description": "Installed local Ollama embedding model for reranking context. Leave blank to disable."
-        },
         "contexo.excerptBudget": {
           "type": "number",
           "default": 8000,
@@ -292,6 +297,8 @@
     "vitest": "5.1.1"
   },
   "scripts": {
+    "cli": "node dist/contexo.cjs",
+    "review:local": "node dist/local-review.cjs",
     "build": "node esbuild.mjs && vite build",
     "watch": "node esbuild.mjs --watch",
     "watch:web": "vite build --watch",

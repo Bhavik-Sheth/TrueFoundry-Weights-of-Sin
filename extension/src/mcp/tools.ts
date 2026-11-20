@@ -28,6 +28,7 @@ import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
 import type { ToWebview } from '../types';
 import { assembleContext, formatForModel } from '../context/assembler';
+import type { RunRoute } from './runRoutes';
 import { capOutput, resolveInWorkspace } from './server';
 import { runCommand } from './runCommand';
 import { sha256, proposalKey } from '../review/proposal';
@@ -56,9 +57,15 @@ const err = (code: string, message: string): ToolResult => ({
   content: [{ type: 'text', text: JSON.stringify({ error: code, message }) }],
 });
 
-export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
+export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: boolean; route?: RunRoute } = {}): (s: McpServer) => void {
   /** Wraps a handler with the Stop/authorization check. */
   const guarded = <A>(fn: (args: A) => ToolResult | Promise<ToolResult>) => async (args: A): Promise<ToolResult> => {
+    const run = deps.runs.active;
+    const route = options.route;
+    if (options.requireRoute && (!route || run !== route.run || !route.sessionId || run.sessionId !== route.sessionId ||
+      run.sealedSessions.includes(route.sessionId) || !['streaming', 'awaiting-review'].includes(run.state))) {
+      return err('RUN_NOT_AUTHORIZED', 'This connection does not own the active run.');
+    }
     if (!deps.runs.isToolCallAllowed()) return err('RUN_NOT_AUTHORIZED', 'The run was stopped by the user. Do not call more tools.');
     try {
       return await fn(args);
@@ -153,7 +160,6 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const cfg = (require('../config') as typeof import('../config')).getConfig();
       const packet = await assembleContext({
-        embeddingModel: cfg.embeddingModel,
         request: a.request,
         mentions: a.mentions,
         budget: a.budget ?? cfg.excerptBudget,
@@ -199,9 +205,7 @@ export function makeToolRegistrar(deps: ToolDeps): (s: McpServer) => void {
         })).min(1).describe('Edits to stage'),
       },
     }, guarded((args: unknown) => {
-      const r = deps.review.finalize(proposalKey(args));
-      const out = 'error' in r ? deps.review.finalizeLatest() : r;
-      return ok(out);
+      return ok(deps.review.finalize(proposalKey(args), options.route?.run.id));
     }));
 
     server.registerTool('run_command', {

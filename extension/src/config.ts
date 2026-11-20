@@ -15,7 +15,6 @@ export interface ContexoConfig {
   trueforgeUrl: string;
   primaryAgent: string;
   fallbackAgent: string;
-  embeddingModel?: string;
   excerptBudget: number;
   firstEventTimeoutMs: number;
   commandAllowlist: string[];
@@ -34,7 +33,6 @@ export function getConfig(): ContexoConfig {
     trueforgeUrl: c.get<string>('trueforgeUrl', 'http://localhost:8790'),
     primaryAgent: c.get<string>('primaryAgent', 'contexo'),
     fallbackAgent: c.get<string>('fallbackAgent', 'contexo-fallback'),
-    embeddingModel: c.get<string>('embeddingModel', ''),
     excerptBudget: c.get<number>('excerptBudget', 8000),
     firstEventTimeoutMs: c.get<number>('firstEventTimeoutMs', 20000),
     commandAllowlist: c.get<string[]>('commandAllowlist', ['python', 'pytest', 'flask']),

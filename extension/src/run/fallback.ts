@@ -139,7 +139,7 @@ export async function takeOver(run: Run, deps: FallbackDeps): Promise<void> {
   run.sealedSessions.push(run.sessionId);
   deps.reset();
   const agent = cfg.fallbackAgent;
-  const sessionId = await tf.createSession(agent);
+  const sessionId = await tf.createSession(agent, run);
   if (run.state === 'cancelled') return;
   run.sessionId = sessionId;
   run.agent = agent as Run['agent'];

@@ -23,7 +23,7 @@ export interface ExtraProviderFields { name?: string; baseUrl?: string; modelIds
 /** Structural view of the SDK client (lets tests inject a fake). */
 export type AdminClient = Pick<TrueForge, 'server' | 'models' | 'settings' | 'catalogs' | 'agents'>;
 
-export interface AdminDeps { client?: AdminClient; log?: (...a: unknown[]) => void }
+export interface AdminDeps { agentNames?: Record<'primary' | 'fallback', string>; client?: AdminClient; log?: (...a: unknown[]) => void }
 
 function bodyMessage(e: unknown): string {
   const body = (e as { body?: { error?: { message?: unknown } } })?.body;
@@ -50,6 +50,7 @@ export function friendlyError(e: unknown, secrets: string[] = []): Error {
 
 export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
   const client: AdminClient = deps.client ?? new TrueForge({ baseUrl: baseUrl.replace(/\/+$/, ''), timeoutInSeconds: 60 });
+  const names = deps.agentNames ?? AGENT_NAMES;
   const log = deps.log ?? (() => undefined);
 
   async function wrap<T>(label: string, secrets: string[], fn: () => Promise<T>): Promise<T> {
@@ -138,9 +139,10 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
     },
 
     /** Creates or UPDATES one agent (primary or fallback) with the given model. */
-    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string): Promise<{ name: string; action: 'created' | 'updated' }> {
+    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): Promise<{ name: string; action: 'created' | 'updated' }> {
       return wrap('ensureAgent', [], async () => {
-        const req = buildAgentRequest(kind, model, instructions);
+        const req = buildAgentRequest(kind, model, instructions, runtime);
+        req.name = names[kind];
         const page = await client.agents.list({ agentName: req.name, limit: 50 });
         const existing = page.data.find((a) => a.name === req.name);
         if (existing) {
@@ -160,6 +162,61 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
       ];
       log('admin.ensureAgents', JSON.stringify(out));
       return out;
+    },
+
+    async register(options: { port: number; token: string; primaryModel: string; fallbackModel?: string; instructions: string; runtime?: { sandbox: string; skills?: string[] } }) {
+      const steps: Array<{ label: string; ok: boolean; detail?: string }> = [];
+      const connector = { label: 'MCP connector contexo-editor', ok: false };
+      try {
+        const desired = buildConnectorManifest(options.port, options.token);
+        const previous = await client.settings.mcpServers.get(CONNECTOR_NAME).catch((error: unknown) => {
+          if ((error as { statusCode?: number })?.statusCode === 404) return undefined;
+          throw error;
+        });
+        if (previous && (previous.data.manifest.type !== 'remote' ||
+            previous.data.manifest.description !== desired.description)) {
+          throw new Error('An existing connector uses the Contexo name with different ownership metadata.');
+        }
+        await this.ensureConnector(options.port, options.token);
+        const { data } = await client.settings.mcpServers.get(CONNECTOR_NAME);
+        if (data.manifest.type !== 'remote' || data.manifest.url !== desired.url) {
+          throw new Error('Connector read-back did not match the requested URL.');
+        }
+        connector.ok = true;
+        steps.push(connector);
+      } catch (error) {
+        steps.push({ ...connector, detail: friendlyError(error, [options.token]).message });
+      }
+      for (const kind of ['primary', 'fallback'] as const) {
+        const label = 'Agent ' + names[kind];
+        if (!connector.ok) {
+          steps.push({ label, ok: false, detail: 'Blocked by connector registration' });
+          continue;
+        }
+        try {
+          const model = kind === 'primary' ? options.primaryModel : options.fallbackModel || options.primaryModel;
+          const desired = buildAgentRequest(kind, model, options.instructions, options.runtime);
+          desired.name = names[kind];
+          const list = await client.agents.list({ agentName: desired.name });
+          const previous = list.data.find(agent => agent.name === desired.name);
+          if (previous && !previous.manifest.mcpServers?.some(server => server.name === CONNECTOR_NAME)) {
+            throw new Error('An existing agent uses the Contexo name without the Contexo connector.');
+          }
+          const result = await this.ensureAgent(kind, model, options.instructions, options.runtime);
+          const observed = (await client.agents.list({ agentName: desired.name })).data.find(agent => agent.name === desired.name);
+          if (!observed || observed.manifest.model.name !== model ||
+              !observed.manifest.mcpServers?.some(server => server.name === CONNECTOR_NAME)) {
+            throw new Error('Agent read-back did not match the requested model and connector.');
+          }
+          if (options.runtime && observed.manifest.config?.sandbox?.environmentName !== options.runtime.sandbox) {
+            throw new Error('Agent read-back did not match the requested sandbox.');
+          }
+          steps.push({ label, ok: true, detail: result.action });
+        } catch (error) {
+          steps.push({ label, ok: false, detail: friendlyError(error, [options.token]).message });
+        }
+      }
+      return steps;
     },
 
     /** "Test resilience": (re)creates the deliberately broken custom provider. */
@@ -189,8 +246,8 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
       const agentModels: { primary?: string; fallback?: string } = {};
       try {
         for (const kind of ['primary', 'fallback'] as const) {
-          const page = await client.agents.list({ agentName: AGENT_NAMES[kind], limit: 50 });
-          agentModels[kind] = page.data.find((a) => a.name === AGENT_NAMES[kind])?.manifest.model.name;
+          const page = await client.agents.list({ agentName: names[kind], limit: 50 });
+          agentModels[kind] = page.data.find((a) => a.name === names[kind])?.manifest.model.name;
         }
       } catch { /* TrueForge down */ }
       return { connectorOk, agentsOk: !!agentModels.primary && !!agentModels.fallback, agentModels };

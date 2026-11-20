@@ -6,12 +6,12 @@
  *  - getOutput(): the OutputChannel itself.
  * Depends on: vscode API only. Depended on by: every host module that logs.
  */
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 let channel: vscode.OutputChannel | undefined;
 
 export function getOutput(): vscode.OutputChannel {
-  channel ??= vscode.window.createOutputChannel('Contexo');
+  channel ??= (require('vscode') as typeof vscode).window.createOutputChannel('Contexo');
   return channel;
 }
 
@@ -27,5 +27,9 @@ export function log(...args: unknown[]): void {
       }
     })
     .join(' ');
+  if (terminalLogging) return;
   getOutput().appendLine(line);
 }
+
+let terminalLogging = false;
+export function useTerminalLogging() { terminalLogging = true; }

@@ -24,6 +24,7 @@ export class ContexoPanelProvider implements vscode.WebviewViewProvider {
   static readonly viewId = 'contexo.panel';
 
   private view?: vscode.WebviewView;
+  private ready = false;
   private queue: ToWebview[] = [];
   private pendingStream: UiStreamEvent[] = [];
   private timer?: ReturnType<typeof setTimeout>;
@@ -33,10 +34,15 @@ export class ContexoPanelProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.ready = false;
     const root = vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'webview');
     view.webview.options = { enableScripts: true, localResourceRoots: [root] };
     view.webview.html = this.html(view.webview, root);
-    view.webview.onDidReceiveMessage((m: ToHost) => this.emitter.fire(m));
+    view.webview.onDidReceiveMessage((m: ToHost) => {
+      if (this.view !== view) return;
+      if (m.type === 'ready') { this.ready = true; this.flush(); }
+      this.emitter.fire(m);
+    });
     view.onDidDispose(() => {
       if (this.view === view) this.view = undefined;
     });
@@ -71,7 +77,7 @@ export class ContexoPanelProvider implements vscode.WebviewViewProvider {
 
   private flush(): void {
     this.drainStream();
-    if (!this.view) return; // not resolved yet: keep queued
+    if (!this.view || !this.ready) return; // not resolved yet: keep queued
     const q = this.queue;
     this.queue = [];
     for (const m of q) void this.view.webview.postMessage(m);

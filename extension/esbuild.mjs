@@ -45,5 +45,10 @@ if (watch) {
   await ctx.watch();
   console.log('[esbuild] watching');
 } else {
-  await build(options);
+  await Promise.all([
+    build(options),
+    build({ ...options, entryPoints: ['src/cli/main.ts'], outfile: 'dist/contexo.cjs' }),
+    build({ ...options, entryPoints: ['src/run/registrationCli.ts'], outfile: 'dist/register.cjs' }),
+    build({ ...options, entryPoints: ['src/localReview/server.ts'], outfile: 'dist/local-review.cjs' }),
+  ]);
 }

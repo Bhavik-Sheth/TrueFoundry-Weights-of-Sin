@@ -1,0 +1,19 @@
+
+> contexo@0.0.1 test
+> vitest run --maxWorkers=2
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v5.1.1 /Users/atharvadeo/Documents/ChatGPT/IITB Truefoundry/TrueFoundry-Weights-of-Sin/extension
+
+
+ Test Files  20 passed (20)
+      Tests  210 passed | 1 todo (211)
+   Start at  20:48:59
+   Duration  2.49s (tests 76%, import 20%, transform 3%, worker 1%)
+
+    Isolate  20 workers spawned · ~72ms startup each (spawn + environment, per file)
+             at least ~647ms faster with isolate: false — reuses workers across files instead of one per file
+

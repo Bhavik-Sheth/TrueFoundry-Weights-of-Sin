@@ -52,11 +52,12 @@ export interface AgentRequest {
       preload: boolean;
       preloadTools: string[];
     }>;
-    config: { iterationLimit: number; contextManagement: { compaction: { enabled: boolean } }; dynamicSubAgents: { enabled: boolean } };
+    skills?: Array<{ name: string }>;
+    config: { sandbox?: { enabled: boolean; environmentName: string }; iterationLimit: number; contextManagement: { compaction: { enabled: boolean } }; dynamicSubAgents: { enabled: boolean } };
   };
 }
 
-export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, instructions: string): AgentRequest {
+export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): AgentRequest {
   return {
     name: AGENT_NAMES[kind],
     description:
@@ -75,7 +76,8 @@ export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, i
           preloadTools: ['search_workspace', 'read_file', 'assemble_context', 'propose_write'],
         },
       ],
-      config: { iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
+      ...(runtime?.skills?.length ? { skills: runtime.skills.map(name => ({ name })) } : {}),
+      config: { ...(runtime ? { sandbox: { enabled: true, environmentName: runtime.sandbox } } : {}), iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
     },
   };
 }

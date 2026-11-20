@@ -21,6 +21,7 @@ import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { RunRoute } from './runRoutes';
 import type * as vscode from 'vscode';
 
 /** Lazy log so the pure helpers stay importable without 'vscode' (Vitest). */
@@ -98,12 +99,14 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown, extra
   res.end(JSON.stringify(body));
 }
 
-export function startServer(o: { port: number; token: string; registerTools: (s: McpServer) => void }): Promise<McpHandle> {
+export function startServer(o: { port: number; token: string; registerTools: (s: McpServer, route?: RunRoute) => void; lookupRoute?: (connector: string) => RunRoute | undefined }): Promise<McpHandle> {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (url.pathname !== MCP_PATH) return sendJson(res, 404, { error: 'not found' });
-      if (!tokenOk(req.headers['x-contexo-token'], o.token)) return sendJson(res, 401, { error: 'unauthorized' });
+      const connector = /^\/mcp\/(contexo-run-[a-f0-9]{24})$/.exec(url.pathname)?.[1];
+      const route = connector ? o.lookupRoute?.(connector) : undefined;
+      if (!route && url.pathname !== MCP_PATH) return sendJson(res, 404, { error: 'not found' });
+      if (!tokenOk(req.headers['x-contexo-token'], route?.token ?? o.token)) return sendJson(res, 401, { error: 'unauthorized' });
       if (req.method !== 'POST') {
         return sendJson(res, 405, {
           jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed (stateless server: POST only)' }, id: null,
@@ -111,7 +114,7 @@ export function startServer(o: { port: number; token: string; registerTools: (s:
       }
       const body = await readBody(req);
       const mcp = new McpServer({ name: 'contexo-editor', version: '0.1.0' });
-      o.registerTools(mcp);
+      o.registerTools(mcp, route);
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       res.on('close', () => {
         void transport.close();

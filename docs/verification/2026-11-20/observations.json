@@ -1,0 +1,21 @@
+{
+  "editorFixture": [
+    "Verified extension activation, staged hunk, apply, and undo"
+  ],
+  "fixedTaskA": {
+    "surface": "CLI inline",
+    "FLASK_DEBUG": "off",
+    "stdout": "False"
+  },
+  "fixedTaskB": {
+    "surface": "CLI agent",
+    "beforeFix": "1 failed, 59 passed",
+    "correctiveHunkApplied": true,
+    "postFixPytest": "Independent run: 60 passed",
+    "maskCheck": "SECRET_SAMPLE, DB_PASSWORD, ACCESS_TOKEN and PRIVATE_KEY masked; PUBLIC_VALUE preserved"
+  },
+  "fixedTaskC": {
+    "status": "manual verification pending"
+  },
+  "preview": "Compiled sidebar and workbench with supplied canvas"
+}

@@ -35,7 +35,7 @@ export function captureSelection(editor: vscode.TextEditor): Selection {
 
 export function registerInlineEdit(ctx: vscode.ExtensionContext, runs: RunManager): void {
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('contexo.inlineEdit', async () => {
+    vscode.commands.registerCommand('contexo.inlineEdit', async (provided?: string) => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.selection.isEmpty) {
         void vscode.window.showInformationMessage('Contexo: select some code first.');
@@ -45,8 +45,13 @@ export function registerInlineEdit(ctx: vscode.ExtensionContext, runs: RunManage
         void vscode.window.showInformationMessage('Contexo: a run is already active. Stop it first.');
         return;
       }
+      const root = vscode.workspace.workspaceFolders?.[0];
+      if (!root || vscode.workspace.getWorkspaceFolder(editor.document.uri)?.uri.toString() !== root.uri.toString()) {
+        void vscode.window.showWarningMessage('Open the folder containing this file as the Contexo workspace to edit the selection.');
+        return;
+      }
       const selection = captureSelection(editor);
-      const instruction = await vscode.window.showInputBox({ prompt: 'Contexo: what should change?' });
+      const instruction = typeof provided === 'string' ? provided : await vscode.window.showInputBox({ prompt: 'Contexo: what should change?' });
       if (!instruction) return;
       await runs.start('inline', instruction, selection);
     }),

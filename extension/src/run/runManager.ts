@@ -1,3 +1,4 @@
+import type { ReviewCheckpoint } from './reviewCheckpoint';
 /**
  * run/runManager.ts - C2 owner of the single active Run. (Slice 1: streaming, approvals, Stop.)
  *
@@ -45,11 +46,13 @@ type Ev = { type: string; id?: string; [k: string]: any };
 
 interface PendingApproval { threadId: string; toolCallId: string; name: string; args: unknown }
 
+export type RunReview = Pick<ReviewEngine, 'pending' | 'beginProposal' | 'attachProposal' | 'discardPending' | 'onResolve'>;
+
 export class RunManager extends EventEmitter {
   active?: Run;
 
   private tf: TfClient;
-  private review: ReviewEngine;
+  private review: RunReview;
   private cfg: ContexoConfig;
   private readonly record?: RecordEvidence;
   private turnId = '';
@@ -68,13 +71,58 @@ export class RunManager extends EventEmitter {
 
   private askCommandApproval: (argv: string[]) => Promise<boolean>;
 
-  constructor(deps: { tf: TfClient; review: ReviewEngine; cfg: ContexoConfig; record?: RecordEvidence; askCommandApproval?: (argv: string[]) => Promise<boolean> }) {
+  constructor(deps: { tf: TfClient; review: RunReview; cfg: ContexoConfig; record?: RecordEvidence; askCommandApproval?: (argv: string[]) => Promise<boolean> }) {
     super();
     this.askCommandApproval = deps.askCommandApproval ?? (async () => false);
     this.tf = deps.tf;
     this.record = deps.record;
     this.review = deps.review;
     this.cfg = deps.cfg;
+  }
+
+  checkpoint(proposal: ReviewCheckpoint['proposal'], root: string): ReviewCheckpoint | undefined {
+    if (!this.active || this.active.id !== proposal.runId || !this.turnId) return undefined;
+    return { run: structuredClone(this.active), proposal: structuredClone(proposal), turnId: this.turnId,
+      root, runtime: this.cfg.trueforgeUrl };
+  }
+
+  async restoreReview(saved: ReviewCheckpoint): Promise<void> {
+    if (this.active?.state === 'streaming' || this.active?.state === 'awaiting-review') {
+      throw new Error('Finish the current run before restoring a review.');
+    }
+    if (saved.runtime !== this.cfg.trueforgeUrl || !this.tf.resumeReview) {
+      throw new Error('Restore the original TrueForge connection before resuming this review.');
+    }
+    const run = structuredClone(saved.run);
+    run.state = 'awaiting-review';
+    this.active = run;
+    try {
+      this.lastEventId = await this.tf.resumeReview(run, saved.turnId, saved.proposal.toolCallId, saved.proposal.threadId);
+      if ((run.state as Run['state']) === 'cancelled') return;
+      this.turnId = saved.turnId;
+      this.pending = [{ threadId: saved.proposal.threadId, toolCallId: saved.proposal.toolCallId, name: 'propose_write', args: undefined }];
+      this.messages.clear();
+      this.streamedIds.clear();
+      this.abort = undefined;
+      this.fallbackUsed = true;
+      this.approvedAny = false;
+      this.review.onResolve = (allow, reason) => {
+        void this.resolveApproval(allow, reason).catch(error => this.fail(run, String(error)));
+      };
+      await this.review.attachProposal(run, structuredClone(saved.proposal));
+      this.publishSession(run, { sessionId: run.sessionId, agent: run.agent, url: this.tf.sessionUrl(run.sessionId) });
+      this.publishState({ state: 'awaiting-review', agent: run.agent, hunks: saved.proposal.hunks.length });
+    } catch (error) {
+      if (this.active === run) this.active = undefined;
+      this.pending = [];
+      throw error;
+    }
+  }
+
+  async confirmReview(proposal: ReviewCheckpoint['proposal']): Promise<void> {
+    const run = this.active;
+    if (!this.tf.resumeReview || !run || run.id !== proposal.runId || !this.turnId) return;
+    this.lastEventId = await this.tf.resumeReview(run, this.turnId, proposal.toolCallId, proposal.threadId, false);
   }
 
   async start(mode: 'inline' | 'agent', text: string, selection?: Selection): Promise<void> {
@@ -102,7 +150,7 @@ export class RunManager extends EventEmitter {
     this.capture(run, { kind: 'request', mode, text });
     this.setState('streaming');
     try {
-      run.sessionId = await this.tf.createSession(agent);
+      run.sessionId = await this.tf.createSession(agent, run);
     } catch (e) {
       await this.handleFailure(run, classifyDetailed(e), `Could not create a TrueForge session: ${String(e)}`);
       return;
@@ -216,7 +264,7 @@ export class RunManager extends EventEmitter {
       this.fail(run, `TrueForge not reachable at ${this.cfg.trueforgeUrl}`, true);
       return;
     }
-    if (c.kind === 'model-failure' && !this.fallbackUsed && !this.approvedAny) {
+    if (c.kind === 'model-failure' && this.cfg.primaryAgent !== this.cfg.fallbackAgent && !this.fallbackUsed && !this.approvedAny) {
       this.fallbackUsed = true;
       this.primaryReason = c.reason;
       try {

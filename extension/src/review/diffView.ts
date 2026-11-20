@@ -96,6 +96,8 @@ export class ReviewEngine {
   /** Set by extension.ts (integration) so symbolCheck can see the workspace index. */
   index?: IndexApi;
 
+  persistDecision?: (proposal: Proposal) => PromiseLike<void>;
+  validateApply?: (proposal: Proposal) => PromiseLike<void>;
   onProposal?: (p: Proposal) => void;
   private proposals = new Map<Sha, Proposal>();
   private runs = new Map<Sha, Run>();
@@ -136,7 +138,7 @@ export class ReviewEngine {
         if (!st) {
           const live = await readLive(e.path);
           if (e.baseHash === 'new') {
-            if (live !== undefined && live !== '') {
+            if (live !== undefined) {
               return { deny: `FILE_EXISTS ${e.path}: baseHash "new" but the file already exists. Use read_file and its hash.` };
             }
             st = { baseHash: 'new', base: '', text: '' };
@@ -182,6 +184,14 @@ export class ReviewEngine {
     }
 
     const proposal: Proposal = { key, runId: run.id, toolCallId, threadId, files, hunks, status: 'reviewing' };
+    await this.attachProposal(run, proposal);
+    return 'reviewing';
+  }
+
+  async attachProposal(run: Run, proposal: Proposal): Promise<void> {
+    if (this.pending) throw new Error('Finish the active review before restoring another.');
+    const { key, files, hunks } = proposal;
+    await this.persistDecision?.(proposal);
     this.proposals.set(key, proposal);
     this.onProposal?.(proposal);
     this.runs.set(key, run);
@@ -212,19 +222,22 @@ export class ReviewEngine {
       first = false;
     }
     this.refreshDecorations();
-    return 'reviewing';
   }
 
-  setDecision(hunkId: string, d: 'accepted' | 'rejected'): void {
+  async setDecision(hunkId: string, d: 'accepted' | 'rejected'): Promise<void> {
     const p = this.pending;
-    if (!p) return;
-    if (setHunkDecision(p.hunks, hunkId, d)) this.codeLensChanged.fire();
+    if (!p || this.applying) return;
+    if (setHunkDecision(p.hunks, hunkId, d)) {
+      await this.persistDecision?.(p);
+      this.codeLensChanged.fire();
+    }
   }
 
-  acceptAll(key: Sha): void {
+  async acceptAll(key: Sha): Promise<void> {
     const p = this.proposals.get(key);
-    if (!p || p.status !== 'reviewing') return;
+    if (!p || p.status !== 'reviewing' || this.applying) return;
     setAllDecisions(p.hunks, 'accepted');
+    await this.persistDecision?.(p);
     this.codeLensChanged.fire();
   }
 
@@ -266,9 +279,16 @@ export class ReviewEngine {
     const resolve = this.resolvers.get(key)!;
     const run = this.runs.get(key)!;
     try {
+      await this.validateApply?.(p);
+    } catch (error) {
+      this.applying = false;
+      throw error;
+    }
+    try {
+      if (p.status !== 'reviewing' || this.pending !== p) return;
       for (const f of p.files) {
         const live = await readLive(f.path);
-        const ok = f.baseHash === 'new' ? live === undefined || live === '' : live !== undefined && sha256(live) === f.baseHash;
+        const ok = f.baseHash === 'new' ? live === undefined : live !== undefined && sha256(live) === f.baseHash;
         if (!ok) {
           this.finish(p, 'stale', { applied: [], rejected: p.hunks.map((h) => h.id) });
           resolve(false, `STALE_BASE during review: ${f.path} changed`);
@@ -284,6 +304,10 @@ export class ReviewEngine {
         runId: run.id, hunks: p.hunks.filter(h => h.decision === 'accepted'),
         files: p.files.filter(f => out.has(f.path)).map(f => ({ path: f.path, base: f.baseHash, target: out.get(f.path)! })),
       });
+      if (p.status !== 'reviewing' || this.pending !== p) {
+        await this.storage?.update('review.apply.v1', undefined);
+        return;
+      }
       await this.undo.applyFiles(out);
       await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
       await this.storage?.update('review.apply.v1', undefined);
@@ -307,8 +331,9 @@ export class ReviewEngine {
     this.resolvers.get(key)?.(false, 'user rejected all hunks');
   }
 
-  finalize(key: Sha): Result | { error: string } {
-    const r = this.proposals.get(key)?.result;
+  finalize(key: Sha, runId?: string): Result | { error: string } {
+    const proposal = this.proposals.get(key);
+    const r = !runId || proposal?.runId === runId ? proposal?.result : undefined;
     return r ? { applied: [...r.applied], rejected: [...r.rejected] } : { error: 'UNKNOWN_PROPOSAL' };
   }
 
@@ -469,7 +494,7 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
       if (id) await review.undo.redoHunk(id);
     }),
     vscode.commands.registerCommand('contexo.hunk.decide', (key?: string, hunkId?: string, d?: 'accepted' | 'rejected') => {
-      if (key && hunkId && d && review.pending?.key === key) review.setDecision(hunkId, d);
+      if (key && hunkId && d && review.pending?.key === key) return review.setDecision(hunkId, d);
     }),
     vscode.commands.registerCommand('contexo.proposal.apply', async (key?: string) => {
       if (key) await review.applyAccepted(key);
@@ -478,7 +503,7 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
       if (key) review.rejectAll(key);
     }),
     vscode.commands.registerCommand('contexo.proposal.acceptAll', (key?: string) => {
-      if (key) review.acceptAll(key);
+      if (key) return review.acceptAll(key);
     }),
   );
   return review;

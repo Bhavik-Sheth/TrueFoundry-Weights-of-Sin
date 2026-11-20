@@ -1,0 +1,17 @@
+...............................................F............             [100%]
+=================================== FAILURES ===================================
+____________________________ TestConfig.test_simple ____________________________
+
+self = <test_cli.TestConfig object at 0x10afcf110>
+invoke = functools.partial(<bound method CliRunner.invoke of <click.testing.CliRunner object at 0x10b10def0>>, <FlaskGroup None>)
+
+    def test_simple(self, invoke):
+        result = invoke(["config"])
+>       assert result.exit_code == 0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = <Result TypeError('Object of type timedelta is not JSON serializable')>.exit_code
+
+tests/test_cli.py:543: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cli.py::TestConfig::test_simple - AssertionError: assert 1 ...
+1 failed, 59 passed in 0.11s

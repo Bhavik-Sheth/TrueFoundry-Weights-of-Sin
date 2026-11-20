@@ -27,16 +27,21 @@ import { TrueForge, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge
 import type { ContexoConfig } from '../config';
 import type { SessionSummary, SessionView, TfEvent, TurnView } from '../types';
 import { log } from '../log';
+import type { Run } from '../types';
+import type { RunRoute, RunRoutes } from '../mcp/runRoutes';
+import { buildConnectorManifest, CONNECTOR_NAME } from './manifests';
 import { buildSessionView, buildTurnView } from './timeline';
 
 export interface TfClient {
-  createSession(agent: string): Promise<string>;
+  createSession(agent: string, run?: Run): Promise<string>;
   streamTurn(sessionId: string, content: string, signal?: AbortSignal): AsyncIterable<TfEvent>;
   approve(a: { sessionId: string; turnId: string; threadId: string; toolCallId: string; allow: boolean; reason?: string; afterEventId: string; signal?: AbortSignal }): AsyncIterable<TfEvent>;
   readTurnState?(sessionId: string, turnId: string): Promise<{ status: string; message?: string }>;
+  resumeReview?(run: Run, turnId: string, toolCallId: string, threadId: string, requireOnlyPending?: boolean): Promise<string>;
   cancel(sessionId: string): Promise<void>;
   sessionUrl(sessionId: string): string;
   ping(): Promise<boolean>;
+  releaseRoute?(): Promise<void>;
 }
 
 type AnyEvent = { type: string; id?: string; [k: string]: unknown };
@@ -80,12 +85,54 @@ export async function* withMerge(stream: AsyncIterable<unknown>): AsyncIterable<
   yield* flush();
 }
 
-export function createTfClient(cfg: ContexoConfig): TfClient {
+export function createTfClient(cfg: ContexoConfig, routing?: { routes: RunRoutes; port: number; save?: (route: RunRoute) => PromiseLike<void>; load?: (sessionId: string) => PromiseLike<{ connector: string; token: string; port: number } | undefined> }): TfClient {
   const baseUrl = cfg.trueforgeUrl.replace(/\/+$/, '');
   const client = new TrueForge({ baseUrl, timeoutInSeconds: 600 });
 
+  let previousConnector: string | undefined;
   return {
-    async createSession(agent) {
+    async createSession(agent, run) {
+      if (routing && run) {
+        if (previousConnector) {
+          const old = previousConnector;
+          routing.routes.revoke(old);
+          previousConnector = undefined;
+          await client.settings.mcpServers.delete(old).catch(() => undefined);
+        }
+        const list = await client.agents.list({ agentName: agent });
+        const match = list.data.find(candidate => candidate.name === agent);
+        if (!match) throw new Error('Register the TrueForge agent before starting a run.');
+        const { data } = await client.agents.get(match.id);
+        if (run.state !== 'streaming') throw new Error('The run is no longer active.');
+        if (!data.manifest.mcpServers?.some(server => server.name === CONNECTOR_NAME)) {
+          throw new Error('The agent is missing the Contexo editor connector.');
+        }
+        const route = routing.routes.create(run);
+        const manifest = buildConnectorManifest(routing.port, route.token);
+        try {
+          await client.settings.mcpServers.create({
+            manifest: { ...manifest, name: route.connector, url: manifest.url + '/' + route.connector },
+          });
+          if (run.state !== 'streaming') throw new Error('The run is no longer active.');
+          const res = await client.sessions.create({ agent: { spec: {
+            ...data.manifest,
+            mcpServers: data.manifest.mcpServers.map(server =>
+              server.name === CONNECTOR_NAME ? { ...server, name: route.connector } : server),
+          } } });
+          route.sessionId = res.data.id;
+          if ((run.state as Run['state']) !== 'streaming') {
+            await client.sessions.cancel(route.sessionId).catch(() => undefined);
+            throw new Error('The run is no longer active.');
+          }
+          await routing.save?.(route);
+          previousConnector = route.connector;
+          return route.sessionId;
+        } catch (error) {
+          routing.routes.revoke(route.connector);
+          await client.settings.mcpServers.delete(route.connector).catch(() => undefined);
+          throw error;
+        }
+      }
       const res = await client.sessions.create({ agent: { name: agent } });
       log('tf.createSession', agent, res.data.id);
       return res.data.id;
@@ -117,13 +164,67 @@ export function createTfClient(cfg: ContexoConfig): TfClient {
       })();
     },
 
+    async resumeReview(run, turnId, toolCallId, threadId, requireOnlyPending = true) {
+      const { data: turn } = await client.sessions.getTurn(run.sessionId, turnId);
+      if (turn.state.status !== 'paused') throw new Error('TrueForge turn is ' + turn.state.status + '.');
+      let page = await client.sessions.listTurnEvents(run.sessionId, turnId, { limit: 200, order: 'asc' });
+      const pending = new Set<string>();
+      let cursor = '';
+      for (let n = 0; ; n++) {
+        for (const event of page.data) {
+          cursor = event.id;
+          if (event.type === 'tool.approval_required') {
+            for (const call of event.toolCalls) pending.add(event.threadId + ':' + call.id);
+          }
+          if (event.type === 'user.tool_approval') pending.delete(event.threadId + ':' + event.toolCallId);
+        }
+        if (!page.hasNextPage()) break;
+        if (n >= 24) throw new Error('Turn history is too large to reconcile automatically.');
+        page = await page.getNextPage();
+      }
+      if (!cursor || (requireOnlyPending && pending.size !== 1) || !pending.has(threadId + ':' + toolCallId)) {
+        throw new Error('The outstanding TrueForge approvals do not match this review.');
+      }
+      const confirmed = await client.sessions.getTurn(run.sessionId, turnId);
+      if (confirmed.data.state.status !== 'paused') throw new Error('The turn advanced during reconciliation.');
+      if (routing) {
+        const existing = previousConnector && routing.routes.get(previousConnector);
+        if (!existing || existing.run !== run) {
+          const route = await routing.load?.(run.sessionId);
+          if (!route || route.port !== routing.port) throw new Error('The original MCP route is unavailable on this port.');
+          const { data: configured } = await client.settings.mcpServers.get(route.connector);
+          const manifest = configured.manifest;
+          if (manifest.type !== 'remote' || manifest.url !== 'http://127.0.0.1:' + routing.port + '/mcp/' + route.connector) {
+            throw new Error('The saved TrueForge connector no longer points to this workspace route.');
+          }
+          routing.routes.restore({ ...route, run, sessionId: run.sessionId });
+          previousConnector = route.connector;
+        }
+      }
+      return cursor;
+    },
+
     async readTurnState(sessionId, turnId) {
       const { data } = await client.sessions.getTurn(sessionId, turnId, { timeoutInSeconds: 5, maxRetries: 0 });
       const state = data.state;
       return { status: state.status, message: 'message' in state && typeof state.message === 'string' ? state.message : undefined };
     },
 
+    async releaseRoute() {
+      if (!routing || !previousConnector) return;
+      const connector = previousConnector;
+      previousConnector = undefined;
+      routing.routes.revoke(connector);
+      await client.settings.mcpServers.delete(connector, { timeoutInSeconds: 5, maxRetries: 0 });
+    },
+
     async cancel(sessionId) {
+      const connector = previousConnector;
+      if (routing && connector && routing.routes.get(connector)?.sessionId === sessionId) {
+        routing.routes.revoke(connector);
+        previousConnector = undefined;
+        await client.settings.mcpServers.delete(connector, { timeoutInSeconds: 5, maxRetries: 0 }).catch(() => undefined);
+      }
       try {
         await client.sessions.cancel(sessionId);
       } catch (e) {
