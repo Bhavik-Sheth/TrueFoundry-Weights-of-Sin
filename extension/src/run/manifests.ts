@@ -52,7 +52,7 @@ export interface AgentRequest {
       preload: boolean;
       preloadTools: string[];
     }>;
-    config: { iterationLimit: number };
+    config: { iterationLimit: number; contextManagement: { compaction: { enabled: boolean } }; dynamicSubAgents: { enabled: boolean } };
   };
 }
 
@@ -75,7 +75,7 @@ export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, i
           preloadTools: ['search_workspace', 'read_file', 'assemble_context', 'propose_write'],
         },
       ],
-      config: { iterationLimit: 40 },
+      config: { iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
     },
   };
 }

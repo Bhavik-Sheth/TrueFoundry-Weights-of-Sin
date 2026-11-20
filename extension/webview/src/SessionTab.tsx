@@ -117,6 +117,14 @@ function Session({ v }: { v: SessionView }) {
       </div>
       <div style={s.muted}>session {v.id} · {v.model ?? 'model unknown'}{v.title ? ` · ${v.title}` : ''}</div>
       {v.turns.length === 0 && <div style={s.muted}>No turns.</div>}
+      {v.turns.length > 1 && <details>
+        <summary>Compare turns</summary>
+        <table><thead><tr><th>Turn</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Tool calls</th></tr></thead>
+          <tbody>{v.turns.map((turn, i) => <tr key={turn.id}>
+            <td>{i + 1}</td><td>{turn.status}</td><td>{secs(turn.durationMs) || '—'}</td>
+            <td>{turn.totalTokens ?? '—'}</td><td>{turn.entries.filter(entry => entry.kind === 'tool').length}</td>
+          </tr>)}</tbody></table>
+      </details>}
       {v.turns.map((t, i) => <Turn key={t.id} t={t} n={i} />)}
     </section>
   );
@@ -130,6 +138,12 @@ export function SessionTab() {
     post({ type: 'sessionLoad' });
     return () => { listeners.delete(l); };
   }, []);
+  useEffect(() => {
+    if (!st.loaded || st.error || !st.sessions.some(session => !session.sealed &&
+      session.turns.some(turn => !['done', 'cancelled', 'error', 'failed'].includes(turn.status)))) return;
+    const timer = window.setTimeout(() => post({ type: 'sessionLoad', sessionIds: st.selected }), 3000);
+    return () => window.clearTimeout(timer);
+  }, [st]);
   const current = st.selected.length && st.recent.some((r) => r.id === st.selected[0]) ? st.selected[0] : '';
   return (
     <div style={s.root}>

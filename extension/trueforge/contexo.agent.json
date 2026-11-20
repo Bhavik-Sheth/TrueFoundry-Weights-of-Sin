@@ -14,6 +14,6 @@
         "preload_tools": ["search_workspace", "read_file", "assemble_context", "propose_write"]
       }
     ],
-    "config": { "iteration_limit": 40 }
+    "config": { "iteration_limit": 40, "context_management": { "compaction": { "enabled": true } }, "dynamic_sub_agents": { "enabled": true } }
   }
 }
