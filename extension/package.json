@@ -44,6 +44,10 @@
         "title": "Contexo: Open Setup"
       },
       {
+        "command": "contexo.stopTrueForge",
+        "title": "Contexo: Stop TrueForge"
+      },
+      {
         "command": "contexo.reindex",
         "title": "Contexo: Reindex Workspace"
       },
@@ -89,6 +93,13 @@
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "contexo.inlineEdit",
+          "when": "editorHasSelection",
+          "group": "1_modification@1"
+        }
+      ],
       "commandPalette": [
         {
           "command": "contexo.dev.pingTrueForge",
@@ -143,9 +154,9 @@
     "keybindings": [
       {
         "command": "contexo.inlineEdit",
-        "key": "ctrl+alt+e",
-        "mac": "cmd+alt+e",
-        "when": "editorHasSelection"
+        "key": "ctrl+k e",
+        "mac": "cmd+k e",
+        "when": "editorTextFocus && editorHasSelection"
       }
     ],
     "viewsContainers": {
@@ -210,6 +221,17 @@
           "type": "number",
           "default": 8791,
           "description": "Fixed port for the local Contexo MCP server."
+        },
+        "contexo.stopTrueForgeOnExit": {
+          "type": "string",
+          "enum": ["startedByContexo", "always", "never"],
+          "enumDescriptions": [
+            "Stop TrueForge when VS Code closes only if Contexo started it.",
+            "Always stop the local TrueForge when VS Code closes, even one you started yourself.",
+            "Never stop TrueForge when VS Code closes."
+          ],
+          "default": "startedByContexo",
+          "description": "What happens to the local TrueForge when Contexo stops (VS Code closes or reloads)."
         },
         "contexo.autoStartTrueForge": {
           "type": "boolean",

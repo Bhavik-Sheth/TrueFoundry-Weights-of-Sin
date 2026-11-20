@@ -162,7 +162,10 @@ export type ToHost =
   | { type: 'redo'; hunkId: string }
   | { type: 'setupRefresh' }
   | { type: 'startTrueForge' }
+  | { type: 'stopTrueForge' }
   | { type: 'openTrueForge' }
+  | { type: 'sessionLoad'; sessionIds?: string[] }
+  | { type: 'simulateFailure'; on: boolean }
   | { type: 'saveProvider'; providerType: string; key: string; name?: string; baseUrl?: string; modelIds?: string[] }
   | { type: 'setModels'; primary: string; fallback: string }
   | { type: 'register' }
@@ -176,7 +179,8 @@ export type ToWebview =
   | { type: 'changes'; hunks: AppliedHunk[] }
   | { type: 'setup'; status: SetupStatus; catalog: CatalogProviderView[]; settings: SettingsView }
   | { type: 'setupResult'; op: string; ok: boolean; message: string; steps?: SetupStep[] }
-  | { type: 'showSetup' };
+  | { type: 'showSetup' }
+  | { type: 'sessionView'; sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string };
 
 export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';
 
@@ -205,10 +209,58 @@ export interface SettingsView {
   autoStartTrueForge: boolean;
   devMode: boolean;
   trueforgeUrl: string;
+  /** True while the primary agent is deliberately pointed at a broken model ("Test resilience"). */
+  simulatedFailure: boolean;
 }
 
 export interface SetupStep {
   label: string;
   ok: boolean;
   detail?: string;
+}
+
+/** One row of the Session tab's picker (sessions.list). */
+export interface SessionSummary {
+  id: string;
+  agent: string;
+  title?: string;
+  createdAt: string;
+  status?: string;
+}
+
+/** Ordered, display-ready timeline entry of one TrueForge turn (built by run/timeline.ts). */
+export type TimelineEntry =
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'model'; id: string; threadId: string; text: string; model?: string; finishReason?: string; inputTokens?: number; outputTokens?: number }
+  | { kind: 'tool'; toolCallId: string; threadId: string; name: string; server?: string; deferred: boolean; args?: unknown; result?: string }
+  | { kind: 'approval'; toolCallId: string; threadId: string; name: string; status: 'requested' | 'allowed' | 'denied'; reason?: string }
+  | { kind: 'thread'; threadId: string; parentThreadId?: string; parentToolCallId?: string; title: string; agent?: string; model?: string; status: 'running' | 'done' | 'error'; error?: string }
+  | { kind: 'turn-done'; status: string; error?: string; reason?: string }
+  | { kind: 'info'; text: string };
+
+export interface TurnView {
+  id: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+  error?: string;
+  entries: TimelineEntry[];
+}
+
+export interface SessionView {
+  id: string;
+  agent: string;
+  model?: string;
+  title?: string;
+  createdAt: string;
+  /** 'primary' / 'fallback' when the agent name matches the configured agents. */
+  role: 'primary' | 'fallback' | 'other';
+  /** Set by the host: this session was sealed by Stop or by a fallback takeover. */
+  sealed: boolean;
+  turns: TurnView[];
 }

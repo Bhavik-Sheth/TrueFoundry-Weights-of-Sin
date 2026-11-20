@@ -20,7 +20,7 @@ import { ContexoPanelProvider } from './shell/panel';
 import { StatusBar } from './shell/statusBar';
 import { startIndexing } from './context/indexer';
 import { registerReview } from './review/diffView';
-import { createTfClient } from './run/tfClient';
+import { createSessionInspector, createTfClient } from './run/tfClient';
 import { RunManager } from './run/runManager';
 import { getOrCreateToken, startServer } from './mcp/server';
 import type { McpHandle } from './mcp/server';
@@ -28,6 +28,7 @@ import { makeToolRegistrar } from './mcp/tools';
 import { registerInlineEdit } from './shell/inlineEdit';
 import { registerDevCommands } from './dev/devCommands';
 import { SetupController } from './shell/setupController';
+import { SessionController } from './shell/sessionController';
 
 let mcpHandle: McpHandle | undefined;
 let runsRef: RunManager | undefined;
@@ -57,7 +58,21 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     registerTools: makeToolRegistrar({ index, review, runs, post }),
   });
   mcpHandle = mcp;
-  const setup = new SetupController({ post, token, mcpPort: mcp.port, index });
+  const FAILURE_KEY = 'contexo.simulatedPrimaryFailure';
+  const setup = new SetupController({
+    post, token, mcpPort: mcp.port, index,
+    failureStore: { get: () => ctx.globalState.get<boolean>(FAILURE_KEY, false), set: (v) => ctx.globalState.update(FAILURE_KEY, v) },
+  });
+  const sessions = new SessionController({
+    inspector: createSessionInspector(cfg),
+    post,
+    currentRun: () => {
+      const r = runs.active;
+      if (!r) return { ids: [], sealed: [] };
+      const sealed = r.sealedSessions.filter((x) => !!x);
+      return { ids: [...new Set([...sealed, r.sessionId].filter((x) => !!x))], sealed };
+    },
+  });
   setupRef = setup;
   registerInlineEdit(ctx, runs);
   registerDevCommands(ctx, { post, review, runs, tf });
@@ -71,9 +86,15 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     }
     status.update(s);
     post({ type: 'runState', ...s });
+    if (s.state === 'done' || s.state === 'failed' || s.state === 'cancelled' || s.state === 'awaiting-review') {
+      void sessions.refreshCurrent().catch((e) => log('session refresh failed', String(e)));
+    }
   });
   runs.on('stream', (events) => post({ type: 'stream', events }));
-  runs.on('session', (s) => post({ type: 'session', ...s }));
+  runs.on('session', (s) => {
+    post({ type: 'session', ...s });
+    void sessions.refreshCurrent().catch((e) => log('session refresh failed', String(e)));
+  });
 
   ctx.subscriptions.push(
     panel.onMessage((m) => {
@@ -102,13 +123,18 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         case 'ready':
           setup.onReady();
           break;
+        case 'sessionLoad':
+          void sessions.show(m.sessionIds).catch((e) => log('session load failed', String(e)));
+          break;
         case 'setupRefresh':
         case 'startTrueForge':
+        case 'stopTrueForge':
         case 'openTrueForge':
         case 'saveProvider':
         case 'setModels':
         case 'register':
         case 'updateSetting':
+        case 'simulateFailure':
           void setup.handle(m).catch((e) => log('setup message failed', e instanceof Error ? e.message : String(e)));
           break;
       }
@@ -133,6 +159,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       setup.showSetup();
     }),
     vscode.commands.registerCommand('contexo.reindex', () => index.reindexAll()),
+    vscode.commands.registerCommand('contexo.stopTrueForge', async () => {
+      if (runs.active && runs.active.state !== 'done') await runs.stop();
+      void vscode.window.showInformationMessage(await setup.stopTrueForge());
+    }),
   );
   log(`Contexo activated; MCP at ${mcp.url}`);
   void setup.init().catch((e) => log('setup init failed', e instanceof Error ? e.message : String(e)));

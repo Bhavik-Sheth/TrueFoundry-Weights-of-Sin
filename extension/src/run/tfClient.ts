@@ -16,14 +16,18 @@
  *  - TfClient.sessionUrl(sessionId): `${baseUrl}/sessions/${id}` (a GUESS, unverified - see spike notes).
  *  - TfClient.ping(): cheap sessions.list with a 3 s timeout, no retries; true/false.
  *
+ *  - createSessionInspector(cfg): read-only Session tab data. recent(limit) -> sessions.list; load(id, sealed) ->
+ *    sessions.get + listTurns + listTurnEvents (deltas merged via mergeEventDelta) mapped by run/timeline.
+ *
  * Event shape: the SDK yields camelCase fields (threadId, toolCalls[{id, sourceEventId}], turnId).
  * Rules: no model provider SDK or URL anywhere.
  * Depends on: @truefoundry/trueforge-sdk, config, types, log. Depended on by: run/runManager, run/fallback, dev/devCommands.
  */
 import { TrueForge, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge-sdk';
 import type { ContexoConfig } from '../config';
-import type { TfEvent } from '../types';
+import type { SessionSummary, SessionView, TfEvent, TurnView } from '../types';
 import { log } from '../log';
+import { buildSessionView, buildTurnView } from './timeline';
 
 export interface TfClient {
   createSession(agent: string): Promise<string>;
@@ -36,10 +40,22 @@ export interface TfClient {
 
 type AnyEvent = { type: string; id?: string; [k: string]: unknown };
 
-/** Wraps a raw SDK stream: merges deltas into per-id messages, yields all events. */
-async function* withMerge(stream: AsyncIterable<unknown>): AsyncIterable<TfEvent> {
-  const synthetic = new Map<string, AnyEvent>();   // messages seen only as deltas
-  const real = new Set<string>();                   // ids of real model.message events seen
+/**
+ * Wraps a raw SDK stream: merges deltas into per-id messages, yields all events.
+ * LIVE FINDING (spike Q1): TrueForge streams an EMPTY `model.message` placeholder first and then only
+ * `model.message.delta` events for that id, so the merged message must be yielded (as a complete
+ * model.message) before the tool response / approval / end of turn that depends on it.
+ */
+export async function* withMerge(stream: AsyncIterable<unknown>): AsyncIterable<TfEvent> {
+  const synthetic = new Map<string, AnyEvent>();   // messages seen as deltas
+  const done = new Set<string>();                   // ids already yielded as complete (real or merged)
+  const flush = function* (): Iterable<TfEvent> {
+    for (const [id, m] of synthetic) {
+      if (done.has(id)) continue;
+      done.add(id);
+      yield m as TfEvent;
+    }
+  };
   for await (const raw of stream) {
     const ev = raw as AnyEvent;
     if (isEventDelta(ev as { type: string })) {
@@ -54,20 +70,13 @@ async function* withMerge(stream: AsyncIterable<unknown>): AsyncIterable<TfEvent
       continue;
     }
     if (ev.type === 'model.message' && ev.id) {
-      real.add(ev.id);
+      const full = (Array.isArray(ev.toolCalls) && ev.toolCalls.length > 0) || (typeof ev.content === 'string' && ev.content !== '');
+      if (full) done.add(ev.id);
     }
-    if (ev.type === 'tool.approval_required') {
-      const refs = (ev.toolCalls as Array<{ sourceEventId: string }> | undefined) ?? [];
-      for (const r of refs) {
-        const s = synthetic.get(r.sourceEventId);
-        if (s && !real.has(r.sourceEventId)) {
-          real.add(r.sourceEventId);
-          yield s as TfEvent;
-        }
-      }
-    }
+    if (ev.type === 'tool.response' || ev.type === 'tool.approval_required' || ev.type === 'turn.done') yield* flush();
     yield ev as TfEvent;
   }
+  yield* flush();
 }
 
 export function createTfClient(cfg: ContexoConfig): TfClient {
@@ -125,6 +134,68 @@ export function createTfClient(cfg: ContexoConfig): TfClient {
         log('tf.ping failed', String(e));
         return false;
       }
+    },
+  };
+}
+
+/** Persisted events normally have no deltas; if an in-flight turn returns some, merge them into model.message events. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function mergeStoredDeltas(events: any[]): any[] {
+  const out: AnyEvent[] = [];
+  const synthetic = new Map<string, AnyEvent>();
+  const real = new Set<string>(events.filter((e) => e.type === 'model.message').map((e) => e.id as string));
+  for (const ev of events) {
+    if (isEventDelta(ev as { type: string })) {
+      const id = ev.id as string;
+      if (real.has(id)) continue;
+      let base = synthetic.get(id);
+      if (!base) {
+        base = { type: 'model.message', id, threadId: ev.threadId, content: '', toolCalls: [] };
+        synthetic.set(id, base);
+        out.push(base);
+      }
+      mergeEventDelta(base as never, ev as never);
+      continue;
+    }
+    out.push(ev);
+  }
+  return out;
+}
+
+export interface SessionInspector {
+  recent(limit?: number): Promise<SessionSummary[]>;
+  load(sessionId: string, sealed: boolean): Promise<SessionView>;
+}
+
+export function createSessionInspector(cfg: Pick<ContexoConfig, 'trueforgeUrl' | 'primaryAgent' | 'fallbackAgent'>): SessionInspector {
+  const client = new TrueForge({ baseUrl: cfg.trueforgeUrl.replace(/\/+$/, ''), timeoutInSeconds: 30 });
+  return {
+    async recent(limit = 20) {
+      const page = await client.sessions.list({ limit });
+      return page.data.map((s) => ({
+        id: s.id,
+        agent: s.agent.type === 'reference' ? String(s.agent.name ?? s.agent.id) : 'inline agent',
+        title: s.title ?? undefined,
+        createdAt: s.createdAt,
+        status: s.lastTurnDetails?.state.status,
+      }));
+    },
+
+    async load(sessionId, sealed) {
+      const session = (await client.sessions.get(sessionId)).data;
+      const turns: TurnView[] = [];
+      let page = await client.sessions.listTurns(sessionId, { limit: 25 });
+      const raw = [...page.data];
+      while (page.hasNextPage() && raw.length < 200) { page = await page.getNextPage(); raw.push(...page.data); }
+      raw.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      for (const turn of raw) {
+        const events: unknown[] = [];
+        let ep = await client.sessions.listTurnEvents(sessionId, turn.id, { limit: 200, order: 'asc' });
+        events.push(...ep.data);
+        while (ep.hasNextPage() && events.length < 5000) { ep = await ep.getNextPage(); events.push(...ep.data); }
+        turns.push(buildTurnView(turn, mergeStoredDeltas(events)));
+      }
+      return buildSessionView(session, turns, { primaryAgent: cfg.primaryAgent, fallbackAgent: cfg.fallbackAgent, sealed });
     },
   };
 }

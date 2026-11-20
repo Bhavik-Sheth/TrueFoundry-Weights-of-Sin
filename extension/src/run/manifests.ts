@@ -4,13 +4,30 @@
  * Mirrors extension/trueforge/*.json + register.mjs in the SDK's camelCase shape (the SDK serialises to
  * the snake_case wire format). test/manifests.test.ts compares these against the JSON files so they cannot drift.
  *
- * Exports: CONNECTOR_NAME, AGENT_NAMES, buildConnectorManifest, buildAgentRequest, parseNodeVersion, nodeVersionOk,
+ * Exports: CONNECTOR_NAME, AGENT_NAMES, BROKEN_* / buildBrokenProviderManifest / brokenModelFqn, buildConnectorManifest, buildAgentRequest, parseNodeVersion, nodeVersionOk,
  *          modelFqn.
  * Depended on by: run/trueforgeAdmin, run/trueforgeProcess, tests.
  */
 
 export const CONNECTOR_NAME = 'contexo-editor';
 export const AGENT_NAMES = { primary: 'contexo', fallback: 'contexo-fallback' } as const;
+
+/** "Test resilience": a custom provider whose endpoint refuses connections (port 9, loopback), so model calls fail fast. */
+export const BROKEN_PROVIDER = 'contexo-broken';
+export const BROKEN_MODEL_ID = 'broken-model';
+export const BROKEN_BASE_URL = 'http://127.0.0.1:9/v1';
+
+export function buildBrokenProviderManifest() {
+  return {
+    type: 'custom' as const,
+    name: BROKEN_PROVIDER,
+    baseUrl: BROKEN_BASE_URL,
+    auth: { apiKey: 'dummy-not-a-real-key' },
+    models: [{ modelId: BROKEN_MODEL_ID, name: BROKEN_MODEL_ID, properties: {} }],
+  };
+}
+
+export const brokenModelFqn = () => `${BROKEN_PROVIDER}/${BROKEN_MODEL_ID}`;
 
 export function buildConnectorManifest(port: number, token: string) {
   return {

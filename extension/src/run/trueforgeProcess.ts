@@ -84,6 +84,43 @@ export const LOOPBACK_ALLOWLIST = '["127.0.0.1"]';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Parses `netstat -ano` (Windows) output: PIDs listening on the given TCP port. */
+export function parseNetstatPids(out: string, port: number): number[] {
+  const pids = new Set<number>();
+  for (const line of out.split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5 || cols[0].toUpperCase() !== 'TCP' || cols[3].toUpperCase() !== 'LISTENING') continue;
+    if (!cols[1].endsWith(`:${port}`)) continue;
+    const pid = Number(cols[4]);
+    if (pid > 0) pids.add(pid);
+  }
+  return [...pids];
+}
+
+/** PIDs of processes listening on a local TCP port (netstat on Windows, lsof elsewhere). */
+export function findListeningPids(port: number): Promise<number[]> {
+  const p = Math.trunc(port);
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      execFile('netstat', ['-ano', '-p', 'TCP'], { windowsHide: true, timeout: 10000 }, (err, stdout) =>
+        resolve(err ? [] : parseNetstatPids(String(stdout), p)));
+    } else {
+      execFile('lsof', ['-t', '-i', `tcp:${p}`, '-sTCP:LISTEN'], { timeout: 10000 }, (err, stdout) =>
+        resolve(err ? [] : String(stdout).split(/\s+/).map(Number).filter((n) => n > 0)));
+    }
+  });
+}
+
+/** Stops whatever TrueForge is listening on the local port (also one Contexo did not start). Returns PIDs stopped. */
+export async function stopTrueForgeOnPort(port: number, log: (...a: unknown[]) => void): Promise<number[]> {
+  const pids = await findListeningPids(port);
+  for (const pid of pids) {
+    log(`trueforge: stopping process ${pid} on port ${port}`);
+    await new Promise<void>((res) => treeKill(pid, 'SIGTERM', () => res()));
+  }
+  return pids;
+}
+
 export async function ensureTrueForge(o: EnsureOpts): Promise<TfProcHandle> {
   const noop = async () => undefined;
   const set = (s: TfProcState, detail?: string): TfProcHandle => {

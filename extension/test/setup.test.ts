@@ -34,3 +34,20 @@ describe('setup status', () => {
     expect(computeSetupStatus({ ...base, fallbackModel: '' }).fallbackModel).toBeUndefined();
   });
 });
+
+describe('setup flow needs no TrueForge web UI', () => {
+  it('completes from API facts alone: the status has no UI/session URL field', () => {
+    const s = computeSetupStatus(base);
+    expect(isSetupComplete(s)).toBe(true);
+    expect(Object.keys(s).some((k) => /url/i.test(k))).toBe(false);
+  });
+  it('the webview has no required "Open TrueForge" step (only the advanced link in Settings)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const setup = readFileSync(new URL('../webview/src/SetupView.tsx', import.meta.url), 'utf8');
+    const chat = readFileSync(new URL('../webview/src/ChatTab.tsx', import.meta.url), 'utf8');
+    expect(setup).not.toMatch(/>\s*Open TrueForge\s*</);
+    expect(chat).not.toMatch(/Open in TrueForge/);
+    expect((setup.match(/openTrueForge/g) ?? []).length).toBe(1);
+    expect(setup).toMatch(/Advanced: open TrueForge web UI/);
+  });
+});

@@ -5,7 +5,7 @@
  *  - ChatTab (React component): host-relayed renderer (the S0 spike chose this over TrueForgeUI).
  *    Renders 'stream' and 'session' messages: model text merged per thread (preformatted wrapped
  *    text, never HTML), tool-call chips (name, collapsible args JSON, result summary, "deferred"
- *    badge), approval chips with status, a turn status line, and an "Open in TrueForge" link.
+ *    badge), approval chips with status, a turn status line, and a "View session" link (opens the Session tab).
  *    Auto-scrolls to the bottom unless the user scrolled up. A new 'session' clears the history.
  *    The send box lives in App.tsx.
  *  - State lives at module level (subscribed once) so history survives tab switches.
@@ -82,7 +82,7 @@ const s: Record<string, CSSProperties> = {
 
 const approvalColor = { pending: 'var(--vscode-editorWarning-foreground)', allowed: 'var(--vscode-testing-iconPassed)', denied: 'var(--vscode-errorForeground)' };
 
-export function ChatTab() {
+export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
   const [st, setSt] = useState(state);
   const endRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -112,7 +112,7 @@ export function ChatTab() {
       {st.session && (
         <div style={s.muted}>
           Session {st.session.sessionId.slice(0, 8)} · {st.session.agent} ·{' '}
-          <a style={s.link} href={st.session.url}>Open in TrueForge</a>
+          <a style={s.link} role="button" tabIndex={0} onClick={onViewSession} onKeyDown={(e) => { if (e.key === 'Enter') onViewSession?.(); }}>View session</a>
         </div>
       )}
       {st.items.length === 0 && <div style={s.muted}>No messages yet. Send a request below.</div>}

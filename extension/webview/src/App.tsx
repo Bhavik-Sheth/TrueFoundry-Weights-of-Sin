@@ -2,7 +2,7 @@
  * App.tsx - webview shell (C1).
  *
  * Exports:
- *  - App (React component): tabs Chat / Context / Changes (selected tab persisted with
+ *  - App (React component): tabs Chat / Session / Context / Changes / Settings (selected tab persisted with
  *    vscode.setState); run header with state pill, agent name and Stop button; banner from
  *    runState.banner; an agent input box that posts {type:'send'}; sends {type:'ready'} on mount.
  *    ChatTab / ContextTab / ChangesTab subscribe to the bridge themselves.
@@ -13,14 +13,15 @@ import { useEffect, useState } from 'react';
 import { getState, post, setState, subscribe } from './bridge';
 import type { RunStateMsg } from '../../src/types';
 import { ChatTab } from './ChatTab';
+import { SessionTab } from './SessionTab';
 import { ContextTab } from './ContextTab';
 import { ChangesTab } from './ChangesTab';
 import { SettingsTab, Wizard } from './SetupView';
 import type { SetupData } from './SetupView';
 import type { ToWebview } from '../../src/types';
 
-type Tab = 'chat' | 'context' | 'changes' | 'settings';
-const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['context', 'Context'], ['changes', 'Changes'], ['settings', '⚙ Settings']];
+type Tab = 'chat' | 'session' | 'context' | 'changes' | 'settings';
+const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['session', 'Session'], ['context', 'Context'], ['changes', 'Changes'], ['settings', '⚙ Settings']];
 
 export function App() {
   const [tab, setTab] = useState<Tab>(() => getState<{ tab?: Tab }>().tab ?? 'chat');
@@ -79,6 +80,11 @@ export function App() {
           Stop
         </button>
       </div>
+      {setup.settings?.simulatedFailure && (
+        <div role="alert" className="banner" style={{ fontWeight: 'bold' }}>
+          Primary model is in simulated-failure mode. Restore it in Settings, Test resilience.
+        </div>
+      )}
       {run.state === 'failed' && run.banner && (
         <div
           role="alert"
@@ -106,12 +112,13 @@ export function App() {
         ))}
       </div>
       <div className="content">
-        {tab === 'chat' && <ChatTab />}
+        {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} />}
+        {tab === 'session' && <SessionTab />}
         {tab === 'context' && <ContextTab />}
         {tab === 'changes' && <ChangesTab />}
         {tab === 'settings' && <SettingsTab data={setup} />}
       </div>
-      {tab !== 'settings' && (
+      {tab !== 'settings' && tab !== 'session' && (
       <div className="composer">
         <textarea
           value={text}

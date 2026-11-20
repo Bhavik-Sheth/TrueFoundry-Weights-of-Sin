@@ -2,20 +2,20 @@
 
 Contexo is a VS Code extension that adds a context-aware coding agent to the editor. Its agent loop runs entirely on [TrueForge](https://github.com/truefoundry/trueforge) (TrueFoundry's open-source agent harness) in local mode. Built for the TrueFoundry Forge-a-thon.
 
-- **Inline edit**: select code, press `Ctrl+Alt+E` (`Cmd+Alt+E` on macOS), type an instruction, review the diff hunk by hunk.
-- **Agent mode**: a panel in the secondary sidebar (Chat / Context / Changes tabs) where one request drives a multi-file change. The agent finds the files itself.
+- **Inline edit**: select code, press `Ctrl+K` then `E` (`Cmd+K` then `E` on macOS), type an instruction, review the diff hunk by hunk.
+- **Agent mode**: a panel in the secondary sidebar (Chat / Session / Context / Changes / Settings tabs) where one request drives a multi-file change. The agent finds the files itself.
 - **Context assembly**: `@file` / `@symbol` mentions plus automatic budgeted retrieval, with reasons and omissions visible in the Context tab.
 - **Safe review**: nothing is written until you accept; every hunk has Accept/Reject CodeLens; applied hunks can be undone.
 - **Streaming, Stop, fallback**: tokens stream in; Stop is immediate and leaves the workspace untouched; if the primary model fails, a second configured model takes over.
 
-The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge.
+The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge. TrueForge is a backend-only harness here: **Contexo is the only UI** (setup, models, session inspection and the resilience test all happen in the panel; you never need to open TrueForge's web UI).
 
 ## Quick start (just use it)
 
 1. Get `contexo.vsix` (build it with the steps below, or download it from the repository's releases if one is published).
 2. In VS Code: **Extensions → ⋯ → Install from VSIX…** and pick the file (or `code --install-extension contexo.vsix`).
-3. Open any project folder and click the **Contexo** icon in the secondary sidebar. The setup wizard starts TrueForge, takes your provider API key, lets you pick a primary and a fallback model, and registers the agents. No terminal and no TrueForge UI needed.
-4. Select code and press `Ctrl+Alt+E` for an inline edit, or type a request in the Chat tab for agent mode.
+3. Open any project folder and click the **Contexo** icon in the secondary sidebar. The setup wizard starts TrueForge, takes your provider API key, lets you pick a primary and a fallback model, and registers the agents. No terminal and no TrueForge UI needed. The **Session** tab shows what TrueForge did for each run (turns, tool calls, approvals, fallback).
+4. Select code and press `Ctrl+K E` for an inline edit, or type a request in the Chat tab for agent mode.
 
 You need Node.js 22.14+ installed (Contexo uses it to run TrueForge locally) and an API key for at least one model provider.
 
@@ -61,7 +61,7 @@ You need Node.js 22.14+ installed (Contexo uses it to run TrueForge locally) and
 
 ### Manual alternative (no wizard)
 
-Use this if you prefer the terminal or the TrueForge UI.
+Advanced alternative: use this if you prefer the terminal (or TrueForge's own web UI). It is not needed for normal use.
 
 1. Start TrueForge yourself (leave it running), allowing it to reach the local Contexo MCP server. TrueForge blocks connections to `127.0.0.1` by default, so set `OUTBOUND_URL_ALLOWED_HOSTS`:
 
@@ -70,7 +70,7 @@ Use this if you prefer the terminal or the TrueForge UI.
    ```
 
    PowerShell: `$env:OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1"]'; npx @truefoundry/trueforge@latest`. It serves http://localhost:8790 (`--port <n>` or `PORT` to change). Contexo sets this variable itself when it starts TrueForge. Set `contexo.autoStartTrueForge` to `false` to stop Contexo from starting one.
-2. In the TrueForge UI, open **Settings -> Models** and configure two models (a primary and a fallback, ideally from different providers). See [extension/trueforge/models.example.md](extension/trueforge/models.example.md). Never commit keys.
+2. Configure two models in TrueForge (its web UI under **Settings -> Models**, or `settings.modelProviders` in its API) (a primary and a fallback, ideally from different providers). See [extension/trueforge/models.example.md](extension/trueforge/models.example.md). Never commit keys.
 3. Run **Contexo: Copy MCP Connection** from the Command Palette (copies the MCP URL and the `X-Contexo-Token`).
 4. Register the connector and agents (from `extension/`):
 
@@ -96,18 +96,19 @@ Use this if you prefer the terminal or the TrueForge UI.
 | `contexo.commandAllowlist` | `["python","pytest","flask"]` | Allowed `argv[0]` values for `run_command` |
 | `contexo.mcpPort` | `8791` | Fixed port of the local Contexo MCP server |
 | `contexo.autoStartTrueForge` | `true` | Start a local TrueForge when none is running |
+| `contexo.stopTrueForgeOnExit` | `startedByContexo` | When VS Code closes: stop TrueForge only if Contexo started it, `always` stop the local TrueForge, or `never` |
 | `contexo.primaryModel` / `contexo.fallbackModel` | empty | `provider/model` names chosen in the wizard (never keys) |
 | `contexo.devMode` | `false` | Show the dev/fixture commands in the Command Palette |
 
 ## Commands
 
-`Contexo: Inline Edit` (`Ctrl+Alt+E`, needs a selection), `Contexo: Open Setup`, `Contexo: Stop`, `Contexo: Copy MCP Connection`, `Contexo: Reindex Workspace`, and the review commands used by the CodeLens and the Changes tab (`Undo Hunk`, `Redo Hunk`, `Decide Hunk`, `Apply Accepted Hunks`, `Accept All Hunks`, `Reject All Hunks`; hidden from the palette). With `contexo.devMode` on: `Contexo Dev: Ping TrueForge`, `Send Test Turn`, `Show Sample Context Packet`, `Open Sample Proposal` (and a missing-symbol variant), `Apply Sample Change`.
+`Contexo: Inline Edit` (`Ctrl+K E`, needs a selection), `Contexo: Open Setup`, `Contexo: Stop`, `Contexo: Stop TrueForge` (also a button in the panel's TrueForge section), `Contexo: Copy MCP Connection`, `Contexo: Reindex Workspace`, and the review commands used by the CodeLens and the Changes tab (`Undo Hunk`, `Redo Hunk`, `Decide Hunk`, `Apply Accepted Hunks`, `Accept All Hunks`, `Reject All Hunks`; hidden from the palette). With `contexo.devMode` on: `Contexo Dev: Ping TrueForge`, `Send Test Turn`, `Show Sample Context Packet`, `Open Sample Proposal` (and a missing-symbol variant), `Apply Sample Change`.
 
 ## Running the three fixed tasks (Flask 3.1.3)
 
 Open the `flask/` folder (checked out at `3.1.3`, clean `git status`) in VS Code, with TrueForge running and the agents registered.
 
-**Task A: inline edit.** Open `src/flask/helpers.py`, select the function `get_debug_flag`, press `Ctrl+Alt+E` and enter exactly:
+**Task A: inline edit.** Open `src/flask/helpers.py`, select the function `get_debug_flag`, press `Ctrl+K E` and enter exactly:
 
 > Treat the values 'off' and 'n' as false as well, case-insensitively, and update the docstring to list every value that is treated as false.
 
@@ -123,14 +124,14 @@ PowerShell: `$env:FLASK_DEBUG='off'; python -c "from flask.helpers import get_de
 
 > Add a new built-in CLI command flask config that prints the loaded application's configuration as JSON, masking the values of any key containing SECRET, PASSWORD, TOKEN or KEY as "***". It must appear in flask --help, be covered by a test, and be documented alongside the other built-in commands.
 
-Watch the Context tab (chosen files and reasons), review and accept the hunks (expect `src/flask/cli.py`, `tests/test_cli.py`, `docs/cli.rst`), and open the TrueForge session ("Open in TrueForge" link in the Chat tab, or the TrueForge UI at `http://localhost:8790`) to show turns and tool calls. Verify:
+Watch the Context tab (chosen files and reasons), review and accept the hunks (expect `src/flask/cli.py`, `tests/test_cli.py`, `docs/cli.rst`), and open the **Session** tab (or press **View session** in the Chat tab) to show the TrueForge session: each turn with status, timing and tokens, the tool calls (MCP server name, deferred-load marker, args, result), the `propose_write` approval and its allow/deny. Verify:
 
 ```bash
 pytest tests/test_cli.py -q
 flask --app <some app> config      # masked JSON; e.g. copy scripts/demo-app.py into the Flask folder (outside git status) and use --app demo-app.py
 ```
 
-**Task C: resilience.** In the TrueForge UI (**Settings -> Models**, or **Open TrueForge** from Contexo's Settings tab) break the primary model (invalid key or unreachable endpoint), then repeat Task A. Contexo shows a banner and the fallback agent takes over automatically (or a clear error if both fail). Verify the editor stays responsive and `git status` in Flask shows no changes.
+**Task C: resilience.** In the Contexo **Settings** tab, **Test resilience**, press **Simulate primary model failure** (Contexo registers a custom TrueForge provider `contexo-broken` pointing at an unreachable endpoint and re-registers the `contexo` agent on it; a banner "Primary model is in simulated-failure mode" stays visible in the panel, also after a reload). Repeat Task A. Contexo shows the fallback banner and the `contexo-fallback` agent takes over automatically (or a clear error if the fallback fails too); the Session tab shows the sealed primary session with its error and the fallback session. Press **Restore primary model** afterwards. Verify the editor stays responsive and `git status` in Flask shows no changes.
 
 See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) for the recording plan.
 
@@ -138,7 +139,7 @@ See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) for the recording plan.
 
 Open the **Settings** (gear) tab in the Contexo panel and pick a different primary or fallback model. Contexo updates the `contexo` / `contexo-fallback` agents in TrueForge right away. To use a new provider, add its key in the same tab first. No extension change or rebuild is needed.
 
-Models and keys still live only in TrueForge, so you can also change them in the TrueForge UI (Build Agent), re-run `register.mjs` with different `PRIMARY_MODEL` / `FALLBACK_MODEL`, or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents.
+Models and keys still live only in TrueForge, so as advanced alternatives you can also change them in TrueForge's own web UI (Build Agent), re-run `register.mjs` with different `PRIMARY_MODEL` / `FALLBACK_MODEL`, or point `contexo.primaryAgent` / `contexo.fallbackAgent` at other agents.
 
 ## Development
 
@@ -175,7 +176,9 @@ The upstream sample is a minimal webview view with colour-picker commands and no
 - **Context assembly** (`src/context/`): Tree-sitter symbol index, BM25 / symbol / ripgrep retrieval, one-hop expansion, RRF fusion and budgeted packing with reasons and omissions.
 - **Review and undo** (`src/review/`): `propose_write` is approval-gated; the proposal is shown as per-hunk diffs with CodeLens, guarded (stale base, scope, missing symbols), applied only after accept, and undoable per hunk or per apply.
 - **Setup without a terminal** (`src/run/trueforgeProcess.ts`, `src/run/trueforgeAdmin.ts`, `src/shell/setup*.ts`): starts a local TrueForge, forwards the provider key to TrueForge's API, lists models, and registers the connector and agents.
-- **UI** (`webview/`): setup wizard, Chat, Context (graph and ranked list), Changes and Settings tabs.
+- **Session inspection** (`src/run/timeline.ts`, `src/shell/sessionController.ts`): read-only view of TrueForge sessions built from its API (sessions, turns, turn events), so TrueForge's UI is never needed.
+- **Resilience test** (`src/run/failureMode.ts`): re-registers the primary agent on a deliberately broken model and back.
+- **UI** (`webview/`): setup wizard, Chat, Session, Context (graph and ranked list), Changes and Settings tabs.
 
 ## Project layout
 
@@ -188,7 +191,7 @@ extension/
   src/context/            indexer, search (BM25, ripgrep), assembler, token counts
   src/review/             proposal/hunks, guards, diff view + CodeLens, apply/undo
   src/dev/                fixtures and dev commands
-  webview/                React webview (setup wizard, Chat, Context, Changes, Settings)
+  webview/                React webview (setup wizard, Chat, Session, Context, Changes, Settings)
   trueforge/              agent JSONs, connector JSON, instructions.md, register.mjs, models.example.md
   test/                   Vitest suites
 scripts/                  setup-flask.{ps1,sh}, check-no-provider.mjs, demo-app.py

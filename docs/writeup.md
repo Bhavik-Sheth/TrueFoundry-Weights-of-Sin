@@ -11,7 +11,7 @@ Forked from `microsoft/vscode-extension-samples`, path `webview-view-sample/`, c
 
 ## 3. Architecture on TrueForge
 
-The extension is a client and an MCP server of a local TrueForge (`npx @truefoundry/trueforge@latest`).
+The extension is a client and an MCP server of a local TrueForge (`npx @truefoundry/trueforge@latest`). TrueForge is the backend-only harness (agent loop, model gateway, session store); Contexo is the sole UI: setup, model switching, a read-only Session view built from TrueForge's sessions/turns/events API, and a resilience test all live in the VS Code panel.
 
 - **Client.** `RunManager` uses `@truefoundry/trueforge-sdk` to create a session on the `contexo` agent, send turns, stream events to the panel (tokens appear as they arrive), and resume paused turns with approvals. Stop aborts the stream locally first, discards any pending proposal, kills any running command, then calls `sessions.cancel`.
 - **MCP tools.** A local Streamable HTTP server (127.0.0.1, `X-Contexo-Token` header) is registered in TrueForge as the connector `contexo-editor`. It exposes six tools: `search_workspace`, `read_file`, `assemble_context`, `list_symbols`, `propose_write`, `run_command`. The agent, not the extension, decides what to read and change; the extension never calls a model provider (a grep check in `npm run check` enforces this).
@@ -19,7 +19,7 @@ The extension is a client and an MCP server of a local TrueForge (`npx @truefoun
 - **Deferred tool loading.** The agent preloads only `search_workspace`, `read_file`, `assemble_context` and `propose_write`; `run_command` and `list_symbols` stay deferred and are discovered on demand. This keeps the tool schemas out of the context until needed.
 - **Fallback.** A second agent `contexo-fallback` (same tools and instructions, different model). If the primary fails (HTTP 401/403/404/408/429/5xx, network error, provider error text in `turn.done`, or no first event within `contexo.firstEventTimeoutMs`), `takeOver` seals the primary session and replays the original request on the fallback once, with a banner. It never runs after Stop or after an approved write.
 
-Not used: subagents, compaction, Code Mode, skills, sandbox (see section 8). Video: Task A `[TODO mm:ss]`, Task B TrueForge session `[TODO mm:ss]`, Task C `[TODO mm:ss]`.
+Not used: subagents, compaction, Code Mode, skills, sandbox (see section 8). Video: Task A `[TODO mm:ss]`, Task B TrueForge session (Contexo Session tab) `[TODO mm:ss]`, Task C `[TODO mm:ss]`.
 
 ## 4. How context is selected
 
@@ -51,7 +51,7 @@ Models are configured only in TrueForge (Settings -> Models); the repo contains 
 | B1 Context assembly | `[TODO]` | Budgeted retrieval (<= 8000 tokens) with chosen files, reasons and omissions in the Context tab. |
 | B2 Diff safety | `[TODO]` | Per-hunk review, no write before apply, and a working undo shown on screen. |
 | B3 Resilience | `[TODO]` | Task C: broken primary model, automatic fallback, `git status` clean. |
-| B4 TrueForge integration | `[TODO]` | Editor tools as MCP tools, approval drives the diff review, deferred tool loading, session shown. |
+| B4 TrueForge integration | `[TODO]` | Editor tools as MCP tools, approval drives the diff review, deferred tool loading, session shown in Contexo's Session tab. |
 | C1 Video | `[TODO]` | Tasks A, B, C in order, each verified on screen. |
 | C2 Write-up | n/a | Architecture, context strategy, model setup, this scorecard and honest limitations. |
 
@@ -71,4 +71,4 @@ Claude Code (Claude Opus and Sonnet models) was used to build this extension. Li
 - **Bundle size.** `dist/extension.js` is 7.7 MB (the VSIX is 3.1 MB); we did not tree-shake the SDKs.
 - **Scope.** Python only, one workspace folder, one active run; no subagents, compaction, Code Mode or sandbox.
 
-With another month: language-server symbol resolution, embeddings alongside BM25, a staged sandbox to run tests before apply, persistent undo and run journal, TrueForge compaction and subagents for long tasks, a smaller bundle, and a read-only embedded TrueForge session view.
+With another month: language-server symbol resolution, embeddings alongside BM25, a staged sandbox to run tests before apply, persistent undo and run journal, TrueForge compaction and subagents for long tasks, a smaller bundle, and richer session views (diffing turns, live streaming in the Session tab).

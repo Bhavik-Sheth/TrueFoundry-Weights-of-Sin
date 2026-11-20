@@ -1,5 +1,5 @@
 /**
- * shell/inlineEdit.ts - C1 command contexo.inlineEdit (Ctrl+Alt+E / Cmd+Alt+E). REAL in S0.
+ * shell/inlineEdit.ts - C1 command contexo.inlineEdit (Ctrl+K E / Cmd+K E). REAL in S0.
  *
  * Exports:
  *  - registerInlineEdit(ctx, runs): registers the command.

@@ -1,5 +1,7 @@
 # Model configuration example (no keys)
 
+Advanced/manual path: normally the Contexo panel does all of this for you (setup wizard and Settings tab); you never need TrueForge's UI.
+
 Models are configured in TrueForge only. The extension and the agent files never contain provider keys or provider endpoints.
 
 1. Start TrueForge (Node 22.14+): `npx @truefoundry/trueforge@latest` (default http://localhost:8790; `--port <n>` or `PORT` to change). Data is stored in a local SQLite file (`SQLITE_PATH` to move it).
@@ -13,6 +15,6 @@ Models are configured in TrueForge only. The extension and the agent files never
    ```
    This creates the `contexo-editor` connector (URL `http://127.0.0.1:8791/mcp`, header `X-Contexo-Token`) and the agents `contexo` and `contexo-fallback` with `instructions.md` inlined. Set `CONTEXO_PORT` if you changed `contexo.mcpPort`. Alternative: Settings -> Connectors -> Add MCP Server (custom URL, header auth), then Build Agent -> pick the model, enable the connector, set approval for `propose_write` and `run_command`, Save Agent.
 5. Rotate the token (delete the `contexo.mcpToken` secret) -> update the connector in TrueForge.
-6. For the fallback demo, break the primary model's key or endpoint in TrueForge Settings -> Models, then run a task; Contexo should continue on `contexo-fallback`.
+6. For the fallback demo use the Contexo Settings tab, Test resilience, Simulate primary model failure, then run a task; Contexo should continue on `contexo-fallback`.
 
 Do not commit provider keys, endpoints or the MCP token.

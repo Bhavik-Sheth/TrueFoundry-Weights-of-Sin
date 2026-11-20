@@ -4,7 +4,7 @@
  * Exports:
  *  - SetupData: { status, catalog, settings, results } state owned by App.
  *  - Wizard({ data, onSkip, onDone }): 5-step first-run flow (TrueForge, provider key, models, register, done).
- *  - SettingsTab({ data }): same controls always available + health rows + settings inputs.
+ *  - SettingsTab({ data }): same controls always available + health rows + Test resilience + settings inputs + a small advanced TrueForge-UI link.
  *
  * Secrets: the API key lives only in a local useState for one submit; it is cleared right after posting.
  * Depends on: bridge.ts, src/types.ts. Depended on by: App.tsx.
@@ -61,9 +61,11 @@ export function TrueForgeStep({ status }: { status: SetupStatus }) {
         <button className="btn" disabled={status.trueforge === 'starting'} onClick={() => post({ type: 'startTrueForge' })}>
           {status.trueforge === 'running' ? 'Re-check' : 'Start / Retry'}
         </button>
-        <button className="btn secondary" onClick={() => post({ type: 'openTrueForge' })}>
-          Open TrueForge
-        </button>
+        {status.trueforge === 'running' && (
+          <button className="btn secondary" onClick={() => post({ type: 'stopTrueForge' })}>
+            Stop TrueForge
+          </button>
+        )}
       </div>
     </section>
   );
@@ -236,7 +238,7 @@ export function Wizard({ data, onSkip, onDone }: { data: SetupData; onSkip: () =
       {step === 5 && (
         <section className="step">
           <h3>{complete ? 'All set' : 'Almost there'}</h3>
-          <p>{complete ? 'Contexo is ready. Select code and press Ctrl+Alt+E, or ask the agent in the Chat tab.' : 'Some steps are still incomplete; go back and finish them.'}</p>
+          <p>{complete ? 'Contexo is ready. Select code and press Ctrl+K E, or ask the agent in the Chat tab.' : 'Some steps are still incomplete; go back and finish them.'}</p>
           <div className="row">
             <button className="btn" disabled={!complete} onClick={onDone}>
               Open Contexo
@@ -312,6 +314,27 @@ export function SettingsTab({ data }: { data: SetupData }) {
         </>
       )}
       <section className="step">
+        <h3>Test resilience</h3>
+        <p>
+          Simulates the primary model failing: the contexo agent is re-registered on a deliberately unreachable model
+          (a custom provider named contexo-broken). Run a task and the fallback agent takes over; if both models fail you get a clear error.
+        </p>
+        {s.simulatedFailure ? (
+          <p className="warn">Primary model is in simulated-failure mode.</p>
+        ) : (
+          <p>Primary model is normal.</p>
+        )}
+        <div className="row">
+          <button className="btn" disabled={status.trueforge !== 'running' || s.simulatedFailure} onClick={() => post({ type: 'simulateFailure', on: true })}>
+            Simulate primary model failure
+          </button>
+          <button className="btn secondary" disabled={status.trueforge !== 'running' || !s.simulatedFailure} onClick={() => post({ type: 'simulateFailure', on: false })}>
+            Restore primary model
+          </button>
+        </div>
+        <Result data={data} op="simulateFailure" />
+      </section>
+      <section className="step">
         <h3>Settings</h3>
         <p>First-event timeout applies after a window reload.</p>
         {num('excerptBudget', 'Excerpt budget (tokens)')}
@@ -330,6 +353,9 @@ export function SettingsTab({ data }: { data: SetupData }) {
         {check('devMode', 'Dev mode (show dev commands)')}
         <Result data={data} op="updateSetting" />
       </section>
+      <p className="muted">
+        <a href="#" onClick={(e) => { e.preventDefault(); post({ type: 'openTrueForge' }); }}>Advanced: open TrueForge web UI</a> (never required).
+      </p>
     </div>
   );
 }

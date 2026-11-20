@@ -10,7 +10,7 @@
  * Depends on: SDK, run/manifests. Depended on by: shell/setupController, tests, live-check script.
  */
 import { TrueForge } from '@truefoundry/trueforge-sdk';
-import { AGENT_NAMES, CONNECTOR_NAME, buildAgentRequest, buildConnectorManifest, modelFqn } from './manifests';
+import { AGENT_NAMES, BROKEN_PROVIDER, CONNECTOR_NAME, buildAgentRequest, buildBrokenProviderManifest, buildConnectorManifest, modelFqn } from './manifests';
 
 export interface CatalogProviderInfo {
   type: string;
@@ -126,24 +126,48 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
       });
     },
 
-    /** Creates or UPDATES the contexo / contexo-fallback agents. */
-    ensureAgents(primaryModel: string, fallbackModel: string | undefined, instructions: string): Promise<Array<{ name: string; action: 'created' | 'updated' }>> {
-      return wrap('ensureAgents', [], async () => {
-        const out: Array<{ name: string; action: 'created' | 'updated' }> = [];
-        for (const [kind, model] of [['primary', primaryModel], ['fallback', fallbackModel || primaryModel]] as const) {
-          const req = buildAgentRequest(kind, model, instructions);
-          const page = await client.agents.list({ agentName: req.name, limit: 50 });
-          const existing = page.data.find((a) => a.name === req.name);
-          if (existing) {
-            await client.agents.update(existing.id, { description: req.description, manifest: req.manifest });
-            out.push({ name: req.name, action: 'updated' });
-          } else {
-            await client.agents.create(req);
-            out.push({ name: req.name, action: 'created' });
-          }
+    /** Creates or UPDATES one agent (primary or fallback) with the given model. */
+    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string): Promise<{ name: string; action: 'created' | 'updated' }> {
+      return wrap('ensureAgent', [], async () => {
+        const req = buildAgentRequest(kind, model, instructions);
+        const page = await client.agents.list({ agentName: req.name, limit: 50 });
+        const existing = page.data.find((a) => a.name === req.name);
+        if (existing) {
+          await client.agents.update(existing.id, { description: req.description, manifest: req.manifest });
+          return { name: req.name, action: 'updated' as const };
         }
-        log('admin.ensureAgents', JSON.stringify(out));
-        return out;
+        await client.agents.create(req);
+        return { name: req.name, action: 'created' as const };
+      });
+    },
+
+    /** Creates or UPDATES the contexo / contexo-fallback agents. */
+    async ensureAgents(primaryModel: string, fallbackModel: string | undefined, instructions: string): Promise<Array<{ name: string; action: 'created' | 'updated' }>> {
+      const out = [
+        await this.ensureAgent('primary', primaryModel, instructions),
+        await this.ensureAgent('fallback', fallbackModel || primaryModel, instructions),
+      ];
+      log('admin.ensureAgents', JSON.stringify(out));
+      return out;
+    },
+
+    /** "Test resilience": (re)creates the deliberately broken custom provider. */
+    ensureBrokenProvider(): Promise<void> {
+      return wrap('ensureBrokenProvider', [], async () => {
+        await client.settings.modelProviders.createOrUpdate({ manifest: buildBrokenProviderManifest() });
+        log('admin.ensureBrokenProvider ok');
+      });
+    },
+
+    /** Deletes the broken provider; an already-absent provider is fine. */
+    deleteBrokenProvider(): Promise<void> {
+      return wrap('deleteBrokenProvider', [], async () => {
+        try {
+          await client.settings.modelProviders.delete(BROKEN_PROVIDER);
+        } catch (e) {
+          if ((e as { statusCode?: number })?.statusCode !== 404) throw e;
+        }
+        log('admin.deleteBrokenProvider ok');
       });
     },
 

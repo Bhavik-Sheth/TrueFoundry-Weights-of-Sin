@@ -18,15 +18,20 @@ import { log } from '../log';
 import type { CatalogProviderView, SettingKey, SettingsView, SetupStatus, SetupStep, ToHost, ToWebview } from '../types';
 import { createAdmin } from '../run/trueforgeAdmin';
 import type { ProviderList, TrueForgeAdmin } from '../run/trueforgeAdmin';
-import { ensureTrueForge } from '../run/trueforgeProcess';
+import { ensureTrueForge, isLocalUrl, portOf, stopTrueForgeOnPort } from '../run/trueforgeProcess';
 import type { TfProcHandle, TfProcState } from '../run/trueforgeProcess';
 import { computeSetupStatus, isSetupComplete } from './setup';
+import { createFailureSim, expectedPrimaryModel } from '../run/failureMode';
+import type { FailureSim } from '../run/failureMode';
+import { BROKEN_PROVIDER } from '../run/manifests';
 
 export interface SetupDeps {
   post: (m: ToWebview) => void;
   token: string;
   mcpPort: number;
   index: { ready: Promise<void>; symbols(): unknown[] };
+  /** Persistent "simulated primary failure" flag (extension globalState). */
+  failureStore: { get(): boolean; set(v: boolean): void | PromiseLike<void> };
 }
 
 const SETTING_KEYS: Record<SettingKey, 'number' | 'boolean' | 'array'> = {
@@ -39,6 +44,7 @@ const SETTING_KEYS: Record<SettingKey, 'number' | 'boolean' | 'array'> = {
 
 export class SetupController {
   private admin: TrueForgeAdmin;
+  private sim: FailureSim;
   private proc?: TfProcHandle;
   private state: TfProcState = 'down';
   private detail?: string;
@@ -50,11 +56,21 @@ export class SetupController {
 
   constructor(private readonly deps: SetupDeps) {
     this.admin = this.makeAdmin();
+    this.sim = this.makeSim();
     void deps.index.ready.then(() => { this.indexReady = true; void this.refresh(); });
   }
 
   private makeAdmin(): TrueForgeAdmin {
     return createAdmin(getConfig().trueforgeUrl, { log });
+  }
+
+  private makeSim(): FailureSim {
+    return createFailureSim({
+      admin: { ensureBrokenProvider: () => this.admin.ensureBrokenProvider(), deleteBrokenProvider: () => this.admin.deleteBrokenProvider(), ensureAgent: (k, m, i) => this.admin.ensureAgent(k, m, i) },
+      store: this.deps.failureStore,
+      primaryModel: () => getConfig().primaryModel,
+      instructions,
+    });
   }
 
   /** Auto-start + status; when setup is already complete, silently refresh the connector (token/port may differ). */
@@ -107,6 +123,7 @@ export class SetupController {
       autoStartTrueForge: c.autoStartTrueForge,
       devMode: c.devMode,
       trueforgeUrl: c.trueforgeUrl,
+      simulatedFailure: this.sim.active,
     };
   }
 
@@ -126,9 +143,10 @@ export class SetupController {
           this.admin.listModels().catch(() => [] as string[]),
           this.admin.inspect(),
         ]);
-        providers = p; models = m;
+        providers = { ...p, configured: p.configured.filter((n) => n !== BROKEN_PROVIDER) };
+        models = m.filter((x) => !x.startsWith(`${BROKEN_PROVIDER}/`));
         connectorOk = i.connectorOk;
-        agentsOk = i.agentsOk && (!cfg.primaryModel || i.agentModels.primary === cfg.primaryModel);
+        agentsOk = i.agentsOk && (!cfg.primaryModel || i.agentModels.primary === expectedPrimaryModel(this.sim.active, cfg.primaryModel));
       } else if (state === 'running') {
         state = 'down';
       }
@@ -161,6 +179,11 @@ export class SetupController {
         await this.start(true);
         await this.refresh();
         break;
+      case 'stopTrueForge': {
+        const message = await this.stopTrueForge();
+        this.deps.post({ type: 'setupResult', op: 'stopTrueForge', ok: true, message });
+        break;
+      }
       case 'openTrueForge':
         void vscode.env.openExternal(vscode.Uri.parse(getConfig().trueforgeUrl));
         break;
@@ -190,6 +213,9 @@ export class SetupController {
       case 'register':
         await this.register(false);
         break;
+      case 'simulateFailure':
+        await this.simulateFailure(m.on);
+        break;
       case 'updateSetting':
         await this.updateSetting(m.key, m.value);
         break;
@@ -212,13 +238,23 @@ export class SetupController {
       steps.push({ label: 'MCP connector contexo-editor', ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
     try {
-      const done = await this.admin.ensureAgents(cfg.primaryModel, cfg.fallbackModel || undefined, instructions);
+      const done = await this.admin.ensureAgents(expectedPrimaryModel(this.sim.active, cfg.primaryModel), cfg.fallbackModel || undefined, instructions);
       for (const d of done) steps.push({ label: `Agent ${d.name}`, ok: true, detail: d.action });
     } catch (e) {
       steps.push({ label: 'Agents contexo / contexo-fallback', ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
     const ok = steps.every((s) => s.ok);
     this.result('register', ok, ok ? (quiet ? 'Models updated.' : 'Registered in TrueForge.') : 'Registration failed.', steps);
+    await this.refresh();
+  }
+
+  private async simulateFailure(on: boolean): Promise<void> {
+    try {
+      if (on) await this.sim.simulate(); else await this.sim.restore();
+      this.result('simulateFailure', true, on ? 'Primary model is now broken on purpose. Run a task to see the fallback take over.' : 'Primary model restored.');
+    } catch (e) {
+      this.result('simulateFailure', false, e instanceof Error ? e.message : 'Could not change the failure mode.');
+    }
     await this.refresh();
   }
 
@@ -238,7 +274,30 @@ export class SetupController {
     await this.refresh(true);
   }
 
+  /** Stops TrueForge: our own child if we started it, otherwise whatever listens on the local TrueForge port. */
+  async stopTrueForge(): Promise<string> {
+    const url = getConfig().trueforgeUrl;
+    if (this.proc) {
+      const p = this.proc;
+      this.proc = undefined;
+      await p.stop();
+    } else if (isLocalUrl(url)) {
+      const pids = await stopTrueForgeOnPort(portOf(url), log);
+      if (!pids.length) return 'No local TrueForge process was found.';
+    } else {
+      return 'TrueForge is not local; Contexo can only stop a local TrueForge.';
+    }
+    this.state = 'down';
+    this.detail = 'TrueForge was stopped from Contexo. Press Start to run it again.';
+    await this.refresh();
+    return 'TrueForge stopped.';
+  }
+
+  /** On VS Code exit: contexo.stopTrueForgeOnExit = 'startedByContexo' (default) | 'always' | 'never'. */
   async dispose(): Promise<void> {
+    const mode = getConfig().stopTrueForgeOnExit;
+    if (mode === 'never') { this.proc = undefined; return; }
+    if (mode === 'always') { await this.stopTrueForge().catch(() => undefined); return; }
     const p = this.proc;
     this.proc = undefined;
     await p?.stop();
