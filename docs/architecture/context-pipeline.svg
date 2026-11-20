@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 845" width="1200" height="845" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">
+<rect width="1200" height="845" fill="#ffffff"/>
+<text x="20" y="44" font-family="'Baskerville Old Face', Baskerville, Georgia, serif" font-size="31" fill="#12385c">How assemble_context builds a context packet</text>
+<text x="20" y="66" font-size="12.5" fill="#41566b" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">Deterministic and local: no model call, no embedding service. Every excerpt carries the reasons that selected it.</text>
+<rect x="20" y="88" width="370" height="215" rx="9" fill="#ecf6f0" stroke="#25785c" stroke-width="1.3"/>
+<rect x="20" y="88" width="5" height="215" rx="2" fill="#25785c"/>
+<text x="36" y="110" font-size="14.5" font-weight="700" fill="#1d6149">0 · Index</text>
+<text x="36.0" y="130.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Python</tspan><tspan> via</tspan><tspan> Tree-sitter:</tspan><tspan> functions,</tspan><tspan> classes,</tspan><tspan> methods,</tspan></text>
+<text x="36.0" y="145.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>tests,</tspan><tspan> with</tspan><tspan> calls,</tspan><tspan> decorators</tspan><tspan> and</tspan><tspan> imports</tspan><tspan> (≤6,000</tspan><tspan> chars</tspan></text>
+<text x="36.0" y="161.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>each)</tspan></text>
+<text x="36.0" y="179.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Docs</tspan><tspan>:</tspan><tspan> .rst</tspan><tspan> and</tspan><tspan> .md</tspan><tspan> split</tspan><tspan> into</tspan><tspan> heading</tspan><tspan> sections</tspan></text>
+<text x="36.0" y="197.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">TS,</tspan><tspan font-weight="700"> JS,</tspan><tspan font-weight="700"> Go,</tspan><tspan font-weight="700"> Rust,</tspan><tspan font-weight="700"> Java</tspan><tspan> through</tspan><tspan> the</tspan><tspan> editor’s</tspan><tspan> symbol</tspan></text>
+<text x="36.0" y="213.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>providers</tspan></text>
+<text x="36.0" y="231.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>File</tspan><tspan> list</tspan><tspan> from</tspan><tspan> ripgrep,</tspan><tspan> honouring</tspan><tspan> .gitignore;</tspan></text>
+<text x="36.0" y="246.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>node_modules</tspan><tspan> and</tspan><tspan> .venv</tspan><tspan> skipped;</tspan><tspan> 20-file</tspan><tspan> chunks;</tspan></text>
+<text x="36.0" y="262.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>re-indexed</tspan><tspan> on</tspan><tspan> save</tspan></text>
+<text x="36.0" y="280.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>search_workspace</tspan><tspan> works</tspan><tspan> before</tspan><tspan> the</tspan><tspan> index</tspan><tspan> is</tspan><tspan> ready</tspan></text>
+<rect x="415" y="88" width="370" height="215" rx="9" fill="#ffffff" stroke="#12385c" stroke-width="1.3"/>
+<rect x="415" y="88" width="5" height="215" rx="2" fill="#12385c"/>
+<text x="431" y="110" font-size="14.5" font-weight="700" fill="#12385c">1 · Anchors (mandatory, packed first)</text>
+<text x="431.0" y="130.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Selection</tspan><tspan> →</tspan><tspan> its</tspan><tspan> smallest</tspan><tspan> enclosing</tspan><tspan> symbol,</tspan><tspan> or</tspan><tspan> the</tspan><tspan> raw</tspan></text>
+<text x="431.0" y="145.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>lines</tspan></text>
+<text x="431.0" y="163.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">@path</tspan><tspan> →</tspan><tspan> the</tspan><tspan> file’s</tspan><tspan> top-level</tspan><tspan> symbols</tspan><tspan> if</tspan><tspan> they</tspan><tspan> fit</tspan><tspan> in</tspan><tspan> 30</tspan><tspan> %</tspan><tspan> of</tspan></text>
+<text x="431.0" y="179.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>the</tspan><tspan> budget,</tspan><tspan> else</tspan><tspan> the</tspan><tspan> 3</tspan><tspan> that</tspan><tspan> best</tspan><tspan> match</tspan><tspan> the</tspan><tspan> request</tspan></text>
+<text x="431.0" y="194.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>terms</tspan></text>
+<text x="431.0" y="213.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">@name</tspan><tspan> →</tspan><tspan> symbols</tspan><tspan> with</tspan><tspan> that</tspan><tspan> name;</tspan><tspan> code</tspan><tspan> beats</tspan><tspan> docs;</tspan><tspan> an</tspan></text>
+<text x="431.0" y="228.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>ambiguous</tspan><tspan> name</tspan><tspan> gets</tspan><tspan> half</tspan><tspan> weight</tspan></text>
+<text x="431.0" y="246.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>A</tspan><tspan> symbol</tspan><tspan> anchored</tspan><tspan> twice</tspan><tspan> becomes</tspan><tspan> one</tspan><tspan> excerpt</tspan><tspan> with</tspan></text>
+<text x="431.0" y="262.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>merged</tspan><tspan> reasons</tspan></text>
+<rect x="810" y="88" width="370" height="215" rx="9" fill="#ffffff" stroke="#12385c" stroke-width="1.3"/>
+<rect x="810" y="88" width="5" height="215" rx="2" fill="#12385c"/>
+<text x="826" y="110" font-size="14.5" font-weight="700" fill="#12385c">2 · Query terms</text>
+<text x="826.0" y="130.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Weights</tspan><tspan>:</tspan><tspan> quoted</tspan><tspan> text</tspan><tspan> and</tspan><tspan> “flask</tspan><tspan> X”</tspan><tspan> ×4</tspan><tspan> ·</tspan><tspan> CONSTANTS</tspan><tspan> and</tspan></text>
+<text x="826.0" y="145.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>snake_</tspan><tspan> /</tspan><tspan> camelCase</tspan><tspan> ×3</tspan><tspan> ·</tspan><tspan> plain</tspan><tspan> words</tspan><tspan> ×1</tspan><tspan> ·</tspan><tspan> synonyms</tspan><tspan> ×0.5</tspan></text>
+<text x="826.0" y="163.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Stopwords</tspan><tspan> and</tspan><tspan> request</tspan><tspan> filler</tspan><tspan> removed</tspan><tspan> (implement,</tspan></text>
+<text x="826.0" y="179.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>ensure,</tspan><tspan> prints</tspan><tspan> …);</tspan><tspan> at</tspan><tspan> most</tspan><tspan> 30</tspan><tspan> terms</tspan></text>
+<text x="826.0" y="197.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Synonyms</tspan><tspan>:</tspan><tspan> command</tspan><tspan> →</tspan><tspan> click,</tspan><tspan> add_command,</tspan><tspan> cli</tspan><tspan> ·</tspan><tspan> docs</tspan><tspan> →</tspan></text>
+<text x="826.0" y="213.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>rst</tspan><tspan> ·</tspan><tspan> tests</tspan><tspan> →</tspan><tspan> test_</tspan></text>
+<text x="826.0" y="231.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Non-discriminating</tspan><tspan font-weight="700"> terms</tspan><tspan> found</tspan><tspan> in</tspan><tspan> more</tspan><tspan> than</tspan><tspan> 30</tspan><tspan> %</tspan><tspan> of</tspan></text>
+<text x="826.0" y="246.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>code</tspan><tspan> symbols</tspan><tspan> are</tspan><tspan> dropped</tspan><tspan> (for</tspan><tspan> example</tspan><tspan> “flask”</tspan><tspan> inside</tspan></text>
+<text x="826.0" y="262.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Flask)</tspan></text>
+<rect x="20" y="333" width="370" height="225" rx="9" fill="#ecf6f0" stroke="#25785c" stroke-width="1.3"/>
+<rect x="20" y="333" width="5" height="225" rx="2" fill="#25785c"/>
+<text x="36" y="355" font-size="14.5" font-weight="700" fill="#1d6149">3 · Five ranked lists (≤30 each)</text>
+<text x="36.0" y="375.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Corpus</tspan><tspan font-weight="700"> vectors</tspan><tspan font-weight="700"> ×0.35</tspan><tspan>:</tspan><tspan> TF-IDF</tspan><tspan> centroid</tspan><tspan> of</tspan><tspan> symbols</tspan></text>
+<text x="36.0" y="390.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>containing</tspan><tspan> each</tspan><tspan> rare</tspan><tspan> term;</tspan><tspan> neighbours</tspan><tspan> with</tspan><tspan> cosine</tspan><tspan> &gt;</tspan></text>
+<text x="36.0" y="406.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>0.12.</tspan><tspan> Finds</tspan><tspan> related</tspan><tspan> code</tspan><tspan> without</tspan><tspan> shared</tspan><tspan> words</tspan></text>
+<text x="36.0" y="424.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">BM25</tspan><tspan font-weight="700"> code</tspan><tspan font-weight="700"> ×1</tspan><tspan>:</tspan><tspan> k1</tspan><tspan> 1.2,</tspan><tspan> b</tspan><tspan> 0.75;</tspan><tspan> name</tspan><tspan> counted</tspan><tspan> twice,</tspan><tspan> plus</tspan></text>
+<text x="36.0" y="439.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>path,</tspan><tspan> decorators,</tspan><tspan> body</tspan></text>
+<text x="36.0" y="458.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">BM25</tspan><tspan font-weight="700"> docs</tspan><tspan font-weight="700"> ×1</tspan></text>
+<text x="36.0" y="476.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Symbol</tspan><tspan font-weight="700"> name</tspan><tspan font-weight="700"> ×1</tspan><tspan>:</tspan><tspan> exact,</tspan><tspan> or</tspan><tspan> prefix</tspan><tspan> for</tspan><tspan> terms</tspan><tspan> ≥5</tspan><tspan> chars</tspan></text>
+<text x="36.0" y="494.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Ripgrep</tspan><tspan font-weight="700"> ×1</tspan><tspan>:</tspan><tspan> ≤4</tspan><tspan> terms</tspan><tspan> present</tspan><tspan> in</tspan><tspan> ≤8</tspan><tspan> %</tspan><tspan> of</tspan><tspan> symbols;</tspan><tspan> hits</tspan></text>
+<text x="36.0" y="509.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>mapped</tspan><tspan> to</tspan><tspan> the</tspan><tspan> enclosing</tspan><tspan> symbol</tspan></text>
+<rect x="415" y="333" width="370" height="225" rx="9" fill="#ecf6f0" stroke="#25785c" stroke-width="1.3"/>
+<rect x="415" y="333" width="5" height="225" rx="2" fill="#25785c"/>
+<text x="431" y="355" font-size="14.5" font-weight="700" fill="#1d6149">4 · First fusion and one-hop expansion</text>
+<text x="431.0" y="375.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">RRF</tspan><tspan> over</tspan><tspan> the</tspan><tspan> five</tspan><tspan> lists</tspan><tspan> →</tspan><tspan> top</tspan><tspan> 10</tspan><tspan> implementation</tspan><tspan> symbols</tspan></text>
+<text x="431.0" y="390.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(tests</tspan><tspan> and</tspan><tspan> docs</tspan><tspan> excluded</tspan><tspan> as</tspan><tspan> seeds)</tspan></text>
+<text x="431.0" y="408.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">calls</tspan><tspan font-weight="700"> ×0.5</tspan><tspan>:</tspan><tspan> only</tspan><tspan> unambiguous</tspan><tspan> targets</tspan></text>
+<text x="431.0" y="426.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">called-by</tspan><tspan font-weight="700"> ×0.5</tspan><tspan>:</tspan><tspan> only</tspan><tspan> when</tspan><tspan> ≤5</tspan><tspan> callers</tspan></text>
+<text x="431.0" y="444.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">registers</tspan><tspan font-weight="700"> ×0.8</tspan><tspan>:</tspan><tspan> CLI-decorated</tspan><tspan> siblings,</tspan><tspan> add_command(…)</tspan></text>
+<text x="431.0" y="460.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>sites</tspan></text>
+<text x="431.0" y="478.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">tests</tspan><tspan font-weight="700"> ×0.5</tspan><tspan>:</tspan><tspan> tests</tspan><tspan> naming</tspan><tspan> a</tspan><tspan> distinctive</tspan><tspan> symbol</tspan><tspan> (≤3),</tspan></text>
+<text x="431.0" y="494.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>term-matching</tspan><tspan> tests</tspan><tspan> in</tspan><tspan> test_‹module›.py</tspan><tspan> (≤3)</tspan></text>
+<text x="431.0" y="512.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">documents</tspan><tspan font-weight="700"> ×0.5</tspan><tspan>:</tspan><tspan> doc</tspan><tspan> sections</tspan><tspan> naming</tspan><tspan> the</tspan><tspan> symbol</tspan><tspan> or</tspan><tspan> its</tspan></text>
+<text x="431.0" y="527.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>CLI</tspan><tspan> name</tspan><tspan> (≤3)</tspan></text>
+<rect x="810" y="333" width="370" height="225" rx="9" fill="#ecf6f0" stroke="#25785c" stroke-width="1.3"/>
+<rect x="810" y="333" width="5" height="225" rx="2" fill="#25785c"/>
+<text x="826" y="355" font-size="14.5" font-weight="700" fill="#1d6149">5 · Final fusion</text>
+<text x="826.0" y="375.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">score</tspan><tspan font-weight="700"> =</tspan><tspan font-weight="700"> Σ</tspan><tspan font-weight="700"> weight</tspan><tspan font-weight="700"> ÷</tspan><tspan font-weight="700"> (60</tspan><tspan font-weight="700"> +</tspan><tspan font-weight="700"> rank)</tspan><tspan> over</tspan><tspan> primary</tspan><tspan> and</tspan></text>
+<text x="826.0" y="390.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>expansion</tspan><tspan> lists</tspan></text>
+<text x="826.0" y="408.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>A</tspan><tspan> candidate</tspan><tspan> found</tspan><tspan> by</tspan><tspan> several</tspan><tspan> lists</tspan><tspan> climbs;</tspan><tspan> reasons</tspan><tspan> from</tspan></text>
+<text x="826.0" y="424.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>every</tspan><tspan> list</tspan><tspan> are</tspan><tspan> merged</tspan></text>
+<text x="826.0" y="442.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>No</tspan><tspan> calibration</tspan><tspan> between</tspan><tspan> BM25,</tspan><tspan> cosine</tspan><tspan> and</tspan><tspan> graph</tspan><tspan> scores</tspan><tspan> is</tspan></text>
+<text x="826.0" y="458.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>needed</tspan></text>
+<text x="826.0" y="476.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Inferred</tspan><tspan> lists</tspan><tspan> (vectors,</tspan><tspan> graph)</tspan><tspan> carry</tspan><tspan> lower</tspan><tspan> weights,</tspan><tspan> so</tspan></text>
+<text x="826.0" y="491.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>they</tspan><tspan> add</tspan><tspan> recall</tspan><tspan> without</tspan><tspan> outranking</tspan><tspan> direct</tspan><tspan> evidence</tspan></text>
+<rect x="20" y="588" width="370" height="240" rx="9" fill="#fff7e8" stroke="#b7791f" stroke-width="1.3"/>
+<rect x="20" y="588" width="5" height="240" rx="2" fill="#b7791f"/>
+<text x="36" y="610" font-size="14.5" font-weight="700" fill="#7a4f0e">6 · Packing (8,000 est. tokens)</text>
+<text x="36.0" y="630.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>1</tspan><tspan> Mandatory</tspan><tspan> anchors</tspan></text>
+<text x="36.0" y="648.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>2</tspan><tspan> Coverage</tspan><tspan> quota:</tspan><tspan> best</tspan><tspan> test</tspan><tspan> and</tspan><tspan> best</tspan><tspan> doc</tspan><tspan> candidate</tspan><tspan> from</tspan></text>
+<text x="46.9" y="663.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>the</tspan><tspan> whole</tspan><tspan> list</tspan></text>
+<text x="36.0" y="681.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>3</tspan><tspan> Greedy</tspan><tspan> by</tspan><tspan> score</tspan><tspan> ÷</tspan><tspan> tokens</tspan><tspan> over</tspan><tspan> the</tspan><tspan> top</tspan><tspan> 40</tspan><tspan> scoring</tspan><tspan> ≥50</tspan><tspan> %</tspan></text>
+<text x="46.9" y="697.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>of</tspan><tspan> the</tspan><tspan> best;</tspan><tspan> token</tspan><tspan> floor</tspan><tspan> 400</tspan></text>
+<text x="36.0" y="715.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>•</tspan><tspan> ≥3</tspan><tspan> excerpts</tspan><tspan> already</tspan><tspan> from</tspan><tspan> a</tspan><tspan> file</tspan><tspan> →</tspan><tspan> score</tspan><tspan> halved</tspan></text>
+<text x="36.0" y="733.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>•</tspan><tspan> Overlap</tspan><tspan> →</tspan><tspan> omitted</tspan><tspan> as</tspan><tspan> duplicate</tspan></text>
+<text x="36.0" y="751.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>•</tspan><tspan> &gt;30</tspan><tspan> %</tspan><tspan> of</tspan><tspan> budget</tspan><tspan> →</tspan><tspan> trimmed</tspan><tspan> to</tspan><tspan> decorators,</tspan><tspan> signature,</tspan></text>
+<text x="46.9" y="767.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>docstring,</tspan><tspan> term</tspan><tspan> lines</tspan></text>
+<text x="36.0" y="785.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>•</tspan><tspan> No</tspan><tspan> room</tspan><tspan> →</tspan><tspan> over-budget</tspan><tspan> ·</tspan><tspan> below</tspan><tspan> the</tspan><tspan> cut</tspan><tspan> →</tspan><tspan> lower-rank</tspan></text>
+<text x="46.9" y="801.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(15</tspan><tspan> listed)</tspan></text>
+<rect x="415" y="588" width="370" height="240" rx="9" fill="#eef4fb" stroke="#215879" stroke-width="1.3"/>
+<rect x="415" y="588" width="5" height="240" rx="2" fill="#215879"/>
+<text x="431" y="610" font-size="14.5" font-weight="700" fill="#215879">7 · Serialised for the model</text>
+<text x="431.0" y="630.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Header:</tspan><tspan> request</tspan><tspan> and</tspan><tspan> “used</tspan><tspan> /</tspan><tspan> budget</tspan><tspan> tokens</tspan><tspan> (≈</tspan></text>
+<text x="431.0" y="645.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>estimated)”</tspan></text>
+<text x="431.0" y="663.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Each</tspan><tspan> excerpt:</tspan><tspan> path:lines</tspan><tspan> ·</tspan><tspan> category</tspan><tspan> ·</tspan><tspan> reasons</tspan><tspan> ·</tspan><tspan> ≈tokens,</tspan></text>
+<text x="431.0" y="679.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>then</tspan><tspan> code</tspan></text>
+<text x="431.0" y="697.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">##</tspan><tspan font-weight="700"> Omitted</tspan><tspan> with</tspan><tspan> reason</tspan><tspan> and</tspan><tspan> size</tspan></text>
+<text x="431.0" y="715.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">22,000-char</tspan><tspan font-weight="700"> guard</tspan><tspan> counts</tspan><tspan> JSON</tspan><tspan> escaping,</tspan><tspan> under</tspan><tspan> the</tspan></text>
+<text x="431.0" y="731.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>runtime’s</tspan><tspan> 24,000-char</tspan><tspan> tool</tspan><tspan> limit;</tspan><tspan> overflow</tspan><tspan> says</tspan><tspan> “use</tspan></text>
+<text x="431.0" y="746.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>read_file”</tspan></text>
+<text x="431.0" y="764.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Token</tspan><tspan> counts:</tspan><tspan> cl100k</tspan><tspan> estimate</tspan><tspan> cached</tspan><tspan> by</tspan><tspan> content</tspan><tspan> hash;</tspan></text>
+<text x="431.0" y="780.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>the</tspan><tspan> agent</tspan><tspan> may</tspan><tspan> request</tspan><tspan> 500–32,000</tspan></text>
+<rect x="810" y="588" width="370" height="240" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="810" y="588" width="5" height="240" rx="2" fill="#5b4a9e"/>
+<text x="826" y="610" font-size="14.5" font-weight="700" fill="#4a3b8a">8 · Outputs and feedback loop</text>
+<text x="826.0" y="630.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Agent</tspan><tspan>:</tspan><tspan> reads</tspan><tspan> the</tspan><tspan> packet,</tspan><tspan> then</tspan><tspan> read_file</tspan><tspan> for</tspan><tspan> exact</tspan><tspan> text</tspan></text>
+<text x="826.0" y="645.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>and</tspan><tspan> hash</tspan><tspan> before</tspan><tspan> propose_write</tspan></text>
+<text x="826.0" y="663.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Gaps</tspan><tspan>:</tspan><tspan> re-call</tspan><tspan> assemble_context</tspan><tspan> with</tspan><tspan> new</tspan><tspan> anchors,</tspan><tspan> or</tspan></text>
+<text x="826.0" y="679.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>search_workspace</tspan><tspan> /</tspan><tspan> list_symbols</tspan></text>
+<text x="826.0" y="697.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Context</tspan><tspan font-weight="700"> tab</tspan><tspan>:</tspan><tspan> excerpts,</tspan><tspan> omissions,</tspan><tspan> graph</tspan><tspan> request</tspan><tspan> →</tspan><tspan> term</tspan></text>
+<text x="826.0" y="713.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>→</tspan><tspan> file</tspan><tspan> →</tspan><tspan> symbol</tspan><tspan> (inferred</tspan><tspan> edges</tspan><tspan> flagged)</tspan></text>
+<text x="826.0" y="731.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Runtime</tspan><tspan>:</tspan><tspan> TrueForge</tspan><tspan> compaction</tspan><tspan> summarises</tspan><tspan> long</tspan><tspan> turns;</tspan></text>
+<text x="826.0" y="746.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>deferred</tspan><tspan> tools</tspan><tspan> stay</tspan><tspan> out</tspan><tspan> of</tspan><tspan> the</tspan><tspan> prompt</tspan><tspan> until</tspan><tspan> needed</tspan></text>
+<path d="M 390 195.5 L 415 195.5" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="415,195.5 406.0,191.0 406.0,200.0" fill="#25785c"/>
+<path d="M 785 195.5 L 810 195.5" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="810,195.5 801.0,191.0 801.0,200.0" fill="#25785c"/>
+<path d="M 390 445.5 L 415 445.5" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="415,445.5 406.0,441.0 406.0,450.0" fill="#25785c"/>
+<path d="M 785 445.5 L 810 445.5" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="810,445.5 801.0,441.0 801.0,450.0" fill="#25785c"/>
+<path d="M 390 708.0 L 415 708.0" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="415,708.0 406.0,703.5 406.0,712.5" fill="#25785c"/>
+<path d="M 785 708.0 L 810 708.0" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="810,708.0 801.0,703.5 801.0,712.5" fill="#25785c"/>
+<path d="M 995.0 303 L 995.0 318.0 L 205.0 318.0 L 205.0 333" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="205.0,333 209.5,324.0 200.5,324.0" fill="#25785c"/>
+<path d="M 995.0 558 L 995.0 573.0 L 205.0 573.0 L 205.0 588" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="205.0,588 209.5,579.0 200.5,579.0" fill="#25785c"/>
+</svg>

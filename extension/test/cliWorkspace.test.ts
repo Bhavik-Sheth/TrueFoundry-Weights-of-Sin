@@ -45,7 +45,7 @@ describe('terminal review', () => {
     expect(await workspaceText(root, 'test_module.py')).toBeUndefined();
     await applyReviewed(root, p, () => true);
     expect(await workspaceText(root, 'test_module.py')).toContain('def test_result');
-  });
+  }, 60000); // spawns a real pytest process; exceeds the 5s default under full-suite load
   it('rejects retained and dangling symlinks', async () => {
     await symlink(tmpdir(), join(root, 'outside'));
     await expect(workspaceText(root, 'outside/new.py')).rejects.toThrow();

@@ -1,0 +1,356 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1860" width="1200" height="1860" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">
+<rect width="1200" height="1860" fill="#ffffff"/>
+<text x="20" y="44" font-family="'Baskerville Old Face', Baskerville, Georgia, serif" font-size="31" fill="#12385c">Contexo · end-to-end architecture</text>
+<text x="20" y="66" font-size="12.5" fill="#41566b" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">One request from the editor to an applied, reviewed change. Numbers follow the request lifecycle at the bottom.</text>
+<path d="M 700 30 L 734 30" fill="none" stroke="#12385c" stroke-width="1.8"/>
+<polygon points="734,30 725.0,25.5 725.0,34.5" fill="#12385c"/>
+<text x="742" y="34" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">request / stream</text>
+<path d="M 838.51 30 L 872.51 30" fill="none" stroke="#5b4a9e" stroke-width="1.8"/>
+<polygon points="872.51,30 863.5,25.5 863.5,34.5" fill="#5b4a9e"/>
+<text x="880.51" y="34" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">tool calls</text>
+<path d="M 936.21 30 L 970.21 30" fill="none" stroke="#b7791f" stroke-width="1.8"/>
+<polygon points="970.21,30 961.2,25.5 961.2,34.5" fill="#b7791f"/>
+<text x="978.21" y="34" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">approval &amp; write</text>
+<path d="M 700 54 L 734 54" fill="none" stroke="#b0413e" stroke-width="1.8" stroke-dasharray="6 4"/>
+<polygon points="734,54 725.0,49.5 725.0,58.5" fill="#b0413e"/>
+<text x="742" y="58" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">failure / stop</text>
+<path d="M 819.695 54 L 853.695 54" fill="none" stroke="#4b5563" stroke-width="1.8" stroke-dasharray="6 4"/>
+<polygon points="853.695,54 844.7,49.5 844.7,58.5" fill="#4b5563"/>
+<text x="861.695" y="58" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">persistence</text>
+<path d="M 929.585 54 L 963.585 54" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="963.585,54 954.6,49.5 954.6,58.5" fill="#25785c"/>
+<text x="971.585" y="58" font-size="11" fill="#1f2d3d" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">context</text>
+<text x="20" y="92" font-size="11.5" fill="#095f9e" font-weight="700" text-anchor="start" letter-spacing="1.2" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">1 · ENTRY SURFACES</text>
+<rect x="20" y="100" width="275" height="155" rx="9" fill="#eaf3fb" stroke="#095f9e" stroke-width="1.3"/>
+<rect x="20" y="100" width="5" height="155" rx="2" fill="#095f9e"/>
+<text x="36" y="122" font-size="14.5" font-weight="700" fill="#095f9e">Inline edit</text>
+<text x="36.0" y="142.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Ctrl+K</tspan><tspan font-weight="700"> E</tspan><tspan> or</tspan><tspan> right-click;</tspan><tspan> needs</tspan><tspan> a</tspan></text>
+<text x="36.0" y="157.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>non-empty</tspan><tspan> selection</tspan><tspan> inside</tspan><tspan> the</tspan><tspan> active</tspan></text>
+<text x="36.0" y="173.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>workspace</tspan><tspan> root</tspan></text>
+<text x="36.0" y="191.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Sends</tspan><tspan font-weight="700"> [INLINE</tspan><tspan font-weight="700"> EDIT]</tspan><tspan>:</tspan><tspan> path,</tspan><tspan> line</tspan><tspan> range,</tspan></text>
+<text x="36.0" y="206.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>whole-file</tspan><tspan> baseHash,</tspan><tspan> instruction,</tspan></text>
+<text x="36.0" y="222.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>selected</tspan><tspan> code,</tspan><tspan> “stay</tspan><tspan> inside</tspan><tspan> the</tspan></text>
+<text x="36.0" y="238.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>selection”</tspan></text>
+<rect x="315" y="100" width="275" height="155" rx="9" fill="#eaf3fb" stroke="#095f9e" stroke-width="1.3"/>
+<rect x="315" y="100" width="5" height="155" rx="2" fill="#095f9e"/>
+<text x="331" y="122" font-size="14.5" font-weight="700" fill="#095f9e">Assistant (agent mode)</text>
+<text x="331.0" y="142.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Sidebar</tspan><tspan font-weight="700"> Chat</tspan><tspan>,</tspan><tspan font-weight="700"> Ask</tspan><tspan font-weight="700"> Assistant</tspan><tspan>,</tspan><tspan font-weight="700"> @contexo</tspan></text>
+<text x="331.0" y="157.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>chat</tspan><tspan> participant</tspan></text>
+<text x="331.0" y="175.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Request</tspan><tspan> +</tspan><tspan> hint:</tspan><tspan> assemble_context</tspan><tspan> first,</tspan></text>
+<text x="331.0" y="191.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>batch</tspan><tspan> code/tests/docs,</tspan><tspan> test</tspan><tspan> after</tspan><tspan> apply.</tspan></text>
+<text x="331.0" y="206.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Follow-ups</tspan><tspan> reuse</tspan><tspan> the</tspan><tspan> session</tspan></text>
+<rect x="610" y="100" width="275" height="155" rx="9" fill="#eaf3fb" stroke="#095f9e" stroke-width="1.3"/>
+<rect x="610" y="100" width="5" height="155" rx="2" fill="#095f9e"/>
+<text x="626" y="122" font-size="14.5" font-weight="700" fill="#095f9e">Terminal CLI</text>
+<text x="626.0" y="142.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">ask</tspan><tspan font-weight="700"> ·</tspan><tspan font-weight="700"> inline</tspan><tspan font-weight="700"> ·</tspan><tspan font-weight="700"> commits</tspan><tspan font-weight="700"> ·</tspan><tspan font-weight="700"> review</tspan><tspan font-weight="700"> ·</tspan><tspan font-weight="700"> replay</tspan></text>
+<text x="626.0" y="157.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">·</tspan><tspan font-weight="700"> doctor</tspan></text>
+<text x="626.0" y="175.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Drives</tspan><tspan> the</tspan><tspan> same</tspan><tspan> TrueForge</tspan><tspan> agents</tspan><tspan> with</tspan></text>
+<text x="626.0" y="191.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>its</tspan><tspan> own</tspan><tspan> loopback</tspan><tspan> MCP</tspan><tspan> listener</tspan><tspan> and</tspan></text>
+<text x="626.0" y="206.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>session;</tspan><tspan> y/N</tspan><tspan> per</tspan><tspan> hunk</tspan><tspan> and</tspan><tspan> command;</tspan></text>
+<text x="626.0" y="222.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>non-TTY</tspan><tspan> denies;</tspan><tspan> --check</tspan><tspan> tests</tspan><tspan> first</tspan></text>
+<rect x="905" y="100" width="275" height="155" rx="9" fill="#eaf3fb" stroke="#095f9e" stroke-width="1.3"/>
+<rect x="905" y="100" width="5" height="155" rx="2" fill="#095f9e"/>
+<text x="921" y="122" font-size="14.5" font-weight="700" fill="#095f9e">Standalone review (:18792)</text>
+<text x="921.0" y="142.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Review</tspan><tspan> JSON,</tspan><tspan> run</tspan><tspan> replay</tspan><tspan> (native</tspan><tspan> /</tspan><tspan> ACP</tspan><tspan> /</tspan></text>
+<text x="921.0" y="157.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>OTLP),</tspan><tspan> Python</tspan><tspan> impact</tspan><tspan> graph</tspan></text>
+<text x="921.0" y="175.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Reads</tspan><tspan> evidence</tspan><tspan> and</tspan><tspan> computes</tspan></text>
+<text x="921.0" y="191.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>candidates;</tspan><tspan font-weight="700"> never</tspan><tspan font-weight="700"> writes</tspan><tspan font-weight="700"> files</tspan><tspan font-weight="700"> or</tspan><tspan font-weight="700"> runs</tspan></text>
+<text x="921.0" y="206.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">commands</tspan></text>
+<rect x="20" y="272" width="780" height="1112" rx="14" fill="#f7fafd" stroke="#12385c" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="34" y="291" font-size="11.5" fill="#12385c" font-weight="700" text-anchor="start" letter-spacing="1.2" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">2 · EXTENSION HOST</text>
+<text x="786" y="291" font-size="11" fill="#12385c" text-anchor="end" letter-spacing="0.3" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">VS Code · Node · loopback only · never calls a model provider</text>
+<rect x="820" y="272" width="360" height="1112" rx="14" fill="#f5f2fb" stroke="#5b4a9e" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="834" y="291" font-size="11.5" fill="#5b4a9e" font-weight="700" text-anchor="start" letter-spacing="1.2" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">3 · TRUEFORGE</text>
+<text x="1166" y="291" font-size="11" fill="#5b4a9e" text-anchor="end" letter-spacing="0.3" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">local agent harness · :8790</text>
+<rect x="36" y="300" width="748" height="158" rx="9" fill="#ffffff" stroke="#12385c" stroke-width="1.3"/>
+<rect x="36" y="300" width="5" height="158" rx="2" fill="#12385c"/>
+<text x="52" y="322" font-size="14.5" font-weight="700" fill="#12385c">Run manager — exactly one active run</text>
+<text x="52.0" y="342.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">States</tspan><tspan> streaming</tspan><tspan> →</tspan><tspan> awaiting-review</tspan><tspan> →</tspan><tspan> done</tspan><tspan> ·</tspan><tspan> cancelled</tspan><tspan> ·</tspan></text>
+<text x="52.0" y="357.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>failed.</tspan><tspan> A</tspan><tspan> new</tspan><tspan> run</tspan><tspan> is</tspan><tspan> refused</tspan><tspan> while</tspan><tspan> one</tspan><tspan> streams</tspan><tspan> or</tspan><tspan> awaits</tspan></text>
+<text x="52.0" y="373.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>review</tspan></text>
+<text x="52.0" y="391.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">First-event</tspan><tspan font-weight="700"> timer</tspan><tspan> 20</tspan><tspan> s</tspan><tspan> (contexo.firstEventTimeoutMs);</tspan><tspan> any</tspan></text>
+<text x="52.0" y="406.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>model.*</tspan><tspan> or</tspan><tspan> tool.*</tspan><tspan> event</tspan><tspan> disarms</tspan><tspan> it</tspan></text>
+<text x="52.0" y="425.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Streams</tspan><tspan> text</tspan><tspan> deltas,</tspan><tspan> tool</tspan><tspan> cards</tspan><tspan> (deferred</tspan><tspan> marker),</tspan></text>
+<text x="52.0" y="440.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>approvals;</tspan><tspan> deltas</tspan><tspan> merged</tspan><tspan> so</tspan><tspan> tool</tspan><tspan> arguments</tspan><tspan> arrive</tspan><tspan> whole</tspan></text>
+<text x="420.0" y="342.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Approval</tspan><tspan font-weight="700"> queue</tspan><tspan>,</tspan><tspan> one</tspan><tspan> at</tspan><tspan> a</tspan><tspan> time:</tspan><tspan> propose_write</tspan><tspan> →</tspan><tspan> review</tspan></text>
+<text x="420.0" y="357.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>engine</tspan><tspan> ·</tspan><tspan> run_command</tspan><tspan> →</tspan><tspan> modal</tspan><tspan> Allow</tspan><tspan> /</tspan><tspan> Deny</tspan><tspan> ·</tspan><tspan> any</tspan><tspan> other</tspan></text>
+<text x="420.0" y="373.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>tool</tspan><tspan> →</tspan><tspan> denied</tspan></text>
+<text x="420.0" y="391.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Stream</tspan><tspan font-weight="700"> ends</tspan><tspan font-weight="700"> without</tspan><tspan font-weight="700"> turn.done</tspan><tspan> →</tspan><tspan> re-reads</tspan><tspan> the</tspan><tspan> turn</tspan><tspan> state</tspan></text>
+<text x="420.0" y="406.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>from</tspan><tspan> TrueForge</tspan><tspan> and</tspan><tspan> records</tspan><tspan> the</tspan><tspan> reconciliation</tspan></text>
+<text x="420.0" y="425.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Every</tspan><tspan font-weight="700"> event</tspan><tspan> is</tspan><tspan> journaled</tspan><tspan> with</tspan><tspan> run,</tspan><tspan> session</tspan><tspan> and</tspan><tspan> turn</tspan><tspan> ids</tspan></text>
+<text x="420.0" y="440.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(text</tspan><tspan> deltas</tspan><tspan> excepted)</tspan></text>
+<rect x="36" y="474" width="364" height="312" rx="9" fill="#fdf1f0" stroke="#b0413e" stroke-width="1.3"/>
+<rect x="36" y="474" width="5" height="312" rx="2" fill="#b0413e"/>
+<text x="52" y="496" font-size="14.5" font-weight="700" fill="#9c2f2c">Failure router</text>
+<text x="52.0" y="516.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">TrueForge</tspan><tspan font-weight="700"> unreachable</tspan><tspan>:</tspan><tspan> network</tspan><tspan> error</tspan><tspan> thrown</tspan><tspan> before</tspan></text>
+<text x="52.0" y="531.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>any</tspan><tspan> model</tspan><tspan> activity</tspan><tspan> →</tspan><tspan> run</tspan><tspan> fails,</tspan><tspan> “TrueForge</tspan><tspan> not</tspan></text>
+<text x="52.0" y="547.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>reachable”</tspan><tspan> (fallback</tspan><tspan> cannot</tspan><tspan> help)</tspan></text>
+<text x="52.0" y="565.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Model</tspan><tspan font-weight="700"> failure</tspan><tspan>:</tspan><tspan> HTTP</tspan><tspan> 401/403/404/408/429/5xx,</tspan></text>
+<text x="52.0" y="580.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>connection</tspan><tspan> reset/refused/timeouts</tspan><tspan> after</tspan><tspan> activity,</tspan><tspan> SDK</tspan></text>
+<text x="52.0" y="596.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>timeout,</tspan><tspan> first-event</tspan><tspan> timeout,</tspan><tspan> turn</tspan><tspan> error</tspan><tspan> naming</tspan></text>
+<text x="52.0" y="612.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>provider,</tspan><tspan> key,</tspan><tspan> model,</tspan><tspan> endpoint,</tspan><tspan> quota</tspan><tspan> or</tspan><tspan> rate</tspan><tspan> limit</tspan></text>
+<text x="52.0" y="630.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Never</tspan><tspan font-weight="700"> fallback</tspan><tspan>:</tspan><tspan> MCP</tspan><tspan> or</tspan><tspan> tool</tspan><tspan> errors,</tspan><tspan> user</tspan><tspan> cancellation</tspan></text>
+<text x="52.0" y="648.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Fallback</tspan><tspan font-weight="700"> guard</tspan><tspan>:</tspan><tspan> fallback</tspan><tspan> agent</tspan><tspan> ≠</tspan><tspan> primary</tspan><tspan> ·</tspan><tspan> not</tspan><tspan> yet</tspan><tspan> used</tspan></text>
+<text x="52.0" y="663.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>in</tspan><tspan> this</tspan><tspan> run</tspan><tspan> ·</tspan><tspan> no</tspan><tspan> write</tspan><tspan> approved</tspan><tspan> ·</tspan><tspan> not</tspan><tspan> stopped</tspan></text>
+<text x="52.0" y="682.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Takeover</tspan><tspan>:</tspan><tspan> seal</tspan><tspan> primary</tspan><tspan> session</tspan><tspan> ·</tspan><tspan> drop</tspan><tspan> pending</tspan><tspan> proposal</tspan></text>
+<text x="52.0" y="697.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>·</tspan><tspan> new</tspan><tspan> session</tspan><tspan> on</tspan><tspan> contexo-fallback</tspan><tspan> ·</tspan><tspan> banner</tspan><tspan> ·</tspan><tspan> replay</tspan><tspan> first</tspan></text>
+<text x="52.0" y="713.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>message</tspan><tspan> +</tspan><tspan> “continue</tspan><tspan> from</tspan><tspan> the</tspan><tspan> start”</tspan></text>
+<text x="52.0" y="731.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Both</tspan><tspan font-weight="700"> fail</tspan><tspan> →</tspan><tspan> “Both</tspan><tspan> models</tspan><tspan> failed</tspan><tspan> …</tspan><tspan> No</tspan><tspan> files</tspan><tspan> were</tspan></text>
+<text x="52.0" y="746.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>changed.”</tspan></text>
+<rect x="36" y="802" width="364" height="160" rx="9" fill="#fdf1f0" stroke="#b0413e" stroke-width="1.3"/>
+<rect x="36" y="802" width="5" height="160" rx="2" fill="#b0413e"/>
+<text x="52" y="824" font-size="14.5" font-weight="700" fill="#9c2f2c">Stop</text>
+<text x="52.0" y="844.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Synchronous,</tspan><tspan font-weight="700"> before</tspan><tspan font-weight="700"> any</tspan><tspan font-weight="700"> await</tspan><tspan>:</tspan><tspan> state</tspan><tspan> cancelled,</tspan></text>
+<text x="52.0" y="859.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>session</tspan><tspan> sealed,</tspan><tspan> stream</tspan><tspan> aborted,</tspan><tspan> approval</tspan><tspan> queue</tspan></text>
+<text x="52.0" y="875.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>cleared,</tspan><tspan> open</tspan><tspan> review</tspan><tspan> discarded</tspan><tspan> (nothing</tspan><tspan> written),</tspan></text>
+<text x="52.0" y="890.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>command</tspan><tspan> process</tspan><tspan> trees</tspan><tspan> killed</tspan></text>
+<text x="52.0" y="908.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Then</tspan><tspan> TrueForge</tspan><tspan> cancel.</tspan><tspan> Late</tspan><tspan> events</tspan><tspan> are</tspan><tspan> dropped;</tspan><tspan> tools</tspan></text>
+<text x="52.0" y="924.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>answer</tspan><tspan> RUN_NOT_AUTHORIZED</tspan></text>
+<rect x="36" y="978" width="364" height="390" rx="9" fill="#fff7e8" stroke="#b7791f" stroke-width="1.3"/>
+<rect x="36" y="978" width="5" height="390" rx="2" fill="#b7791f"/>
+<text x="52" y="1000" font-size="14.5" font-weight="700" fill="#7a4f0e">Review engine — staging, review, apply</text>
+<text x="52.0" y="1020.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Staging</tspan><tspan font-weight="700"> checks</tspan><tspan font-weight="700"> in</tspan><tspan font-weight="700"> order</tspan><tspan> (first</tspan><tspan> failure</tspan><tspan> denies</tspan><tspan> the</tspan><tspan> call</tspan></text>
+<text x="52.0" y="1035.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>with</tspan><tspan> a</tspan><tspan> code</tspan><tspan> the</tspan><tspan> agent</tspan><tspan> retries</tspan><tspan> on,</tspan><tspan> ≤3</tspan><tspan> tries):</tspan></text>
+<text x="52.0" y="1053.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>1</tspan><tspan> one</tspan><tspan> proposal</tspan><tspan> at</tspan><tspan> a</tspan><tspan> time</tspan><tspan> →</tspan></text>
+<text x="62.9" y="1069.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>ANOTHER_PROPOSAL_UNDER_REVIEW</tspan></text>
+<text x="52.0" y="1087.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>2</tspan><tspan> live</tspan><tspan> text</tspan><tspan> hash</tspan><tspan> =</tspan><tspan> baseHash</tspan><tspan> →</tspan><tspan> STALE_BASE;</tspan><tspan> “new”</tspan><tspan> only</tspan></text>
+<text x="62.9" y="1103.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>for</tspan><tspan> absent</tspan><tspan> files</tspan><tspan> →</tspan><tspan> FILE_EXISTS</tspan><tspan> /</tspan><tspan> FILE_NOT_FOUND;</tspan><tspan> one</tspan></text>
+<text x="62.9" y="1118.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>baseHash</tspan><tspan> per</tspan><tspan> file</tspan></text>
+<text x="52.0" y="1136.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>3</tspan><tspan> oldText</tspan><tspan> matches</tspan><tspan> exactly</tspan><tspan> once,</tspan><tspan> line</tspan><tspan> endings</tspan><tspan> kept</tspan><tspan> →</tspan></text>
+<text x="62.9" y="1152.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>OLD_TEXT_NOT_FOUND</tspan><tspan> /</tspan><tspan> AMBIGUOUS_MATCH</tspan></text>
+<text x="52.0" y="1170.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>4</tspan><tspan> net</tspan><tspan> change</tspan><tspan> →</tspan><tspan> NO_CHANGE</tspan><tspan> ·</tspan><tspan> 5</tspan><tspan> Tree-sitter</tspan><tspan> check</tspan><tspan> of</tspan><tspan> new</tspan></text>
+<text x="62.9" y="1186.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>calls</tspan><tspan> →</tspan><tspan> MISSING_SYMBOL</tspan></text>
+<text x="52.0" y="1204.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>6</tspan><tspan> inline</tspan><tspan> only:</tspan><tspan> hunks</tspan><tspan> outside</tspan><tspan> the</tspan><tspan> selection</tspan><tspan> flagged</tspan><tspan> red</tspan></text>
+<text x="62.9" y="1219.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(still</tspan><tspan> acceptable)</tspan></text>
+<text x="52.0" y="1237.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Review</tspan><tspan>:</tspan><tspan> native</tspan><tspan> diff</tspan><tspan> per</tspan><tspan> file,</tspan><tspan> Accept</tspan><tspan> /</tspan><tspan> Reject</tspan><tspan> CodeLens</tspan></text>
+<text x="52.0" y="1253.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>per</tspan><tspan> hunk;</tspan><tspan> each</tspan><tspan> decision</tspan><tspan> checkpointed</tspan></text>
+<text x="52.0" y="1271.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Apply</tspan><tspan>:</tspan><tspan> same</tspan><tspan> root</tspan><tspan> ·</tspan><tspan> turn</tspan><tspan> still</tspan><tspan> paused</tspan><tspan> on</tspan><tspan> this</tspan><tspan> approval</tspan><tspan> ·</tspan></text>
+<text x="52.0" y="1287.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>every</tspan><tspan> file</tspan><tspan> re-hashed</tspan><tspan> (stale</tspan><tspan> →</tspan><tspan> reject</tspan><tspan> all)</tspan><tspan> ·</tspan><tspan> apply</tspan><tspan> intent</tspan></text>
+<text x="52.0" y="1302.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>saved</tspan><tspan> ·</tspan><tspan> one</tspan><tspan> WorkspaceEdit</tspan><tspan> +</tspan><tspan> save</tspan><tspan> ·</tspan><tspan> undo</tspan><tspan> record</tspan><tspan> ·</tspan><tspan> intent</tspan></text>
+<text x="52.0" y="1318.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>cleared</tspan></text>
+<text x="52.0" y="1336.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Undo</tspan><tspan font-weight="700"> /</tspan><tspan font-weight="700"> redo</tspan><tspan> per</tspan><tspan> hunk</tspan><tspan> via</tspan><tspan> reverse</tspan><tspan> patch;</tspan><tspan> refused</tspan><tspan> if</tspan><tspan> the</tspan></text>
+<text x="52.0" y="1352.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>file</tspan><tspan> changed</tspan><tspan> there</tspan></text>
+<rect x="420" y="474" width="364" height="140" rx="9" fill="#eef4fb" stroke="#215879" stroke-width="1.3"/>
+<rect x="420" y="474" width="5" height="140" rx="2" fill="#215879"/>
+<text x="436" y="496" font-size="14.5" font-weight="700" fill="#215879">Per-run connector route</text>
+<text x="436.0" y="516.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Each</tspan><tspan> session</tspan><tspan> gets</tspan><tspan font-weight="700"> contexo-run-‹24</tspan><tspan font-weight="700"> hex›</tspan><tspan> with</tspan><tspan> its</tspan><tspan> own</tspan></text>
+<text x="436.0" y="531.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>32-byte</tspan><tspan> token</tspan><tspan> at</tspan><tspan> /mcp/‹connector›</tspan></text>
+<text x="436.0" y="549.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Agent</tspan><tspan> manifest</tspan><tspan> cloned</tspan><tspan> with</tspan><tspan> the</tspan><tspan> editor</tspan><tspan> connector</tspan></text>
+<text x="436.0" y="565.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>swapped;</tspan><tspan> the</tspan><tspan> previous</tspan><tspan> route</tspan><tspan> is</tspan><tspan> revoked</tspan><tspan> and</tspan><tspan> deleted</tspan></text>
+<text x="436.0" y="583.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Route</tspan><tspan> saved</tspan><tspan> in</tspan><tspan> secret</tspan><tspan> storage</tspan><tspan> so</tspan><tspan> a</tspan><tspan> pending</tspan><tspan> review</tspan><tspan> can</tspan></text>
+<text x="436.0" y="599.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>reattach</tspan><tspan> after</tspan><tspan> reload</tspan></text>
+<rect x="420" y="630" width="364" height="172" rx="9" fill="#eef4fb" stroke="#215879" stroke-width="1.3"/>
+<rect x="420" y="630" width="5" height="172" rx="2" fill="#215879"/>
+<text x="436" y="652" font-size="14.5" font-weight="700" fill="#215879">Editor MCP server</text>
+<text x="436.0" y="672.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">127.0.0.1:8791</tspan><tspan> (contexo.mcpPort),</tspan><tspan> stateless</tspan></text>
+<text x="436.0" y="687.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Streamable</tspan><tspan> HTTP,</tspan><tspan> POST</tspan><tspan> only</tspan><tspan> (else</tspan><tspan> 405)</tspan></text>
+<text x="436.0" y="705.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>X-Contexo-Token</tspan><tspan> compared</tspan><tspan> in</tspan><tspan> constant</tspan><tspan> time</tspan><tspan> (401);</tspan></text>
+<text x="436.0" y="721.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>unknown</tspan><tspan> path</tspan><tspan> 404</tspan></text>
+<text x="436.0" y="739.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Tool</tspan><tspan font-weight="700"> guard</tspan><tspan>:</tspan><tspan> route</tspan><tspan> owns</tspan><tspan> the</tspan><tspan> active</tspan><tspan> run</tspan><tspan> ·</tspan><tspan> session</tspan><tspan> not</tspan></text>
+<text x="436.0" y="755.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>sealed</tspan><tspan> ·</tspan><tspan> run</tspan><tspan> streaming</tspan><tspan> or</tspan><tspan> awaiting</tspan><tspan> review,</tspan><tspan> else</tspan></text>
+<text x="436.0" y="770.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>RUN_NOT_AUTHORIZED</tspan></text>
+<text x="436.0" y="788.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Paths</tspan><tspan> workspace-relative;</tspan><tspan> no</tspan><tspan> absolute,</tspan><tspan> “..”</tspan><tspan> or</tspan><tspan> .git</tspan></text>
+<rect x="420" y="818" width="364" height="240" rx="9" fill="#eef4fb" stroke="#215879" stroke-width="1.3"/>
+<rect x="420" y="818" width="5" height="240" rx="2" fill="#215879"/>
+<text x="436" y="840" font-size="14.5" font-weight="700" fill="#215879">Six editor tools</text>
+<text x="436.0" y="860.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">search_workspace</tspan><tspan> ·</tspan><tspan> preloaded</tspan><tspan> ·</tspan><tspan> ripgrep</tspan><tspan> +</tspan><tspan> symbol</tspan></text>
+<text x="436.0" y="875.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>names,</tspan><tspan> ≤30</tspan><tspan> hits</tspan></text>
+<text x="436.0" y="893.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">read_file</tspan><tspan> ·</tspan><tspan> preloaded</tspan><tspan> ·</tspan><tspan> unsaved</tspan><tspan> buffer</tspan><tspan> first;</tspan><tspan> returns</tspan></text>
+<text x="436.0" y="909.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>hash</tspan><tspan> =</tspan><tspan> baseHash;</tspan><tspan> 16,000</tspan><tspan> chars</tspan></text>
+<text x="436.0" y="927.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">assemble_context</tspan><tspan> ·</tspan><tspan> preloaded</tspan><tspan> ·</tspan><tspan> budgeted</tspan><tspan> packet</tspan></text>
+<text x="436.0" y="943.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(Figure</tspan><tspan> 2)</tspan></text>
+<text x="436.0" y="961.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">list_symbols</tspan><tspan> ·</tspan><tspan> deferred</tspan><tspan> ·</tspan><tspan> ≤200</tspan><tspan> symbols</tspan><tspan> to</tspan><tspan> verify</tspan><tspan> names</tspan></text>
+<text x="436.0" y="979.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">propose_write</tspan><tspan> ·</tspan><tspan> preloaded</tspan><tspan> ·</tspan><tspan> approval</tspan><tspan> ·</tspan><tspan> stages</tspan><tspan> hunks,</tspan></text>
+<text x="436.0" y="994.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>never</tspan><tspan> writes</tspan></text>
+<text x="436.0" y="1012.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">run_command</tspan><tspan> ·</tspan><tspan> deferred</tspan><tspan> ·</tspan><tspan> approval</tspan><tspan> ·</tspan><tspan> allowlist</tspan><tspan> python,</tspan></text>
+<text x="436.0" y="1028.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>pytest,</tspan><tspan> flask;</tspan><tspan> argv,</tspan><tspan> no</tspan><tspan> shell;</tspan><tspan> no</tspan><tspan> absolute</tspan><tspan> or</tspan><tspan> “..”</tspan><tspan> args;</tspan></text>
+<text x="436.0" y="1044.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>scoped</tspan><tspan> env</tspan><tspan> +</tspan><tspan> .venv;</tspan><tspan> 120</tspan><tspan> s</tspan><tspan> (max</tspan><tspan> 180)</tspan></text>
+<rect x="420" y="1074" width="364" height="294" rx="9" fill="#ecf6f0" stroke="#25785c" stroke-width="1.3"/>
+<rect x="420" y="1074" width="5" height="294" rx="2" fill="#25785c"/>
+<text x="436" y="1096" font-size="14.5" font-weight="700" fill="#1d6149">Context engine</text>
+<rect x="716.54" y="1083" width="57.46" height="18" rx="9" fill="#25785c"/>
+<text x="745.27" y="1096" font-size="10.5" font-weight="700" fill="#fff" text-anchor="middle">Figure 2</text>
+<text x="436.0" y="1116.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Index</tspan><tspan>:</tspan><tspan> Tree-sitter</tspan><tspan> Python</tspan><tspan> symbols</tspan><tspan> with</tspan><tspan> calls,</tspan></text>
+<text x="436.0" y="1131.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>decorators,</tspan><tspan> imports;</tspan><tspan> .rst</tspan><tspan> /</tspan><tspan> .md</tspan><tspan> heading</tspan><tspan> sections;</tspan><tspan> TS,</tspan></text>
+<text x="436.0" y="1147.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>JS,</tspan><tspan> Go,</tspan><tspan> Rust,</tspan><tspan> Java</tspan><tspan> via</tspan><tspan> editor</tspan><tspan> symbol</tspan><tspan> providers</tspan></text>
+<text x="436.0" y="1165.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Files</tspan><tspan> from</tspan><tspan> ripgrep</tspan><tspan> honouring</tspan><tspan> .gitignore</tspan><tspan> (skips</tspan></text>
+<text x="436.0" y="1180.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>node_modules,</tspan><tspan> .venv);</tspan><tspan> 20-file</tspan><tspan> chunks;</tspan><tspan> re-index</tspan><tspan> on</tspan><tspan> save</tspan></text>
+<text x="436.0" y="1199.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Anchors</tspan><tspan> (selection,</tspan><tspan> @file,</tspan><tspan> @symbol)</tspan><tspan> are</tspan><tspan> mandatory</tspan></text>
+<text x="436.0" y="1217.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Five</tspan><tspan font-weight="700"> ranked</tspan><tspan font-weight="700"> lists</tspan><tspan>:</tspan><tspan> corpus</tspan><tspan> vectors,</tspan><tspan> BM25</tspan><tspan> code,</tspan><tspan> BM25</tspan></text>
+<text x="436.0" y="1232.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>docs,</tspan><tspan> symbol</tspan><tspan> names,</tspan><tspan> ripgrep</tspan></text>
+<text x="436.0" y="1250.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">One-hop</tspan><tspan font-weight="700"> graph</tspan><tspan>:</tspan><tspan> calls,</tspan><tspan> callers,</tspan><tspan> CLI</tspan><tspan> registration,</tspan><tspan> tests,</tspan></text>
+<text x="436.0" y="1266.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>docs</tspan></text>
+<text x="436.0" y="1284.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">RRF</tspan><tspan font-weight="700"> k</tspan><tspan font-weight="700"> =</tspan><tspan font-weight="700"> 60</tspan><tspan> then</tspan><tspan> budgeted</tspan><tspan> packing</tspan><tspan> (8,000</tspan><tspan> est.</tspan><tspan> tokens)</tspan></text>
+<text x="436.0" y="1300.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>with</tspan><tspan> reasons</tspan><tspan> and</tspan><tspan> an</tspan><tspan> omission</tspan><tspan> ledger</tspan></text>
+<text x="436.0" y="1318.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">22,000-char</tspan><tspan> response</tspan><tspan> guard</tspan><tspan> under</tspan><tspan> the</tspan><tspan> runtime’s</tspan><tspan> tool</tspan></text>
+<text x="436.0" y="1333.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>limit</tspan></text>
+<rect x="836" y="300" width="328" height="158" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="836" y="300" width="5" height="158" rx="2" fill="#5b4a9e"/>
+<text x="852" y="322" font-size="14.5" font-weight="700" fill="#4a3b8a">Sessions, turns, events</text>
+<text x="852.0" y="342.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>model.message(.delta),</tspan><tspan> tool.response,</tspan></text>
+<text x="852.0" y="357.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>tool.approval_required</tspan><tspan> →</tspan><tspan> turn.update</tspan><tspan> paused,</tspan></text>
+<text x="852.0" y="373.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>turn.done</tspan></text>
+<text x="852.0" y="391.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Resume:</tspan><tspan> subscribeToTurn(afterEventId)</tspan><tspan> +</tspan></text>
+<text x="852.0" y="406.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>user.tool_approval</tspan><tspan> allow</tspan><tspan> /</tspan><tspan> deny</tspan></text>
+<text x="852.0" y="425.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Owns</tspan><tspan> inference,</tspan><tspan> turn</tspan><tspan> state</tspan><tspan> and</tspan><tspan> tool</tspan><tspan> dispatch</tspan></text>
+<rect x="836" y="474" width="328" height="312" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="836" y="474" width="5" height="312" rx="2" fill="#5b4a9e"/>
+<text x="852" y="496" font-size="14.5" font-weight="700" fill="#4a3b8a">Agents: contexo · contexo-fallback</text>
+<text x="852.0" y="516.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Same</tspan><tspan font-weight="700"> instructions</tspan><tspan font-weight="700"> and</tspan><tspan font-weight="700"> tools</tspan><tspan>,</tspan><tspan> different</tspan><tspan> models</tspan></text>
+<text x="852.0" y="531.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(default</tspan><tspan> primary</tspan><tspan> inception/mercury-3)</tspan></text>
+<text x="852.0" y="549.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>temperature</tspan><tspan> 0.2</tspan><tspan> ·</tspan><tspan> iteration</tspan><tspan> limit</tspan><tspan> 40</tspan><tspan> ·</tspan><tspan> compaction</tspan></text>
+<text x="852.0" y="565.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>on</tspan><tspan> ·</tspan><tspan> dynamic</tspan><tspan> sub-agents</tspan><tspan> on</tspan></text>
+<text x="852.0" y="583.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Preloaded</tspan><tspan>:</tspan><tspan> search_workspace,</tspan><tspan> read_file,</tspan></text>
+<text x="852.0" y="599.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>assemble_context,</tspan><tspan> propose_write</tspan></text>
+<text x="852.0" y="617.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Deferred</tspan><tspan> (discovered</tspan><tspan> via</tspan><tspan> call_tool):</tspan><tspan> list_symbols,</tspan></text>
+<text x="852.0" y="632.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>run_command</tspan></text>
+<text x="852.0" y="650.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Approval</tspan><tspan font-weight="700"> required</tspan><tspan>:</tspan><tspan> propose_write,</tspan></text>
+<text x="852.0" y="666.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>run_command</tspan><tspan> →</tspan><tspan> turn</tspan><tspan> pauses</tspan></text>
+<text x="852.0" y="684.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Instructions</tspan><tspan>:</tspan><tspan> assemble_context</tspan><tspan> first;</tspan><tspan> never</tspan></text>
+<text x="852.0" y="700.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>invent</tspan><tspan> names;</tspan><tspan> read_file</tspan><tspan> before</tspan><tspan> editing;</tspan><tspan> respect</tspan></text>
+<text x="852.0" y="715.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>rejected</tspan><tspan> hunks</tspan></text>
+<rect x="836" y="802" width="328" height="236" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="836" y="802" width="5" height="236" rx="2" fill="#5b4a9e"/>
+<text x="852" y="824" font-size="14.5" font-weight="700" fill="#4a3b8a">Setup and lifecycle</text>
+<text x="852.0" y="844.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Ping;</tspan><tspan> if</tspan><tspan> down,</tspan><tspan> localhost,</tspan><tspan> Node</tspan><tspan> ≥</tspan><tspan> 22.14</tspan><tspan> and</tspan></text>
+<text x="852.0" y="859.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>autoStart</tspan><tspan> →</tspan><tspan> npx</tspan><tspan> @truefoundry/trueforge</tspan><tspan> --port,</tspan></text>
+<text x="852.0" y="875.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>OUTBOUND_URL_ALLOWED_HOSTS=["127.0.0.1"],</tspan></text>
+<text x="852.0" y="890.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>wait</tspan><tspan> ≤120</tspan><tspan> s</tspan></text>
+<text x="852.0" y="908.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Already</tspan><tspan> running</tspan><tspan> →</tspan><tspan> reused,</tspan><tspan> never</tspan><tspan> stopped.</tspan><tspan> Exit:</tspan></text>
+<text x="852.0" y="924.5" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>stop</tspan><tspan> only</tspan><tspan> if</tspan><tspan> Contexo</tspan><tspan> started</tspan><tspan> it</tspan><tspan> (default)</tspan></text>
+<text x="852.0" y="942.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Provider</tspan><tspan> key</tspan><tspan> sent</tspan><tspan> once</tspan><tspan> to</tspan><tspan> TrueForge;</tspan><tspan> never</tspan><tspan> kept</tspan></text>
+<text x="852.0" y="958.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>by</tspan><tspan> Contexo</tspan></text>
+<text x="852.0" y="976.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Registers</tspan><tspan> connector</tspan><tspan> +</tspan><tspan> both</tspan><tspan> agents;</tspan><tspan> reports</tspan><tspan> each</tspan></text>
+<text x="852.0" y="991.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>resource</tspan></text>
+<rect x="836" y="1054" width="328" height="140" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="836" y="1054" width="5" height="140" rx="2" fill="#5b4a9e"/>
+<text x="852" y="1076" font-size="14.5" font-weight="700" fill="#4a3b8a">Models and resilience test</text>
+<text x="852.0" y="1096.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Only</tspan><tspan font-weight="700"> TrueForge</tspan><tspan font-weight="700"> calls</tspan><tspan font-weight="700"> providers</tspan><tspan>;</tspan><tspan> npm</tspan><tspan> run</tspan><tspan> check</tspan></text>
+<text x="852.0" y="1111.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>scans</tspan><tspan> the</tspan><tspan> bundle</tspan><tspan> for</tspan><tspan> provider</tspan><tspan> SDKs</tspan><tspan> and</tspan><tspan> URLs</tspan></text>
+<text x="852.0" y="1129.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Simulate</tspan><tspan font-weight="700"> failure</tspan><tspan>:</tspan><tspan> primary</tspan><tspan> re-registered</tspan><tspan> on</tspan></text>
+<text x="852.0" y="1145.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>contexo-broken</tspan><tspan> →</tspan><tspan> 127.0.0.1:9;</tspan><tspan> fallback</tspan></text>
+<text x="852.0" y="1160.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>untouched;</tspan><tspan> banner</tspan><tspan> persists</tspan></text>
+<rect x="836" y="1210" width="328" height="158" rx="9" fill="#ffffff" stroke="#5b4a9e" stroke-width="1.3"/>
+<rect x="836" y="1210" width="5" height="158" rx="2" fill="#5b4a9e"/>
+<text x="852" y="1232" font-size="14.5" font-weight="700" fill="#4a3b8a">Session inspector (panel tabs)</text>
+<text x="852.0" y="1252.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Session</tspan><tspan>:</tspan><tspan> turns,</tspan><tspan> status,</tspan><tspan> timing,</tspan><tspan> tokens,</tspan><tspan> tool</tspan><tspan> calls</tspan></text>
+<text x="852.0" y="1267.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>with</tspan><tspan> server,</tspan><tspan> deferred</tspan><tspan> marker,</tspan><tspan> args,</tspan><tspan> results,</tspan></text>
+<text x="852.0" y="1283.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>approvals</tspan></text>
+<text x="852.0" y="1301.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Context</tspan><tspan>:</tspan><tspan> excerpts,</tspan><tspan> omissions,</tspan><tspan> graph</tspan><tspan> ·</tspan><tspan font-weight="700"> Changes</tspan><tspan>:</tspan></text>
+<text x="852.0" y="1316.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>hunks,</tspan><tspan> undo</tspan></text>
+<text x="20" y="1408" font-size="11.5" fill="#4b5563" font-weight="700" text-anchor="start" letter-spacing="1.2" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">4 · PERSISTENCE, RECOVERY AND EVIDENCE</text>
+<rect x="20" y="1416" width="373" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="20" y="1416" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="36" y="1438" font-size="14.5" font-weight="700" fill="#374151">Workspace files</text>
+<text x="36.0" y="1458.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Written</tspan><tspan font-weight="700"> only</tspan><tspan font-weight="700"> by</tspan><tspan> Apply,</tspan><tspan> Undo</tspan><tspan> /</tspan><tspan> Redo</tspan><tspan> and</tspan><tspan> apply</tspan><tspan> recovery,</tspan></text>
+<text x="36.0" y="1473.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>never</tspan><tspan> by</tspan><tspan> a</tspan><tspan> tool</tspan><tspan> call</tspan></text>
+<text x="36.0" y="1491.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Read</tspan><tspan> by</tspan><tspan> read_file</tspan><tspan> (open</tspan><tspan> buffers</tspan><tspan> first)</tspan><tspan> and</tspan><tspan> the</tspan><tspan> indexer</tspan></text>
+<text x="36.0" y="1509.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Inline</tspan><tspan> edits</tspan><tspan> refuse</tspan><tspan> selections</tspan><tspan> outside</tspan><tspan> the</tspan><tspan> active</tspan><tspan> root</tspan></text>
+<rect x="413" y="1416" width="374" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="413" y="1416" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="429" y="1438" font-size="14.5" font-weight="700" fill="#374151">Workspace state and secret storage</text>
+<text x="429.0" y="1458.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">review.pending.v1</tspan><tspan>:</tspan><tspan> run,</tspan><tspan> proposal,</tspan><tspan> decisions,</tspan><tspan> turn</tspan><tspan> id,</tspan></text>
+<text x="429.0" y="1473.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>root,</tspan><tspan> TrueForge</tspan><tspan> URL</tspan></text>
+<text x="429.0" y="1491.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">review.apply.v1</tspan><tspan>:</tspan><tspan> apply</tspan><tspan> intent</tspan><tspan> (accepted</tspan><tspan> hunks,</tspan><tspan> base</tspan></text>
+<text x="429.0" y="1507.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>hash</tspan><tspan> and</tspan><tspan> target</tspan><tspan> per</tspan><tspan> file)</tspan></text>
+<text x="429.0" y="1525.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Secrets</tspan><tspan>:</tspan><tspan> MCP</tspan><tspan> token,</tspan><tspan> run</tspan><tspan> route,</tspan><tspan> CI</tspan><tspan> credentials</tspan></text>
+<rect x="807" y="1416" width="373" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="807" y="1416" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="823" y="1438" font-size="14.5" font-weight="700" fill="#374151">Run journal (JSONL per run)</text>
+<text x="823.0" y="1458.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Mode</tspan><tspan> 0600,</tspan><tspan> fsync</tspan><tspan> per</tspan><tspan> record,</tspan><tspan> sequence</tspan><tspan> numbers;</tspan></text>
+<text x="823.0" y="1473.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>requests,</tspan><tspan> sessions,</tspan><tspan> states,</tspan><tspan> tool</tspan><tspan> events</tspan><tspan> and</tspan><tspan> outputs,</tspan></text>
+<text x="823.0" y="1489.2" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>proposals</tspan><tspan> with</tspan><tspan> base</tspan><tspan> hashes,</tspan><tspan> undo</tspan><tspan> /</tspan><tspan> redo,</tspan><tspan> checks,</tspan></text>
+<text x="823.0" y="1504.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>requirement</tspan><tspan> links,</tspan><tspan> impact,</tspan><tspan> imports,</tspan><tspan> reconciliation</tspan></text>
+<rect x="20" y="1556" width="373" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="20" y="1556" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="36" y="1578" font-size="14.5" font-weight="700" fill="#374151">Recovery after reload</text>
+<text x="36.0" y="1598.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Apply</tspan><tspan font-weight="700"> intent</tspan><tspan>:</tspan><tspan> file</tspan><tspan> at</tspan><tspan> target</tspan><tspan> →</tspan><tspan> skip</tspan><tspan> ·</tspan><tspan> at</tspan><tspan> base</tspan><tspan> →</tspan><tspan> finish</tspan><tspan> ·</tspan></text>
+<text x="36.0" y="1613.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>otherwise</tspan><tspan> pause</tspan></text>
+<text x="36.0" y="1631.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Pending</tspan><tspan font-weight="700"> review</tspan><tspan>:</tspan><tspan> same</tspan><tspan> root</tspan><tspan> and</tspan><tspan> TrueForge</tspan><tspan> URL;</tspan><tspan> turn</tspan><tspan> still</tspan></text>
+<text x="36.0" y="1647.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>paused</tspan><tspan> with</tspan><tspan> exactly</tspan><tspan> one</tspan><tspan> matching</tspan><tspan> approval;</tspan><tspan> connector</tspan></text>
+<text x="36.0" y="1662.9" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>still</tspan><tspan> points</tspan><tspan> to</tspan><tspan> this</tspan><tspan> port</tspan></text>
+<rect x="413" y="1556" width="374" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="413" y="1556" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="429" y="1578" font-size="14.5" font-weight="700" fill="#374151">Candidate test before apply</text>
+<text x="429.0" y="1598.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>Temp</tspan><tspan> copy</tspan><tspan> of</tspan><tspan> tracked</tspan><tspan> +</tspan><tspan> untracked</tspan><tspan> non-ignored</tspan><tspan> files</tspan><tspan> (no</tspan></text>
+<text x="429.0" y="1613.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>symlinks),</tspan><tspan> accepted</tspan><tspan> hunks</tspan><tspan> only,</tspan><tspan> bases</tspan><tspan> re-hashed</tspan></text>
+<text x="429.0" y="1631.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>python</tspan><tspan> -m</tspan><tspan> pytest</tspan><tspan> -q,</tspan><tspan> copied</tspan><tspan> src</tspan><tspan> first</tspan><tspan> on</tspan><tspan> PYTHONPATH,</tspan></text>
+<text x="429.0" y="1647.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>120</tspan><tspan> s;</tspan><tspan> copy</tspan><tspan> deleted;</tspan><tspan> result</tspan><tspan> journaled</tspan></text>
+<rect x="807" y="1556" width="373" height="124" rx="9" fill="#f4f5f7" stroke="#4b5563" stroke-width="1.3"/>
+<rect x="807" y="1556" width="5" height="124" rx="2" fill="#4b5563"/>
+<text x="823" y="1578" font-size="14.5" font-weight="700" fill="#374151">External evidence and replay</text>
+<text x="823.0" y="1598.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">SARIF</tspan><tspan font-weight="700"> 2.1.0</tspan><tspan> matched</tspan><tspan> to</tspan><tspan> hunks</tspan><tspan> by</tspan><tspan> path,</tspan><tspan> side,</tspan><tspan> line</tspan><tspan> and</tspan><tspan> file</tspan></text>
+<text x="823.0" y="1613.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>SHA-256</tspan></text>
+<text x="823.0" y="1631.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Jenkins,</tspan><tspan font-weight="700"> GitHub</tspan><tspan font-weight="700"> PR,</tspan><tspan font-weight="700"> BuildKit</tspan><tspan>:</tspan><tspan> HTTPS,</tspan><tspan> no</tspan><tspan> credentials</tspan><tspan> in</tspan></text>
+<text x="823.0" y="1647.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>URL,</tspan><tspan> ≤8</tspan><tspan> MiB,</tspan><tspan> 15</tspan><tspan> s,</tspan><tspan> digest</tspan><tspan> check</tspan></text>
+<text x="823.0" y="1665.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan font-weight="700">Replay</tspan><tspan>:</tspan><tspan> native,</tspan><tspan> ACP,</tspan><tspan> OTLP,</tspan><tspan> ≤16</tspan><tspan> MiB,</tspan><tspan> read-only</tspan></text>
+<rect x="20" y="1696" width="1160" height="150" rx="9" fill="#f7fafd" stroke="#12385c" stroke-width="1.3"/>
+<rect x="20" y="1696" width="5" height="150" rx="2" fill="#12385c"/>
+<text x="36" y="1718" font-size="14.5" font-weight="700" fill="#12385c">Request lifecycle</text>
+<text x="36.0" y="1738.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>①</tspan><tspan> Request</tspan><tspan> enters:</tspan><tspan> inline</tspan><tspan> template</tspan><tspan> or</tspan><tspan> agent</tspan><tspan> text</tspan><tspan> +</tspan><tspan> hint</tspan></text>
+<text x="36.0" y="1756.1" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>②</tspan><tspan> Session</tspan><tspan> created</tspan><tspan> with</tspan><tspan> a</tspan><tspan> per-run</tspan><tspan> connector;</tspan><tspan> turn</tspan><tspan> streams;</tspan><tspan> 20</tspan></text>
+<text x="46.6" y="1771.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>s</tspan><tspan> timer</tspan><tspan> armed</tspan></text>
+<text x="36.0" y="1789.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>③</tspan><tspan> Model</tspan><tspan> calls</tspan><tspan> editor</tspan><tspan> tools</tspan><tspan> over</tspan><tspan> loopback</tspan><tspan> MCP;</tspan><tspan> every</tspan><tspan> call</tspan></text>
+<text x="46.6" y="1805.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>checked</tspan><tspan> against</tspan><tspan> route</tspan><tspan> and</tspan><tspan> Stop</tspan></text>
+<text x="418.7" y="1738.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>④</tspan><tspan> assemble_context</tspan><tspan> returns</tspan><tspan> the</tspan><tspan> packet;</tspan><tspan> search,</tspan><tspan> read</tspan><tspan> and</tspan><tspan> list</tspan></text>
+<text x="429.3" y="1753.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>fill</tspan><tspan> gaps</tspan></text>
+<text x="418.7" y="1771.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>⑤</tspan><tspan> propose_write</tspan><tspan> /</tspan><tspan> run_command</tspan><tspan> pause</tspan><tspan> the</tspan><tspan> turn</tspan></text>
+<text x="429.3" y="1787.3" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>(approval_required)</tspan></text>
+<text x="418.7" y="1805.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>⑥</tspan><tspan> Review</tspan><tspan> engine</tspan><tspan> stages</tspan><tspan> hunks,</tspan><tspan> or</tspan><tspan> denies</tspan><tspan> with</tspan><tspan> a</tspan><tspan> retryable</tspan></text>
+<text x="429.3" y="1821.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>code</tspan></text>
+<text x="801.3" y="1738.0" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>⑦</tspan><tspan> The</tspan><tspan> tool</tspan><tspan> call</tspan><tspan> waits</tspan><tspan> while</tspan><tspan> hunks</tspan><tspan> are</tspan><tspan> accepted,</tspan><tspan> rejected</tspan><tspan> or</tspan></text>
+<text x="811.9" y="1753.6" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>tested</tspan></text>
+<text x="801.3" y="1771.7" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>⑧</tspan><tspan> user.tool_approval</tspan><tspan> resumes</tspan><tspan> the</tspan><tspan> turn</tspan><tspan> from</tspan><tspan> the</tspan><tspan> last</tspan><tspan> event</tspan><tspan> id</tspan></text>
+<text x="801.3" y="1789.8" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>⑨</tspan><tspan> Apply</tspan><tspan> is</tspan><tspan> the</tspan><tspan> only</tspan><tspan> workspace</tspan><tspan> writer;</tspan><tspan> failure</tspan><tspan> before</tspan><tspan> an</tspan></text>
+<text x="811.9" y="1805.4" font-size="12.5" fill="#1f2d3d" xml:space="preserve"><tspan>approved</tspan><tspan> write</tspan><tspan> →</tspan><tspan> fallback</tspan><tspan> replays</tspan><tspan> ①</tspan><tspan> once</tspan></text>
+<path d="M 270 255 L 270 300" fill="none" stroke="#12385c" stroke-width="1.8"/>
+<polygon points="270,300 274.5,291.0 265.5,291.0" fill="#12385c"/>
+<circle cx="286" cy="278" r="9.5" fill="#12385c" stroke="#fff" stroke-width="1.5"/>
+<text x="286" y="282.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<path d="M 330 255 L 330 300" fill="none" stroke="#12385c" stroke-width="1.8"/>
+<polygon points="330,300 334.5,291.0 325.5,291.0" fill="#12385c"/>
+<circle cx="346" cy="278" r="9.5" fill="#12385c" stroke="#fff" stroke-width="1.5"/>
+<text x="346" y="282.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<path d="M 810 255 L 810 312 L 836 312" fill="none" stroke="#12385c" stroke-width="1.8"/>
+<polygon points="836,312 827.0,307.5 827.0,316.5" fill="#12385c"/>
+<path d="M 784 340 L 836 340" fill="none" stroke="#12385c" stroke-width="1.8"/>
+<polygon points="836,340 827.0,335.5 827.0,344.5" fill="#12385c"/>
+<circle cx="810" cy="328" r="9.5" fill="#12385c" stroke="#fff" stroke-width="1.5"/>
+<text x="810" y="332.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<path d="M 836 378 L 784 378" fill="none" stroke="#5b4a9e" stroke-width="1.8"/>
+<polygon points="784,378 793.0,382.5 793.0,373.5" fill="#5b4a9e"/>
+<circle cx="810" cy="366" r="9.5" fill="#5b4a9e" stroke="#fff" stroke-width="1.5"/>
+<text x="810" y="370.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+<path d="M 784 422 L 836 422" fill="none" stroke="#b7791f" stroke-width="1.8"/>
+<polygon points="836,422 827.0,417.5 827.0,426.5" fill="#b7791f"/>
+<circle cx="810" cy="410" r="9.5" fill="#b7791f" stroke="#fff" stroke-width="1.5"/>
+<text x="810" y="414.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">8</text>
+<path d="M 836 716 L 784 716" fill="none" stroke="#5b4a9e" stroke-width="1.8"/>
+<polygon points="784,716 793.0,720.5 793.0,711.5" fill="#5b4a9e"/>
+<circle cx="810" cy="704" r="9.5" fill="#5b4a9e" stroke="#fff" stroke-width="1.5"/>
+<text x="810" y="708.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<path d="M 602 1058 L 602 1074" fill="none" stroke="#25785c" stroke-width="1.8"/>
+<polygon points="602,1074 606.5,1065.0 597.5,1065.0" fill="#25785c"/>
+<circle cx="624" cy="1066" r="9.5" fill="#25785c" stroke="#fff" stroke-width="1.5"/>
+<text x="624" y="1070.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<path d="M 36 440 L 27 440 L 27 1030 L 36 1030" fill="none" stroke="#b7791f" stroke-width="1.8"/>
+<polygon points="36,1030 27.0,1025.5 27.0,1034.5" fill="#b7791f"/>
+<circle cx="27" cy="940" r="9.5" fill="#b7791f" stroke="#fff" stroke-width="1.5"/>
+<text x="27" y="944.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+<path d="M 420 1010 L 400 1010" fill="none" stroke="#b7791f" stroke-width="1.8"/>
+<polygon points="400,1010 409.0,1014.5 409.0,1005.5" fill="#b7791f"/>
+<polygon points="420,1010 411.0,1005.5 411.0,1014.5" fill="#b7791f"/>
+<circle cx="410" cy="992" r="9.5" fill="#b7791f" stroke="#fff" stroke-width="1.5"/>
+<text x="410" y="996.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">7</text>
+<path d="M 360 1368 L 360 1416" fill="none" stroke="#b7791f" stroke-width="2.4"/>
+<polygon points="360,1416 364.5,1407.0 355.5,1407.0" fill="#b7791f"/>
+<circle cx="376" cy="1392" r="9.5" fill="#b7791f" stroke="#fff" stroke-width="1.5"/>
+<text x="376" y="1396.2" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">9</text>
+<text x="390" y="1396" font-size="10.5" fill="#b7791f" font-weight="700" text-anchor="start" letter-spacing="0" font-family="'Trebuchet MS', 'Segoe UI', Helvetica, Arial, sans-serif">only writer</text>
+<path d="M 400 540 L 418 540" fill="none" stroke="#b0413e" stroke-width="1.8" stroke-dasharray="6 4"/>
+<polygon points="418,540 409.0,535.5 409.0,544.5" fill="#b0413e"/>
+<path d="M 600 1368 L 600 1416" fill="none" stroke="#4b5563" stroke-width="1.8" stroke-dasharray="6 4"/>
+<polygon points="600,1416 604.5,1407.0 595.5,1407.0" fill="#4b5563"/>
+<path d="M 990 1368 L 990 1416" fill="none" stroke="#4b5563" stroke-width="1.8" stroke-dasharray="6 4"/>
+<polygon points="990,1416 994.5,1407.0 985.5,1407.0" fill="#4b5563"/>
+</svg>
