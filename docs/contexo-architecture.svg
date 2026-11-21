@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 594" width="1000" height="594" role="img" aria-labelledby="contexo-architecture-title contexo-architecture-desc">
+  <title id="contexo-architecture-title">Contexo architecture on TrueForge</title>
+  <desc id="contexo-architecture-desc">VS Code and the terminal connect through a session client to TrueForge. TrueForge controls inference, model fallback and tool approval. Authenticated loopback MCP connects the runtime to workspace tools and the context index. The session client hands edit proposals to local review. Accepted hunks reach the working tree, candidate tests use a separate copy, and the evidence store stores evidence and recovery checkpoints.</desc>
+
+  <rect x="1" y="1" width="998" height="592" rx="17" fill="#f4faff" stroke="#a8c5dc" stroke-width="2"/>
+  <rect x="22" y="130" width="588" height="439" rx="12" fill="#eaf4fb" stroke="#337eb0" stroke-width="1.5"/>
+  <rect x="704" y="130" width="267" height="279" rx="12" fill="#dceeff" stroke="#337eb0" stroke-width="1.5"/>
+
+  <g fill="none" stroke="#2d709b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 95V103Q150 111 158 111H447"/>
+    <path d="M447 95V177 M442 170L447 177L452 170"/>
+    <path d="M580 215H724 M587 210L580 215L587 220 M717 210L724 215L717 220"/>
+    <path d="M315 215H253 M260 210L253 215L260 220"/>
+    <path d="M838 257V316 M833 309L838 316L843 309"/>
+    <path d="M724 357H580 M587 352L580 357L587 362 M717 352L724 357L717 362"/>
+    <path d="M315 357H253 M260 352L253 357L260 362"/>
+    <path d="M447 397V444 M442 437L447 444L452 437"/>
+    <path d="M150 257V316 M145 309L150 316L155 309"/>
+    <path d="M150 397V444 M145 437L150 444L155 437"/>
+    <path d="M950 220H976Q984 220 984 228V493Q984 501 976 501H950 M957 496L950 501L957 506 M957 215L950 220L957 225"/>
+  </g>
+
+  <g fill="none" stroke="#5682a0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 4">
+    <path d="M580 245H591Q599 245 599 253V347 Q615 357 599 367V533Q599 541 591 541H580"/>
+    <path d="M46 245H41Q33 245 33 253V533Q33 541 41 541H46"/>
+  </g>
+
+  <g font-family="Trebuchet MS, sans-serif">
+    <g fill="#215879" font-size="16" font-weight="bold">
+      <text x="45" y="32">DEVELOPER INTERFACES</text>
+      <text x="45" y="155">CONTEXO · WORKSPACE HOST</text>
+      <text x="725" y="155">TRUEFORGE · AGENT RUNTIME</text>
+    </g>
+    <g fill="#215879" font-size="15" text-anchor="middle">
+      <text x="652" y="203">Sessions and turns</text>
+      <text x="284" y="203">Proposal</text>
+      <text x="875" y="291">Dispatch</text>
+      <text x="652" y="335">Authenticated</text>
+      <text x="652" y="350">loopback MCP</text>
+      <text x="284" y="345">Read</text>
+      <text x="478" y="424">Lookup</text>
+      <text x="193" y="288">Apply / undo</text>
+      <text x="176" y="424">Copy</text>
+    </g>
+
+    <g fill="#fff" stroke="#a8c5dc" stroke-width="1.5">
+      <rect x="46" y="44" width="207" height="51" rx="8"/>
+      <rect x="315" y="44" width="265" height="51" rx="8"/>
+      <rect x="46" y="177" width="207" height="80" rx="8"/>
+      <rect x="315" y="177" width="265" height="80" rx="8"/>
+      <rect x="46" y="316" width="207" height="81" rx="8"/>
+      <rect x="315" y="316" width="265" height="81" rx="8"/>
+      <rect x="46" y="444" width="207" height="67" rx="8"/>
+      <rect x="315" y="444" width="265" height="67" rx="8"/>
+      <rect x="46" y="524" width="534" height="34" rx="7" fill="#dceeff"/>
+      <rect x="724" y="177" width="226" height="80" rx="8" fill="#fff"/>
+      <rect x="724" y="316" width="226" height="81" rx="8"/>
+      <rect x="724" y="460" width="226" height="91" rx="8"/>
+    </g>
+
+    <g fill="#12385c" font-size="19" font-weight="bold">
+      <text x="58" y="66">VS Code</text>
+      <text x="327" y="66">Terminal client</text>
+      <text x="58" y="201">Hunk review</text>
+      <text x="327" y="201">Session client</text>
+      <text x="58" y="341">Git working tree</text>
+      <text x="327" y="341">Scoped workspace tools</text>
+      <text x="58" y="467">Candidate test copy</text>
+      <text x="327" y="467">Repository context index</text>
+      <text x="58" y="546">Evidence store</text>
+      <text x="736" y="201">Turn engine</text>
+      <text x="736" y="341">Tool dispatch</text>
+      <text x="736" y="486">Configured model</text>
+    </g>
+
+    <g fill="#15344e" font-size="16">
+      <text x="58" y="85">Inline, sidebar or Chat</text>
+      <text x="327" y="85">Independent workspace scope</text>
+      <text x="58" y="223">Check base and text</text>
+      <text x="58" y="242">Select hunks to apply</text>
+      <text x="327" y="223">Send request and scope</text>
+      <text x="327" y="242">Stream events and control runs</text>
+      <text x="58" y="364">Save accepted hunks</text>
+      <text x="58" y="383">Recheck the live base</text>
+      <text x="327" y="364">Search, read, symbols, context</text>
+      <text x="327" y="383">Edit proposals and commands</text>
+      <text x="58" y="489">pytest on selected hunks</text>
+      <text x="327" y="489">Rank, expand and pack excerpts</text>
+      <text x="205" y="546">Journal, hunk decisions and apply checkpoints</text>
+      <text x="736" y="223">Inference and turn state</text>
+      <text x="736" y="242">Context compaction</text>
+      <text x="736" y="364">Preload or discover tools</text>
+      <text x="736" y="383">Gate edits and commands</text>
+      <text x="736" y="510">Provider model via TrueForge</text>
+      <text x="736" y="530">Primary or fallback agent</text>
+    </g>
+    <text x="724" y="445" fill="#215879" font-size="16" font-weight="bold">MODEL INFERENCE</text>
+  </g>
+</svg>

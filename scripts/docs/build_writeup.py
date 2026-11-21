@@ -1,11 +1,7 @@
-"""Regenerates the architecture figures and appends them to the write-up PDF.
+"""Render the three-page competition write-up from docs/writeup.md.
 
-    python scripts/docs/build_writeup.py
-
-The three original pages of docs/Contexo-writeup.pdf are kept as they are. Appendix pages are built
-from the README section between <!-- architecture:start --> and <!-- architecture:end -->, one page per
-<!-- pdf:page title="..." --> marker. They are printed with headless Edge or Chrome and appended.
-Needs Python packages markdown and pymupdf, and Windows fonts (Trebuchet MS, Baskerville Old Face).
+Run python scripts/docs/build_writeup.py with Markdown and headless Chrome or Edge.
+Use --appendix to render the extended README architecture as a separate PDF.
 """
 from __future__ import annotations
 
@@ -17,19 +13,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-import fitz
 import markdown
 
 sys.path.insert(0, str(Path(__file__).parent))
-import diagrams  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / 'docs' / 'Contexo-writeup.pdf'
-ORIGINAL_PAGES = 3
 REPO_BLOB = 'https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/blob/codex/run-recovery-and-review/'
 BROWSERS = [
     r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
     r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     'msedge', 'google-chrome', 'chromium',
 ]
 
@@ -39,8 +34,7 @@ CSS = """
 html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body { font-family: 'Trebuchet MS', sans-serif; color: #1f2d3d; }
 .page { width: 210mm; height: 297mm; position: relative; overflow: hidden; page-break-after: always;
-  background: radial-gradient(ellipse 60% 45% at 100% 100%, #a9cff3 0%, rgba(169,207,243,0) 70%),
-              linear-gradient(160deg, #f2f8fd 0%, #ffffff 45%, #f4f9fe 100%); }
+  background: linear-gradient(135deg, #fafcfe 0%, #f4faff 58%, #daefff 86%, #9acafa 100%); }
 .page:last-child { page-break-after: auto; }
 .frame { position: absolute; border-radius: 14pt; }
 .f1 { inset: 16pt; border: 0.8pt solid #c6d9ec; }
@@ -50,8 +44,8 @@ body { font-family: 'Trebuchet MS', sans-serif; color: #1f2d3d; }
 .foot { position: absolute; bottom: 30pt; left: 40pt; right: 40pt; border-top: 0.6pt solid #c6d9ec; padding-top: 8pt;
   display: flex; justify-content: space-between; font-size: 8pt; color: #12385c; }
 .body { position: absolute; top: 56pt; left: 40pt; right: 40pt; bottom: 58pt; }
-h1 { font: 30pt 'Baskerville Old Face', Baskerville, Georgia, serif; color: #12385c; margin: 0 0 6pt; font-weight: normal; }
-h2 { font: 18pt 'Baskerville Old Face', Baskerville, Georgia, serif; color: #12385c; margin: 8pt 0 4pt; font-weight: normal; }
+h1 { font: 32pt Baskerville, 'Baskerville Old Face', Georgia, serif; color: #12385c; margin: 0 0 6pt; font-weight: normal; }
+h2 { font: 18pt Baskerville, 'Baskerville Old Face', Georgia, serif; color: #12385c; margin: 8pt 0 4pt; font-weight: normal; }
 h3 { font: 13.5pt 'Baskerville Old Face', Baskerville, Georgia, serif; color: #12385c; margin: 8pt 0 3pt; font-weight: normal; }
 p, li { font-size: 8.6pt; line-height: 1.38; margin: 0 0 5pt; }
 ul { margin: 0 0 5pt; padding-left: 14pt; }
@@ -65,7 +59,12 @@ td { padding: 2.3pt 5pt; vertical-align: top; border-bottom: 0.5pt solid #d7e3ef
 tr:nth-child(even) td { background: rgba(232, 241, 250, 0.75); }
 td:first-child { font-weight: bold; color: #15344e; }
 img { display: block; margin: 4pt auto 3pt; max-width: 100%; }
-.fig1 img { max-height: 615pt; }
+.submission h2 { font-size: 21pt; margin-top: 12pt; }
+.submission p { font-size: 10.5pt; line-height: 1.43; margin-bottom: 8pt; }
+.submission table { font-size: 9pt; line-height: 1.38; }
+.submission td, .submission th { padding: 4pt 5pt; }
+.fig1 img { max-height: 342pt; }
+.appendix .fig1 img { max-height: 615pt; }
 .fig2 img { max-height: 300pt; }
 """
 
@@ -85,31 +84,53 @@ def pages_from_readme() -> list[tuple[str, str]]:
     return [(chunks[i], chunks[i + 1]) for i in range(0, len(chunks), 2)]
 
 
-def to_html(md: str) -> str:
+def submission_pages() -> list[tuple[str, str]]:
+    text = (ROOT / 'docs/writeup.md').read_text(encoding='utf-8')
+    sections = re.split(r'(?m)(?=^## )', text)[1:]
+    if len(sections) != 8 or any(not section.startswith(f'## {i}. ') for i, section in enumerate(sections, 1)):
+        raise SystemExit('Expected all eight numbered competition headings in order.')
+    return [
+        ('Contexo', '\n'.join(sections[:3])),
+        ('Retrieval & inference', '\n'.join(sections[3:5])),
+        ('Competition evidence', '\n'.join(sections[5:])),
+    ]
+
+
+def to_html(md: str, directory: Path) -> str:
     body = markdown.markdown(md, extensions=['tables'])
-    # Images load from disk; links point at the repository, as on the original pages.
-    body = re.sub(r'src="(docs/|scripts/)', lambda m: f'src="{(ROOT / m[1]).as_uri()}/', body)
-    body = re.sub(r'href="(docs/|scripts/|extension/)', lambda m: f'href="{REPO_BLOB}{m[1]}', body)
-    body = body.replace('<p><img', '<p class="fig"><img')
+    def resolve(match: re.Match) -> str:
+        attr, value = match.groups()
+        if ':' in value or value.startswith('#'):
+            return match[0]
+        target = (directory / value).resolve()
+        if attr == 'src':
+            return f'src="{target.as_uri()}"'
+        base = REPO_BLOB.replace('/blob/', '/tree/') if target.is_dir() else REPO_BLOB
+        return f'href="{base}{target.relative_to(ROOT).as_posix()}"'
+
+    body = re.sub(r'(src|href)="([^"]+)"', resolve, body)
     if 'contexo-architecture.svg' in body:
-        body = body.replace('class="fig"', 'class="fig1"', 1)
+        body = body.replace('<p><img', '<p class="fig1"><img', 1)
     elif 'context-pipeline.svg' in body:
-        body = body.replace('class="fig"', 'class="fig2"', 1)
+        body = body.replace('<p><img', '<p class="fig2"><img', 1)
     return body
 
 
-def build_html(pages: list[tuple[str, str]]) -> str:
-    total = len(pages)
+def build_html(pages: list[tuple[str, str]], appendix: bool) -> str:
     out = []
+    layout = 'page appendix' if appendix else 'page submission'
+    footer = 'Architecture notes' if appendix else '21 November 2026'
     for n, (title, md) in enumerate(pages, 1):
-        heading = '' if n > 1 and pages[n - 2][0] == title else f'<h1>{title}</h1>'
-        html_body = to_html(md)
-        if heading:  # the page title replaces the README's own section heading
+        heading = '' if appendix and n > 1 and pages[n - 2][0] == title else f'<h1>{title}</h1>'
+        html_body = to_html(md, ROOT if appendix else ROOT / 'docs')
+        if appendix and heading:
             html_body = re.sub(r'^\s*<h2>[^<]*</h2>', '', html_body)
-        out.append(f'''<section class="page"><div class="frame f1"></div><div class="frame f2"></div>
+        if not appendix and n == 1:
+            heading += '<p style="font-size: 11pt">A reviewable coding agent inside VS Code</p>'
+        out.append(f'''<section class="{layout}"><div class="frame f1"></div><div class="frame f2"></div>
 <div class="head"><span>TRUEFORGE&nbsp;&nbsp;/&nbsp;&nbsp;FORGE-A-THON</span><span>WEIGHTS OF SIN</span></div>
 <div class="body">{heading}{html_body}</div>
-<div class="foot"><span>Contexo&nbsp;&nbsp;/&nbsp;&nbsp;Appendix&nbsp;&nbsp;/&nbsp;&nbsp;architecture and context</span><span>A{n}&nbsp;&nbsp;/&nbsp;&nbsp;A{total}</span></div>
+<div class="foot"><span>Contexo&nbsp;&nbsp;/&nbsp;&nbsp;{footer}</span><span>{n:02}&nbsp;&nbsp;/&nbsp;&nbsp;{len(pages):02}</span></div>
 </section>''')
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{CSS}</style></head><body>{"".join(out)}</body></html>'
 
@@ -120,38 +141,36 @@ def check_fit(html_path: Path, browser: str, tmp: Path) -> None:
     script = ('<script>window.onload=()=>{const bad=[...document.querySelectorAll(".body")].map((b,i)=>'
               '[i+1,b.scrollHeight-b.clientHeight]).filter(x=>x[1]>1);document.title=JSON.stringify(bad);}</script>')
     probe.write_text(html_path.read_text(encoding='utf-8').replace('</head>', script + '</head>'), encoding='utf-8')
-    dom = subprocess.run([browser, '--headless=new', '--disable-gpu', '--allow-file-access-from-files', '--dump-dom',
+    dom = subprocess.run([browser, '--headless=new', '--disable-gpu', '--allow-file-access-from-files', f'--user-data-dir={tmp / "browser"}', '--dump-dom',
                           probe.as_uri()], capture_output=True, text=True, encoding='utf-8', timeout=120).stdout
     m = re.search(r'<title>(.*?)</title>', dom)
     overflow = m[1] if m else '?'
     if overflow != '[]':
-        raise SystemExit(f'Appendix content overflows [page, px]: {overflow}')
+        raise SystemExit(f'Write-up content overflows [page, px]: {overflow}')
 
 
 def main() -> None:
-    diagrams.main()
-    pages = pages_from_readme()
+    appendix = sys.argv[1:] == ['--appendix']
+    if sys.argv[1:] and not appendix:
+        raise SystemExit('Expected no arguments or --appendix.')
+    if appendix:
+        import diagrams
+        diagrams.main()
+    pages = pages_from_readme() if appendix else submission_pages()
+    output = PDF.with_name('Contexo-architecture-appendix.pdf') if appendix else PDF
     browser = find_browser()
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        html_path = tmp / 'appendix.html'
-        html_path.write_text(build_html(pages), encoding='utf-8')
+        html_path = tmp / 'writeup.html'
+        html_path.write_text(build_html(pages, appendix), encoding='utf-8')
         check_fit(html_path, browser, tmp)
-        appendix = tmp / 'appendix.pdf'
+        rendered = tmp / 'writeup.pdf'
         subprocess.run([browser, '--headless=new', '--disable-gpu', '--allow-file-access-from-files',
-                        '--no-pdf-header-footer', f'--print-to-pdf={appendix}', html_path.as_uri()],
+                        f'--user-data-dir={tmp / "browser"}', '--no-pdf-header-footer',
+                        f'--print-to-pdf={rendered}', html_path.as_uri()],
                        check=True, capture_output=True, timeout=120)
-        doc = fitz.open(PDF)
-        if doc.page_count > ORIGINAL_PAGES:
-            doc.delete_pages(range(ORIGINAL_PAGES, doc.page_count))
-        extra = fitz.open(appendix)
-        doc.insert_pdf(extra)
-        extra.close()
-        out = tmp / 'writeup.pdf'
-        doc.save(out, garbage=3, deflate=True)
-        doc.close()
-        shutil.copyfile(out, PDF)
-    print(f'wrote {PDF.relative_to(ROOT)}: {ORIGINAL_PAGES} original pages + {len(pages)} appendix pages')
+        shutil.copyfile(rendered, output)
+    print(f'wrote {output.relative_to(ROOT)} with {len(pages)} pages')
 
 
 if __name__ == '__main__':
