@@ -26,6 +26,9 @@ async function run() {
   const lab = await mkdtemp(join(tmpdir(), 'contexo-trueforge-fixture-'));
   const runtimePort = await freePort();
   const modelPort = await freePort();
+  const useAdapter = process.env.CONTEXO_FIXTURE_LOCAL_ADAPTER === '1';
+  const adapterPort = useAdapter ? await freePort() : modelPort;
+  const fixtureKey = useAdapter ? 'disposable-model-adapter-fixture-credential' : 'synthetic-fixture-key';
   const unavailablePort = await freePort();
   const baseUrl = local + runtimePort;
   console.log('TrueForge fixture logs: ' + lab);
@@ -42,6 +45,12 @@ async function run() {
   };
   try {
     launch('model', process.execPath, [entry('fixtureProvider.mjs'), String(modelPort)], process.env);
+    if (useAdapter) {
+      launch('adapter', process.execPath, [entry('../../trueforge/local-model-adapter.mjs')], {
+        ...process.env, CONTEXO_LOCAL_ADAPTER_PORT: String(adapterPort),
+        CONTEXO_LOCAL_MODEL_URL: local + modelPort + '/v1', CONTEXO_LOCAL_ADAPTER_TOKEN: fixtureKey,
+      });
+    }
     const cli = process.env.CONTEXO_TRUEFORGE_CLI;
     const args = cli ? [cli] : ['-y', '@truefoundry/trueforge@0.185.1'];
     const runtime = launch('runtime', cli ? process.execPath : 'npx', [...args, '--port', String(runtimePort)], {
@@ -63,10 +72,10 @@ async function run() {
       }
     }
 
-    for (const [kind, port] of [['primary', unavailablePort], ['fallback', modelPort]]) {
+    for (const [kind, port] of [['primary', unavailablePort], ['fallback', adapterPort]]) {
       const name = 'fixture-' + kind;
       await client.settings.modelProviders.createOrUpdate({
-        manifest: { type: 'custom', name, baseUrl: local + port + '/v1', auth: { apiKey: 'synthetic-fixture-key' },
+        manifest: { type: 'custom', name, baseUrl: local + port + '/v1', auth: { apiKey: fixtureKey },
           models: [{ modelId: 'fixture-model', name: 'fixture-model', properties: {} }] },
       }, requestOptions);
     }
@@ -85,7 +94,7 @@ async function run() {
           model: { name: 'fixture-' + kind + '/fixture-model' }, instructions,
           mcpServers: [{
             name: 'contexo-editor', enableTools: ['@all'], requireApprovalForTools: ['propose_write', 'run_command'],
-            preload: false, preloadTools: ['assemble_context', 'resume_context', 'read_file', 'search_workspace', 'propose_write'],
+            preload: false, preloadTools: ['assemble_context', 'resume_context', 'read_file', 'search_workspace', 'propose_write', 'batch_plan'],
           }],
         },
       }, requestOptions);
@@ -99,8 +108,11 @@ async function run() {
       host.once('exit', code => code === 0 ? resolve() : reject(new Error('The packaged VS Code fixture failed.')));
     });
     assert.match(await readFile(join(lab, 'model.log'), 'utf8'), /Verified versioned file context in model input/);
-    assert.match(await readFile(join(lab, 'model.log'), 'utf8'), /Verified run checkpoint and exact packet fingerprint/);
-    console.log('Verified versioned file context and run checkpoint in model input.');
+    const modelLog = await readFile(join(lab, 'model.log'), 'utf8');
+    assert.match(modelLog, /Verified run checkpoint and exact packet fingerprint/);
+    assert.match(modelLog, /Verified exact source and write coordinates in model input/);
+    assert.match(modelLog, /Verified the reviewed range completed its durable batch/);
+    console.log('Verified versioned context, checkpoint recovery and exact range edits through the packaged host.');
   } finally {
     await Promise.all(children.map(child => new Promise(resolve => {
       if (!child.pid || child.exitCode !== null) resolve();

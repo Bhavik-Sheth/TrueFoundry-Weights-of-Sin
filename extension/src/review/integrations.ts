@@ -5,7 +5,7 @@ import type { RunJournal } from '../run/journal';
 import type { Run } from '../types';
 import { normalizeReviewPath } from './matching';
 
-const sources = ['Jenkins', 'GitHub PR', 'BuildKit provenance', 'BuildKit file'] as const;
+const sources = ['Jenkins', 'GitHub PR', 'GitHub checks', 'BuildKit provenance', 'BuildKit file'] as const;
 const maxBytes = 8 * 1024 * 1024;
 
 class ProviderResponseError extends Error {
@@ -47,6 +47,30 @@ async function download(url: URL, headers: Record<string, string>, attempts = 2)
     await reader.cancel();
   }
 }
+
+async function pages<T>(url: URL, headers: Record<string, string>, parse: (raw: unknown) => T[]): Promise<T[]> {
+  const items: T[] = [];
+  let target: URL | undefined = url;
+  for (let count = 0; target; count++) {
+    if (count >= 20) throw new Error('The resource has more pages than one import can handle.');
+    if (target.origin !== url.origin || target.pathname !== url.pathname || target.username || target.password) {
+      throw new Error('Unexpected pagination destination.');
+    }
+    const { body, next } = await download(target, headers);
+    items.push(...parse(JSON.parse(body.toString('utf8'))));
+    target = next ? new URL(next, url) : undefined;
+  }
+  return items;
+}
+
+const githubChecks = z.object({
+  check_runs: z.array(z.object({
+    id: z.number().int().positive(), name: z.string(), status: z.string(),
+    conclusion: z.string().nullable(), head_sha: z.string().regex(/^[a-f0-9]{40}$/i),
+    html_url: z.string().nullable().optional(),
+    output: z.object({ title: z.string().nullable().optional(), summary: z.string().nullable().optional() }).optional(),
+  })),
+});
 
 const jenkins = z.object({
   number: z.number(), result: z.string().nullable(), building: z.boolean(), url: z.string().optional(),
@@ -100,7 +124,8 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
     }
     const input = await vscode.window.showInputBox({
       prompt: source === 'Jenkins' ? 'Build URL including its build number'
-        : source === 'GitHub PR' ? 'GitHub pull request URL' : 'HTTPS URL of a BuildKit provenance statement',
+        : source === 'GitHub PR' ? 'GitHub pull request URL'
+          : source === 'GitHub checks' ? 'GitHub commit URL with the full SHA' : 'HTTPS URL of a BuildKit provenance statement',
     });
     if (!input) return;
     let url = new URL(input);
@@ -109,10 +134,17 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
     }
     const headers: Record<string, string> = { Accept: 'application/json' };
     let expectedDigest: string | undefined;
+    let expectedCommit: string | undefined;
     if (source === 'GitHub PR') {
       const parts = /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
       if (url.hostname !== 'github.com' || !parts) throw new Error('Use a github.com pull request URL.');
       url = new URL('https://api.github.com/repos/' + parts[1] + '/' + parts[2] + '/pulls/' + parts[3] + '/comments?per_page=100');
+      headers.Accept = 'application/vnd.github+json';
+    } else if (source === 'GitHub checks') {
+      const parts = /^\/([\w.-]+)\/([\w.-]+)\/commit\/([a-f0-9]{40})\/?$/i.exec(url.pathname);
+      if (url.hostname !== 'github.com' || !parts) throw new Error('Use a github.com commit URL with the full SHA.');
+      expectedCommit = parts[3].toLowerCase();
+      url = new URL('https://api.github.com/repos/' + parts[1] + '/' + parts[2] + '/commits/' + expectedCommit + '/check-runs?per_page=100');
       headers.Accept = 'application/vnd.github+json';
     } else if (source === 'Jenkins') {
       if (!/\/\d+\/?$/.test(url.pathname)) throw new Error('Use the URL of a specific Jenkins build.');
@@ -137,10 +169,19 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
       headers.Authorization = source === 'Jenkins' ? 'Basic ' + Buffer.from(credential).toString('base64') : 'Bearer ' + credential;
     }
 
-    const result = await download(url, headers);
-    const raw: unknown = JSON.parse(result.body.toString('utf8'));
-    if (source === 'Jenkins') {
-      const build = jenkins.parse(raw);
+    if (source === 'GitHub checks') {
+      const checks = await pages(url, headers, raw => githubChecks.parse(raw).check_runs);
+      if (checks.some(check => check.head_sha.toLowerCase() !== expectedCommit)) {
+        throw new Error('GitHub returned a check associated with a different revision.');
+      }
+      for (const check of checks) {
+        journal.record(run.id, { kind: 'check', source, name: check.name, status: check.conclusion ?? check.status,
+          revision: check.head_sha, detail: (check.output?.summary ?? check.output?.title)?.slice(0, 2000),
+          externalId: url.pathname + ':' + check.id, sourceUrl: check.html_url ?? undefined });
+      }
+    } else if (source === 'Jenkins') {
+      const { body } = await download(url, headers);
+      const build = jenkins.parse(JSON.parse(body.toString('utf8')));
       const revisions = [...new Set(build.actions?.flatMap(action => action.lastBuiltRevision?.SHA1 ?? []) ?? [])];
       const testUrl = new URL(url);
       testUrl.pathname = testUrl.pathname.replace(/\/api\/json$/, '/testReport/api/json');
@@ -159,16 +200,7 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
       journal.record(run.id, { kind: 'check', source, name: 'Build #' + build.number, status: build.building ? 'running' : build.result ?? 'unknown',
         revision: revisions.length === 1 ? revisions[0] : undefined, externalId: url.origin + url.pathname, detail });
     } else if (source === 'GitHub PR') {
-      const items = comments.parse(raw);
-      let next = result.next;
-      for (let page = 1; next; page++) {
-        if (page >= 20) throw new Error('The pull request has more comments than one import can handle.');
-        const target = new URL(next);
-        if (target.origin !== url.origin || target.pathname !== url.pathname) throw new Error('Unexpected pagination destination.');
-        const fetched = await download(target, headers);
-        items.push(...comments.parse(JSON.parse(fetched.body.toString('utf8'))));
-        next = fetched.next;
-      }
+      const items = await pages(url, headers, raw => comments.parse(raw));
       for (const item of items) {
         journal.record(run.id, { kind: 'check', source, name: item.user?.login ?? 'Review comment', status: 'comment',
           detail: item.body, location: normalizeReviewPath(item.path), revision: item.commit_id,
@@ -177,9 +209,10 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
           externalId: 'github:' + item.id, sourceUrl: item.html_url });
       }
     } else {
-      const actual = createHash('sha256').update(result.body).digest('hex');
+      const { body } = await download(url, headers);
+      const actual = createHash('sha256').update(body).digest('hex');
       if (actual !== expectedDigest) throw new Error('The provenance artifact does not match the expected digest.');
-      const statement = attestation.parse(raw);
+      const statement = attestation.parse(JSON.parse(body.toString('utf8')));
       for (const subject of statement.subject) {
         journal.record(run.id, { kind: 'check', source, name: subject.name, status: 'artifact digest matched',
           detail: statement.predicateType, externalId: 'sha256:' + actual + ':' + subject.digest.sha256 });

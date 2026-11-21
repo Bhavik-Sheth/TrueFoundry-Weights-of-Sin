@@ -11,7 +11,16 @@ async function run() {
   assert.ok(extension, 'Install the Contexo VSIX in the test profile');
   await extension.activate();
 
-  const [workspace] = vscode.workspace.workspaceFolders;
+  const [workspace, secondary] = vscode.workspace.workspaceFolders;
+  if (process.env.CONTEXO_FIXTURE_MULTI_ROOT === '1') {
+    assert.ok(secondary, 'Second fixture root is available');
+    await vscode.commands.executeCommand('contexo.selectWorkspaceRoot', secondary.uri);
+    await runLiveInline(secondary);
+    const original = vscode.Uri.joinPath(workspace.uri, 'inline.py');
+    assert.equal(await readFile(original.fsPath, 'utf8'), 'value = 77\n');
+    console.log('Contexo host smoke passed: selected second root, exact range applied, first root untouched.');
+    return;
+  }
   const uri = vscode.Uri.joinPath(workspace.uri, 'example.py');
   const initial = await readFile(uri.fsPath, 'utf8');
   const editor = await vscode.window.showTextDocument(uri);
@@ -129,65 +138,69 @@ async function run() {
   if (process.env.CONTEXO_LIVE_FIXTURE === '1') {
     const gitFile = await json('file_context', { path: 'inline.py' });
     assert.equal(gitFile.lastCommit?.subject, 'Set the inline fixture baseline', JSON.stringify(gitFile));
-    const file = vscode.Uri.joinPath(workspace.uri, 'inline.py');
-    const base = 'value = 1029\n';
-    await writeFile(file.fsPath, base);
-    const source = await vscode.window.showTextDocument(file);
-    source.selection = new vscode.Selection(0, 0, 0, 12);
-    await vscode.commands.executeCommand('contexo.inlineEdit',
-      'Change the selected line from value = 1029 to value = 3097. Stage that exact one-line edit only.');
-    const liveLenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider', file, 20);
-    const decide = liveLenses.find(lens => lens.command?.command === 'contexo.hunk.decide' &&
-      lens.command.arguments[2] === 'accepted')?.command;
-    const save = liveLenses.find(lens => lens.command?.command === 'contexo.proposal.apply')?.command;
-    assert.ok(decide && save, 'A live TrueForge turn stages the edit in the source file');
-    assert.equal(await readFile(file.fsPath, 'utf8'), base);
-    await vscode.commands.executeCommand(decide.command, ...decide.arguments);
-    await vscode.commands.executeCommand(save.command, ...save.arguments);
-    assert.equal(await readFile(file.fsPath, 'utf8'), 'value = 3097\n');
-    const journals = join(process.env.CONTEXO_SMOKE_PROFILE, 'User', 'workspaceStorage');
-    const deadline = Date.now() + 20_000;
-    let completed = false;
-    while (Date.now() < deadline && !completed) {
-      const files = await readdir(journals, { recursive: true });
-      const journalsOnDisk = files.filter(name => name.split(/[\\/]/).includes('runs'));
-      const records = [];
-      for (const name of journalsOnDisk) {
-        if (name.endsWith('.jsonl')) records.push(await readFile(join(journals, name), 'utf8'));
-        if (name.endsWith('/journal.sqlite') || name.endsWith('\\journal.sqlite')) {
-          const { DatabaseSync } = require('node:sqlite');
-          const db = new DatabaseSync(join(journals, name), { readOnly: true });
-          try {
-            const byRun = new Map();
-            for (const row of db.prepare('SELECT run_id, record FROM journal_events ORDER BY run_id, sequence').all()) {
-              const run = byRun.get(row.run_id) ?? [];
-              run.push(row.record);
-              byRun.set(row.run_id, run);
-            }
-            records.push(...[...byRun.values()].map(run => run.join('\n')));
-          } finally {
-            db.close();
-          }
-        }
-      }
-      for (const content of records) {
-        const events = content.trim().split('\n').flatMap(line => {
-          try { return [JSON.parse(line).evidence]; } catch { return []; }
-        });
-        if (!events.some(event => event.kind === 'request' && event.mode === 'inline')) continue;
-        completed = events.some(event => event.kind === 'state' && event.state === 'done');
-        if (completed && process.env.CONTEXO_FIXTURE_TRUEFORGE_URL) {
-          assert.equal(events.filter(event => event.kind === 'session').length, 2);
-          assert.ok(events.some(event => event.kind === 'context' && event.delivery.excerptIds.length > 0));
-          assert.ok(events.some(event => event.kind === 'approval-intent' && event.allow));
-        }
-      }
-      if (!completed) await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    assert.ok(completed, 'The TrueForge turn completes after the apply and approval');
-    console.log('Live TrueForge inline apply verified on a disposable source file.');
+    await runLiveInline(workspace);
   }
   console.log('Contexo host smoke passed: scoped MCP, context, source CodeLens, mixed apply, undo/redo, stale buffer.');
+}
+
+async function runLiveInline(workspace) {
+  const file = vscode.Uri.joinPath(workspace.uri, 'inline.py');
+  const base = 'value = 1029\n';
+  await writeFile(file.fsPath, base);
+  const source = await vscode.window.showTextDocument(file);
+  source.selection = new vscode.Selection(0, 0, 0, 12);
+  await vscode.commands.executeCommand('contexo.inlineEdit',
+    'Change the selected line from value = 1029 to value = 3097. Stage that exact one-line edit only.');
+  const liveLenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider', file, 20);
+  const decide = liveLenses.find(lens => lens.command?.command === 'contexo.hunk.decide' &&
+    lens.command.arguments[2] === 'accepted')?.command;
+  const save = liveLenses.find(lens => lens.command?.command === 'contexo.proposal.apply')?.command;
+  assert.ok(decide && save, 'A live TrueForge turn stages the edit in the source file');
+  assert.equal(await readFile(file.fsPath, 'utf8'), base);
+  await vscode.commands.executeCommand(decide.command, ...decide.arguments);
+  await vscode.commands.executeCommand(save.command, ...save.arguments);
+  assert.equal(await readFile(file.fsPath, 'utf8'), 'value = 3097\n');
+  const journals = join(process.env.CONTEXO_SMOKE_PROFILE, 'User', 'workspaceStorage');
+  const deadline = Date.now() + 20_000;
+  let completed = false;
+  while (Date.now() < deadline && !completed) {
+    const files = await readdir(journals, { recursive: true });
+    const journalsOnDisk = files.filter(name => name.split(/[\\/]/).includes('runs'));
+    const records = [];
+    for (const name of journalsOnDisk) {
+      if (name.endsWith('.jsonl')) records.push(await readFile(join(journals, name), 'utf8'));
+      if (name.endsWith('/journal.sqlite') || name.endsWith('\\journal.sqlite')) {
+        const { DatabaseSync } = require('node:sqlite');
+        const db = new DatabaseSync(join(journals, name), { readOnly: true });
+        try {
+          const byRun = new Map();
+          for (const row of db.prepare('SELECT run_id, record FROM journal_events ORDER BY run_id, sequence').all()) {
+            const run = byRun.get(row.run_id) ?? [];
+            run.push(row.record);
+            byRun.set(row.run_id, run);
+          }
+          records.push(...[...byRun.values()].map(run => run.join('\n')));
+        } finally {
+          db.close();
+        }
+      }
+    }
+    for (const content of records) {
+      const events = content.trim().split('\n').flatMap(line => {
+        try { return [JSON.parse(line).evidence]; } catch { return []; }
+      });
+      if (!events.some(event => event.kind === 'request' && event.mode === 'inline')) continue;
+      completed = events.some(event => event.kind === 'state' && event.state === 'done');
+      if (completed && process.env.CONTEXO_FIXTURE_TRUEFORGE_URL) {
+        assert.equal(events.filter(event => event.kind === 'session').length, 2);
+        assert.ok(events.some(event => event.kind === 'context' && event.delivery.excerptIds.length > 0));
+        assert.ok(events.some(event => event.kind === 'approval-intent' && event.allow));
+      }
+    }
+    if (!completed) await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(completed, 'The TrueForge turn completes after the apply and approval');
+  console.log('Live TrueForge inline apply verified on a disposable source file.');
 }
 
 module.exports = { run };

@@ -10,7 +10,7 @@
  * Depends on: SDK, run/manifests. Depended on by: shell/setupController, tests, live-check script.
  */
 import { TrueForge } from '@truefoundry/trueforge-sdk';
-import { AGENT_NAMES, BROKEN_PROVIDER, CONNECTOR_NAME, buildAgentRequest, buildBrokenProviderManifest, buildConnectorManifest, modelFqn } from './manifests';
+import { AGENT_NAMES, BROKEN_PROVIDER, CONNECTOR_NAME, buildAgentRequest, buildBrokenProviderManifest, buildConnectorManifest, modelFqn, type AgentRuntime } from './manifests';
 
 export interface CatalogProviderInfo {
   type: string;
@@ -22,6 +22,8 @@ export interface ExtraProviderFields { name?: string; baseUrl?: string; modelIds
 
 /** Structural view of the SDK client (lets tests inject a fake). */
 export type AdminClient = Pick<TrueForge, 'server' | 'models' | 'settings' | 'catalogs' | 'agents'> & Partial<Pick<TrueForge, 'sandboxEnvironments'>>;
+
+export type GitSkill = Extract<Parameters<TrueForge['settings']['skills']['create']>[0]['manifest'], { type: 'git' }>;
 
 export interface AdminDeps { agentNames?: Record<'primary' | 'fallback', string>; client?: AdminClient; log?: (...a: unknown[]) => void }
 
@@ -174,7 +176,7 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
     },
 
     /** Creates or UPDATES one agent (primary or fallback) with the given model. */
-    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): Promise<{ name: string; action: 'created' | 'updated' | 'unchanged' }> {
+    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: AgentRuntime): Promise<{ name: string; action: 'created' | 'updated' | 'unchanged' }> {
       return wrap('ensureAgent', [], async () => {
         const req = buildAgentRequest(kind, model, instructions, runtime);
         req.name = names[kind];
@@ -221,8 +223,33 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
       return out;
     },
 
-    async register(options: { port: number; token: string; primaryModel: string; fallbackModel?: string; instructions: string; rotateToken?: boolean; runtime?: { sandbox: string; skills?: string[] } }) {
+    async register(options: { port: number; token: string; primaryModel: string; fallbackModel?: string; instructions: string; rotateToken?: boolean; runtime?: AgentRuntime; gitSkill?: GitSkill }) {
       const steps: Array<{ label: string; ok: boolean; detail?: string }> = [];
+      if (options.runtime?.sandbox) {
+        try {
+          const environment = await client.sandboxEnvironments?.get(options.runtime.sandbox);
+          if (!environment?.data.enabled || environment.data.status !== 'ready') {
+            throw new Error('The requested sandbox environment must be enabled and ready.');
+          }
+          if (options.gitSkill) {
+            const { data } = await client.settings.skills.list();
+            const installed = data.find(skill => skill.name === options.gitSkill!.name);
+            if (installed && !matchesOwnedFields(installed.manifest, options.gitSkill)) {
+              throw new Error('The skill name already exists with a different Git source or revision.');
+            }
+            if (!installed) await client.settings.skills.create({ manifest: options.gitSkill });
+          }
+          const { data: installed } = await client.settings.skills.list();
+          for (const name of options.runtime.skills ?? []) {
+            if (!installed.some(skill => skill.name === name)) throw new Error('Skill is not registered: ' + name);
+          }
+          steps.push({ label: 'TrueForge sandbox and Skills', ok: true, detail: 'Sandbox ready and requested skills registered' });
+        } catch (error) {
+          return [{ label: 'TrueForge sandbox and Skills', ok: false, detail: friendlyError(error).message }];
+        }
+      } else if (options.gitSkill || options.runtime?.skills?.length) {
+        return [{ label: 'TrueForge sandbox and Skills', ok: false, detail: 'Configure a sandbox environment before adding skills.' }];
+      }
       const connector = { label: 'MCP connector contexo-editor', ok: false };
       try {
         const desired = buildConnectorManifest(options.port, options.token);
@@ -277,8 +304,15 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
               !observed.manifest.mcpServers?.some(server => server.name === CONNECTOR_NAME)) {
             throw new Error('Agent read-back did not match the requested model and connector.');
           }
-          if (options.runtime && observed.manifest.config?.sandbox?.environmentName !== options.runtime.sandbox) {
+          if (options.runtime?.sandbox && observed.manifest.config?.sandbox?.environmentName !== options.runtime.sandbox) {
             throw new Error('Agent read-back did not match the requested sandbox.');
+          }
+          if (options.runtime?.maxOutputTokens &&
+              observed.manifest.model.params?.maxTokens !== options.runtime.maxOutputTokens) {
+            throw new Error('Agent read-back did not match the requested output budget.');
+          }
+          if (options.runtime?.skills?.some(name => !observed.manifest.skills?.some(skill => skill.name === name))) {
+            throw new Error('Agent read-back did not include the requested skills.');
           }
           steps.push({ label, ok: true, detail: result.action });
         } catch (error) {

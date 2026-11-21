@@ -39,11 +39,17 @@ export function buildConnectorManifest(port: number, token: string) {
   };
 }
 
+export interface AgentRuntime {
+  sandbox?: string;
+  skills?: string[];
+  maxOutputTokens?: number;
+}
+
 export interface AgentRequest {
   name: string;
   description: string;
   manifest: {
-    model: { name: string; params: { temperature: number } };
+    model: { name: string; params: { temperature: number; maxTokens?: number } };
     instructions: string;
     mcpServers: Array<{
       name: string;
@@ -57,7 +63,7 @@ export interface AgentRequest {
   };
 }
 
-export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): AgentRequest {
+export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: AgentRuntime): AgentRequest {
   return {
     name: AGENT_NAMES[kind],
     description:
@@ -65,7 +71,7 @@ export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, i
         ? 'Contexo primary agent: safe Python repo edits through editor MCP tools.'
         : 'Contexo fallback agent (same tools and instructions, different model).',
     manifest: {
-      model: { name: model, params: { temperature: 0.2 } },
+      model: { name: model, params: { temperature: 0.2, ...(runtime?.maxOutputTokens ? { maxTokens: runtime.maxOutputTokens } : {}) } },
       instructions,
       mcpServers: [
         {
@@ -77,7 +83,7 @@ export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, i
         },
       ],
       ...(runtime?.skills?.length ? { skills: runtime.skills.map(name => ({ name })) } : {}),
-      config: { ...(runtime ? { sandbox: { enabled: true, environmentName: runtime.sandbox } } : {}), iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
+      config: { ...(runtime?.sandbox ? { sandbox: { enabled: true, environmentName: runtime.sandbox } } : {}), iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
     },
   };
 }

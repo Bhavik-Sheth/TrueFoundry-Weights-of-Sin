@@ -34,19 +34,37 @@ http.createServer(async (req, res) => {
       assert.equal(checkpoint.lastContext.excerpts[0].path, 'inline.py');
       console.log('Verified run checkpoint and exact packet fingerprint.');
     }
-    const names = ['assemble_context', 'resume_context', 'propose_write'];
+    const source = tool === 4 ? JSON.parse(results[2].content) : undefined;
+    if (source) {
+      assert.equal(source.rangeWritable, true);
+      assert.equal(source.text, 'value = 1029\n');
+      assert.equal(source.hash, createHash('sha256').update(source.text).digest('hex'));
+      console.log('Verified exact source and write coordinates in model input.');
+    }
+    const plan = tool >= 4 ? JSON.parse(results[3].content) : undefined;
+    if (tool === 6) {
+      assert.equal(JSON.parse(results[5].content).status, 'complete');
+      console.log('Verified the reviewed range completed its durable batch.');
+    }
+    const names = ['assemble_context', 'resume_context', 'read_file', 'batch_plan', 'propose_write', 'batch_plan'];
     const name = tool < names.length ? tools.find(x => x.endsWith(names[tool])) : undefined;
     assert.ok(tool >= names.length || name, 'Missing fixture tool ' + names[tool]);
     const args = tool === 0 ? { request: 'Update the selected fixture value' } : tool === 1 ? { offset: 0 }
-      : { summary: 'Update the selected fixture value', edits: [{ path: 'inline.py',
-        baseHash: createHash('sha256').update('value = 1029\n').digest('hex'), oldText: 'value = 1029', newText: 'value = 3097' }] };
-    const delta = name ? { tool_calls: [{
+      : tool === 2 ? { path: 'inline.py', startLine: 1, endLine: 1 }
+        : tool === 3 ? { action: 'create', batches: [{ id: 'fixture', goal: 'Update fixture', files: ['inline.py'], after: [] }] }
+          : tool === 4 && source ? { summary: 'Update the selected fixture value', edits: [{ path: 'inline.py',
+            baseHash: source.hash, startLine: source.startLine, endLine: source.endLine, newText: 'value = 3097' }] }
+            : tool === 5 ? { action: 'complete', revision: plan.revision, proposalKey: JSON.parse(results[4].content).proposalKey }
+              : undefined;
+    const textual = process.env.CONTEXO_FIXTURE_LOCAL_ADAPTER === '1';
+    const delta = name && textual ? { content: JSON.stringify({ name, arguments: args }) + '\n</tool_call>' }
+      : name ? { tool_calls: [{
       index: 0, id: 'call_fixture_' + tool, type: 'function',
       function: { name, arguments: JSON.stringify(args) },
     }] } : { content: 'Fixture response.' };
     console.log('Fixture request', req.url, 'tool results', tool, 'reply', name ?? 'text');
     const meta = { id: 'chatcmpl-fixture-' + tool, created: 1, model };
-    const reason = name ? 'tool_calls' : 'stop';
+    const reason = name && !textual ? 'tool_calls' : 'stop';
     if (body.stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       for (const item of [{ delta: { role: 'assistant' }, finish_reason: null }, { delta, finish_reason: null }, { delta: {}, finish_reason: reason }]) {

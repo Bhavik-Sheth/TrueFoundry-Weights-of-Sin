@@ -20,6 +20,12 @@ async function main() {
   const lab = await mkdtemp(join(tmpdir(), 'contexo-vscode-smoke-'));
   console.log('Smoke-test workspace and logs: ' + lab);
   const workspace = join(lab, 'workspace');
+  const multi = process.env.CONTEXO_FIXTURE_MULTI_ROOT === '1';
+  const primary = join(lab, 'primary');
+  if (multi) {
+    await mkdir(primary);
+    await writeFile(join(primary, 'inline.py'), 'value = 77\n');
+  }
   const profile = join(lab, 'profile');
   process.env.CONTEXO_SMOKE_PROFILE = profile;
   const installed = join(lab, 'extensions');
@@ -28,13 +34,16 @@ async function main() {
   await writeFile(join(development, 'package.json'), JSON.stringify({
     name: 'contexo-smoke', publisher: 'fixture', version: '0.0.1', engines: { vscode: '^1.90.0' },
   }));
-  await writeFile(join(workspace, '.vscode', 'settings.json'), JSON.stringify({
+  const settings = {
     'contexo.mcpPort': await portForFixture(),
     'contexo.autoStartTrueForge': false,
     'contexo.autoRegisterTrueForge': false,
     'contexo.stopTrueForgeOnExit': 'never',
     ...(process.env.CONTEXO_FIXTURE_TRUEFORGE_URL ? { 'contexo.trueforgeUrl': process.env.CONTEXO_FIXTURE_TRUEFORGE_URL } : {}),
-  }));
+  };
+  const target = multi ? join(lab, 'fixture.code-workspace') : workspace;
+  if (multi) await writeFile(target, JSON.stringify({ folders: [{ path: primary }, { path: workspace }], settings }));
+  else await writeFile(join(workspace, '.vscode', 'settings.json'), JSON.stringify(settings));
   const lines = ['value = 1', ...Array.from({ length: 20 }, (_, i) => `filler_${i} = ${i}`), 'other = 2', ''];
   await writeFile(join(workspace, 'example.py'), lines.join('\n'));
 
@@ -62,7 +71,7 @@ async function main() {
   launch(['--install-extension', resolve(__dirname, '../../dist/contexo.vsix'), '--force']);
   launch([
     '--new-window', '--wait', '--skip-welcome', '--disable-workspace-trust', '--disable-extension', 'github.copilot-chat',
-    '--extensionDevelopmentPath', development, '--extensionTestsPath', join(__dirname, 'agentBridge.cjs'), workspace,
+    '--extensionDevelopmentPath', development, '--extensionTestsPath', join(__dirname, 'agentBridge.cjs'), target,
   ]);
   const logs = join(profile, 'logs');
   let combined = '';
