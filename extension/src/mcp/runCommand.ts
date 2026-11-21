@@ -27,7 +27,7 @@ export interface RunResult { exitCode: number; stdout: string; stderr: string; t
 const DEFAULT_TIMEOUT_SEC = 120;
 const MAX_TIMEOUT_SEC = 180;
 const MAX_CAPTURE = 200_000; // bytes kept in memory per stream before capping
-const tracked = new Set<number>();
+const tracked = new Map<number, string | undefined>();
 
 const refuse = (msg: string): RunResult => ({ exitCode: 126, stdout: '', stderr: msg, truncated: false, durationMs: 0 });
 
@@ -75,7 +75,7 @@ function finish(s: string, truncated: boolean): string {
   return truncated ? `${capOutput(s).text}\n...[truncated]...\n${s.slice(-2000)}` : s;
 }
 
-export async function runCommandIn(root: string, allowlist: string[], argv: string[], timeoutSec?: number): Promise<RunResult> {
+export async function runCommandIn(root: string, allowlist: string[], argv: string[], timeoutSec?: number, owner?: string): Promise<RunResult> {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string')) return refuse('argv must be a non-empty string array');
   const prog = argv[0];
   if (/[\/]/.test(prog)) return refuse(`COMMAND_NOT_ALLOWED: use a bare program name, not a path (${prog})`);
@@ -94,7 +94,7 @@ export async function runCommandIn(root: string, allowlist: string[], argv: stri
     let settled = false;
     const child = spawn(resolveProgram(root, prog), argv.slice(1), { cwd: root, shell: false, env: scopedEnv(root), windowsHide: true });
     const pid = child.pid;
-    if (pid) tracked.add(pid);
+    if (pid) tracked.set(pid, owner);
     const done = (exitCode: number, extraErr = '') => {
       if (settled) return;
       settled = true;
@@ -119,17 +119,20 @@ export async function runCommandIn(root: string, allowlist: string[], argv: stri
   });
 }
 
-export async function runCommand(argv: string[], timeoutSec?: number): Promise<RunResult> {
+export async function runCommand(argv: string[], timeoutSec?: number, owner?: string): Promise<RunResult> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
   const folder = vs.workspace.workspaceFolders?.[0];
   if (!folder) return refuse('NO_WORKSPACE: open a folder first');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getConfig } = require('../config') as typeof import('../config');
-  return runCommandIn(folder.uri.fsPath, getConfig().commandAllowlist, argv, timeoutSec);
+  return runCommandIn(folder.uri.fsPath, getConfig().commandAllowlist, argv, timeoutSec, owner);
 }
 
-export function killAll(): void {
-  for (const pid of [...tracked]) treeKill(pid, 'SIGKILL', () => {});
-  tracked.clear();
+export function killAll(owner?: string): void {
+  for (const [pid, runId] of tracked) {
+    if (owner !== undefined && owner !== runId) continue;
+    treeKill(pid, 'SIGKILL', () => {});
+    tracked.delete(pid);
+  }
 }

@@ -3,7 +3,7 @@
  *
  * Exports:
  *  - ToolDeps { index, review, runs, post }.
- *  - makeToolRegistrar(deps): (server: McpServer) => void; registers the 6 tools on each new
+ *  - makeToolRegistrar(deps): (server: McpServer) => void; registers workspace tools on each new
  *    (stateless, per-request) McpServer instance: search_workspace {query,glob?,limit<=30};
  *    read_file {path,startLine?,endLine?}; assemble_context {request,mentions?,budget?} (also pushes
  *    the packet to the panel); list_symbols {path?,query?} (deferred in the agent def);
@@ -26,15 +26,26 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { IndexApi } from '../context/indexer';
 import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
-import type { ToWebview } from '../types';
-import { assembleContext, formatForModel } from '../context/assembler';
+import type { ProposeArgs, Selection, ToWebview } from '../types';
+import { previewSelection } from '../context/tokens';
+import { fileContextInput, fileContextReader } from '../context/fileContext';
+import { assembleContext, prepareContextForModel } from '../context/assembler';
+import { contextReceipt, continuation, continuationInput } from '../run/continuation';
+import type { RunJournal } from '../run/journal';
 import type { RunRoute } from './runRoutes';
-import { capOutput, resolveInWorkspace } from './server';
+import { assertNativeWorkspacePath, capOutput, resolveInWorkspace } from './server';
 import { runCommand } from './runCommand';
 import { sha256, proposalKey } from '../review/proposal';
 import { ripgrepSearch, symbolNameMatch, tokenize } from '../context/search';
 
-export interface ToolDeps { index: IndexApi; review: ReviewEngine; runs: RunManager; post: (m: ToWebview) => void }
+export interface ToolDeps { index: IndexApi; review: ReviewEngine; runs: RunManager; journal?: RunJournal; post: (m: ToWebview) => void }
+
+export interface ExternalAgentTools {
+  workspace(): string;
+  selection(): Selection | undefined;
+  stage(args: ProposeArgs, requestId?: string): Promise<unknown>;
+  status(reviewId: string): unknown;
+}
 
 interface ToolResult { [k: string]: unknown; content: Array<{ type: 'text'; text: string }>; isError?: boolean }
 
@@ -57,7 +68,17 @@ const err = (code: string, message: string): ToolResult => ({
   content: [{ type: 'text', text: JSON.stringify({ error: code, message }) }],
 });
 
-export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: boolean; route?: RunRoute } = {}): (s: McpServer) => void {
+export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: boolean; route?: RunRoute; external?: ExternalAgentTools } = {}): (s: McpServer) => void {
+  const external = options.external;
+  const fileContext = () => {
+    const vs = require('vscode') as typeof import('vscode');
+    const folder = vs.workspace.workspaceFolders?.[0];
+    const root = external?.workspace() ?? folder?.uri.fsPath;
+    return root ? fileContextReader(root, deps.index, openDocText) : undefined;
+  };
+  const resolvePath = (relative: string) => external
+    ? assertNativeWorkspacePath(external.workspace(), relative)
+    : Promise.resolve(resolveInWorkspace(relative));
   /** Wraps a handler with the Stop/authorization check. */
   const guarded = <A>(fn: (args: A) => ToolResult | Promise<ToolResult>) => async (args: A): Promise<ToolResult> => {
     const run = deps.runs.active;
@@ -66,8 +87,15 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
       run.sealedSessions.includes(route.sessionId) || !['streaming', 'awaiting-review'].includes(run.state))) {
       return err('RUN_NOT_AUTHORIZED', 'This connection does not own the active run.');
     }
-    if (!deps.runs.isToolCallAllowed()) return err('RUN_NOT_AUTHORIZED', 'The run was stopped by the user. Do not call more tools.');
+    if (!external && !deps.runs.isToolCallAllowed()) return err('RUN_NOT_AUTHORIZED', 'The run was stopped by the user. Do not call more tools.');
     try {
+      if (route?.run.workspaceUri) {
+        const vs = require('vscode') as typeof import('vscode');
+        if (vs.workspace.workspaceFolders?.[0]?.uri.toString() !== route.run.workspaceUri) {
+          return err('WORKSPACE_CHANGED', 'This run is bound to its original workspace.');
+        }
+      }
+      external?.workspace();
       return await fn(args);
     } catch (e) {
       return err('TOOL_ERROR', String((e as Error)?.message ?? e));
@@ -123,7 +151,7 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         endLine: z.number().int().min(1).optional().describe('Last line, 1-based, inclusive'),
       },
     }, guarded(async (a: { path: string; startLine?: number; endLine?: number }) => {
-      const abs = resolveInWorkspace(a.path);
+      const abs = await resolvePath(a.path);
       let full = openDocText(abs);
       if (full === undefined) {
         try {
@@ -132,15 +160,11 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
           return err('FILE_NOT_FOUND', `Cannot read ${a.path}`);
         }
       }
-      const lines = full.split(/\r?\n/);
-      if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+      const lines = full.match(/[^\n]*\n|[^\n]+$/g) ?? [''];
       const totalLines = lines.length;
-      let text = full;
-      if (a.startLine !== undefined || a.endLine !== undefined) {
-        const s = Math.max(1, a.startLine ?? 1);
-        const e = Math.min(totalLines, a.endLine ?? totalLines);
-        text = s > e ? '' : lines.slice(s - 1, e).join('\n');
-      }
+      const text = a.startLine !== undefined || a.endLine !== undefined
+        ? lines.slice((a.startLine ?? 1) - 1, a.endLine ?? totalLines).join('')
+        : full;
       const capped = capOutput(text);
       return ok({ path: toRel(a.path), text: capped.text, hash: sha256(full), totalLines, truncated: capped.truncated });
     }));
@@ -153,20 +177,55 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
       inputSchema: {
         request: z.string().min(1).describe("The user's request, verbatim or condensed"),
         mentions: z.array(z.string()).optional().describe('Explicit @mentions: file paths or symbol names'),
+        useEditorSelection: z.boolean().optional().describe('Anchor the packet to the current VS Code selection'),
         budget: z.number().int().min(500).max(32000).optional().describe('Token budget for excerpts (default from settings)'),
       },
-    }, guarded(async (a: { request: string; mentions?: string[]; budget?: number }) => {
+    }, guarded(async (a: { request: string; mentions?: string[]; budget?: number; useEditorSelection?: boolean }) => {
       await deps.index.ready;
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const cfg = (require('../config') as typeof import('../config')).getConfig();
       const packet = await assembleContext({
         request: a.request,
         mentions: a.mentions,
+        selection: external && a.useEditorSelection ? external.selection() : options.route?.run.selection,
         budget: a.budget ?? cfg.excerptBudget,
-        runId: deps.runs.active?.id ?? 'adhoc',
+        runId: external ? 'editor-agent' : options.route?.run.id ?? deps.runs.active?.id ?? 'adhoc',
       }, deps.index);
+      await fileContext()?.addToPacket(packet, a.mentions);
+      const result = prepareContextForModel(packet);
+      const { text, delivery } = result;
+      packet.delivery = delivery;
+      deps.runs.recordContext(options.route?.run, contextReceipt(packet, result));
       deps.post({ type: 'packet', packet });
-      return { content: [{ type: 'text', text: formatForModel(packet) }] };
+      return { content: [{ type: 'text', text }] };
+    }));
+
+    const journal = deps.journal;
+    if (!external && journal) {
+      server.registerTool('resume_context', {
+        description: 'Recover the current goal, last delivered source ranges, proposal decisions and check statuses after context compaction. ' +
+          'Paginate proposal files using the returned key and offset. Reread exact source before editing.',
+        inputSchema: continuationInput,
+      }, guarded(async (args: Parameters<typeof continuation>[2]) => {
+        const run = options.route?.run;
+        if (!run) return err('NO_ACTIVE_RUN', 'No routed run.');
+        const session = run.sessionId;
+        const records = await journal.continuationRecords(run.id);
+        if (deps.runs.active !== run || run.sessionId !== session || run.state !== 'streaming') {
+          return err('RUN_NOT_AUTHORIZED', 'The run no longer owns this session.');
+        }
+        return ok(continuation(run, records, args, deps.review.pending));
+      }));
+    }
+
+    server.registerTool('file_context', {
+      description: 'Inspect a workspace file’s indexed structure, working/editor changes against Git HEAD, ' +
+        'latest file commit and bounded before/after hunks. With version=head or previous, read exact historical line ranges. ' +
+        'The previous version is the first parent of the last commit that changed this file. Commit messages provide the author’s recorded rationale.',
+      inputSchema: fileContextInput,
+    }, guarded(async (args: Parameters<ReturnType<typeof fileContextReader>['inspect']>[0]) => {
+      const reader = fileContext();
+      return reader ? ok(await reader.inspect(args)) : err('NO_WORKSPACE', 'Open a workspace folder.');
     }));
 
     server.registerTool('list_symbols', {
@@ -177,25 +236,46 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         path: z.string().optional().describe('Workspace-relative file to list symbols for'),
         query: z.string().optional().describe('Case-insensitive name substring'),
       },
-    }, guarded((a: { path?: string; query?: string }) => {
+    }, guarded(async (a: { path?: string; query?: string }) => {
       const q = a.query?.toLowerCase();
       let syms = deps.index.symbols();
       if (a.path) {
-        resolveInWorkspace(a.path); // path guard
+        await resolvePath(a.path);
         syms = deps.index.inFile(toRel(a.path));
       }
       if (q) syms = syms.filter((s) => s.name.toLowerCase().includes(q) || s.qualifiedName.toLowerCase().includes(q));
       return ok(syms.slice(0, 200).map((s) => ({ id: s.id, kind: s.kind, path: s.path, lines: [s.startLine, s.endLine] })));
     }));
 
+    if (external) {
+      server.registerTool('editor_selection', {
+        description: 'Read the current VS Code selection, including workspace-relative path, source text and file hash.',
+        inputSchema: {},
+      }, guarded(() => {
+        const selection = external.selection();
+        return ok(selection ? { ...selection, ...previewSelection(selection.text) } : { selection: null });
+      }));
+
+      server.registerTool('review_status', {
+        description: 'Read the status of an editor proposal using the review ID returned by propose_write.',
+        inputSchema: { reviewId: z.string().regex(/^[0-9a-f]{64}$/) },
+      }, guarded((args: { reviewId: string }) => {
+        const result = external.status(args.reviewId);
+        return result ? ok(result) : err('UNKNOWN_REVIEW', 'No matching editor review is available.');
+      }));
+    }
+
     server.registerTool('propose_write', {
-      description:
-        'Propose edits for the user to review (requires user approval; nothing is written until they accept hunks). ' +
+      description: external
+        ? 'Stage edits for human review in VS Code and return a review ID. Use read_file for the hash and exact oldText. Use review_status after the user acts. This tool does not apply changes.'
+        : 'Propose edits for the user to review (requires user approval; nothing is written until they accept hunks). ' +
         'Each edit is {path, baseHash, oldText, newText}: baseHash is the `hash` from read_file for that file; oldText must be copied ' +
         'EXACTLY from the file and match exactly once (include enough surrounding lines to be unique); use oldText "" with baseHash "new" ' +
         'to create a file. Batch related edits (code, tests, docs) in one call. Returns {applied, rejected, files}. ' +
         'On errors STALE_BASE / OLD_TEXT_NOT_FOUND / AMBIGUOUS_MATCH / MISSING_SYMBOL, re-read the file and retry with corrected edits.',
       inputSchema: {
+        ...(external ? { requestId: z.string().min(1).max(120).optional()
+          .describe('Client identifier for retrying the same proposal payload') } : {}),
         summary: z.string().min(1).describe('One-sentence description of the change'),
         edits: z.array(z.object({
           path: z.string().min(1).describe('Workspace-relative path'),
@@ -204,9 +284,12 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
           newText: z.string().describe('Replacement text'),
         })).min(1).describe('Edits to stage'),
       },
-    }, guarded((args: unknown) => {
-      return ok(deps.review.finalize(proposalKey(args), options.route?.run.id));
+    }, guarded(async (args: ProposeArgs & { requestId?: string }) => {
+      const { requestId, ...proposal } = args;
+      return ok(external ? await external.stage(proposal, requestId) : deps.review.finalize(proposalKey(args), options.route?.run.id));
     }));
+
+    if (external) return;
 
     server.registerTool('run_command', {
       description:
@@ -217,7 +300,7 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         timeoutSec: z.number().int().min(1).max(180).optional().describe('Timeout in seconds (default 120, max 180)'),
       },
     }, guarded(async (a: { argv: string[]; timeoutSec?: number }) => {
-      const r = await runCommand(a.argv, a.timeoutSec);
+      const r = await runCommand(a.argv, a.timeoutSec, options.route?.run.id);
       if (r.exitCode === 126) return err('COMMAND_REFUSED', r.stderr);
       return ok(r);
     }));

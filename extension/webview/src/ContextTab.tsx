@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { ContextPacket, Excerpt, Reason } from '../../src/types';
+import type { ContextPacket, Excerpt, FileChange, FileContext, Reason } from '../../src/types';
 import { post, subscribe } from './bridge';
 import { ContextGraph } from './ContextGraph';
 
@@ -38,6 +38,7 @@ function reasonLabel(r: Reason): string {
   switch (r.kind) {
     case 'mention': return `you mentioned ${r.token}`;
     case 'selection': return 'your selection';
+    case 'source-preview': return `search preview "${r.term}" (#${r.rank})`;
     case 'semantic': return `semantic match #${r.rank}`;
     case 'lexical': return `text match "${r.term}" (#${r.rank})`;
     case 'symbol-name': return `name match "${r.term}" (#${r.rank})`;
@@ -72,6 +73,55 @@ function ExcerptRow({ e }: { e: Excerpt }) {
       <div>{e.reasons.map((r, i) => <span key={i} style={s.reason}>{reasonLabel(r)}</span>)}</div>
     </div>
   );
+}
+
+function ChangeDetails({ label, change }: { label: string; change: FileChange }) {
+  return <div>
+    <strong>{label}</strong> · {change.status}
+    {change.added !== undefined && ` · +${change.added} / −${change.removed} lines`}
+    {change.detail && <div style={s.muted}>{change.detail}</div>}
+    {change.hunks?.map(hunk => <div key={`${hunk.oldStart}:${hunk.newStart}`} style={s.muted}>
+      Old L{hunk.oldStart} ({hunk.oldLines} lines) → new L{hunk.newStart} ({hunk.newLines} lines)
+      {!!hunk.symbols.length && ` · ${hunk.symbols.join(', ')}`}
+      {!!hunk.lines?.length && <pre style={{ ...s.mono, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{hunk.lines.join('\n')}</pre>}
+      {hunk.truncated && <div>Excerpt clipped</div>}
+    </div>)}
+  </div>;
+}
+
+function FileRow({ file, delivered }: { file: FileContext; delivered?: boolean }) {
+  const last = file.lastCommit;
+  return <details>
+    <summary>
+      <span style={s.mono}>{file.path}</span>
+      {delivered !== undefined && <span style={s.muted}> · {delivered ? 'Summary sent' : 'Available in workspace context'}</span>}
+    </summary>
+    <div style={{ display: 'grid', gap: 6, padding: 6 }}>
+      <div>{file.reasons.map((reason, index) => <span style={s.reason} key={index}>{reasonLabel(reason)}</span>)}</div>
+      {file.symbolCount > 0 && <div>
+        <strong>Indexed contents</strong> · {file.symbolCount} symbols
+        {file.symbols.map(symbol => <div key={`${symbol.name}:${symbol.start}`} style={s.mono}>
+          {symbol.name} · {symbol.kind} · L{symbol.start}–{symbol.end}
+        </div>)}
+      </div>}
+      {!!file.openingLines?.length && <div>
+        <strong>Opening lines</strong>
+        {file.openingLines.map(line => <div key={line.line} style={s.mono}>L{line.line} · {line.text}</div>)}
+      </div>}
+      {file.changes && <ChangeDetails label={`${file.source} vs Git HEAD`} change={file.changes} />}
+      {last && <div>
+        <strong>Last file commit</strong> · {last.commit.slice(0, 12)} · {last.date.slice(0, 10)}
+        <div>{last.subject}</div>
+        {last.parent && <div style={s.muted}>Previous revision {last.parent.slice(0, 12)}{last.previousPath !== file.path && last.previousPath && ` · ${last.previousPath}`}</div>}
+      </div>}
+      {file.previousChanges && <ChangeDetails label="Last commit delta" change={file.previousChanges} />}
+      {file.workingStatus === 'text' && <div>
+        <button type="button" onClick={() => post({ type: 'openSource', path: file.path, line: file.symbols[0]?.start ?? 1 })}>
+          Open source
+        </button>
+      </div>}
+    </div>
+  </details>;
 }
 
 const OMIT_TEXT: Record<ContextPacket['omitted'][number]['reason'], string> = {
@@ -109,7 +159,24 @@ export function ContextTab() {
       <div style={s.muted}>{packet.query}</div>
       <BudgetBar used={packet.used} budget={packet.budget} />
       <ContextGraph packet={packet} />
-      {packet.excerpts.map((e) => <ExcerptRow key={e.id} e={e} />)}
+      {packet.delivery && <div style={s.muted}>
+        Sent to model: {packet.delivery.excerptIds.length} excerpts, ≈{packet.delivery.excerptTokens.toLocaleString()} source tokens,
+        {packet.delivery.packetTokens !== undefined && ` ≈${packet.delivery.packetTokens.toLocaleString()} tokens with packet metadata,`}
+        {' '}{packet.delivery.serializedCharacters.toLocaleString()} / {packet.delivery.characterLimit.toLocaleString()} serialized characters.
+        {packet.delivery.omittedExcerpts > 0 && ` Transport omitted ${packet.delivery.omittedExcerpts} excerpts.`}
+      </div>}
+      {!!packet.files?.length && <section aria-label="File map">
+        <strong>File map</strong>
+        {packet.files.map(file => <FileRow key={file.path} file={file}
+          delivered={packet.delivery?.filePaths?.includes(file.path)} />)}
+      </section>}
+      {packet.excerpts.filter(e => !packet.delivery || packet.delivery.excerptIds.includes(e.id))
+        .map((e) => <ExcerptRow key={e.id} e={e} />)}
+      {packet.delivery && packet.delivery.omittedExcerpts > 0 && <details>
+        <summary>Packed excerpts excluded by the transport limit</summary>
+        {packet.excerpts.filter(e => !packet.delivery!.excerptIds.includes(e.id))
+          .map(e => <ExcerptRow key={e.id} e={e} />)}
+      </details>}
       <OmittedList items={packet.omitted} />
     </div>
   );

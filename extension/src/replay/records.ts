@@ -11,7 +11,7 @@ const acpRecord = z.object({
   method: z.literal('session/update'),
   params: z.object({
     sessionId: z.string(),
-    update: z.object({ sessionUpdate: z.string() }).passthrough(),
+    update: z.object({ sessionUpdate: z.string(), eventId: z.string().optional() }).passthrough(),
   }),
 });
 
@@ -20,7 +20,7 @@ const otlpRecord = z.object({
     scopeSpans: z.array(z.object({
       spans: z.array(z.object({
         traceId: z.string(), spanId: z.string(), parentSpanId: z.string().optional(),
-        name: z.string(),
+        name: z.string(), startTimeUnixNano: z.string().regex(/^\d+$/).optional(),
       }).passthrough()),
     })),
   })),
@@ -47,31 +47,74 @@ export function importReplay(text: string, format: 'native' | 'acp' | 'otlp'): {
   function add(evidence: RunRecord['evidence'], recordedAt = importedAt, sessionId?: string, turnId?: string) {
     output.push({ version: 1, runId: id, sequence: output.length + 1, recordedAt, sessionId, turnId, evidence });
   }
+  const seen = new Map<string, string>();
+  function register(key: string, value: unknown): boolean {
+    const content = JSON.stringify(value);
+    const old = seen.get(key);
+    if (old === content) return false;
+    if (old !== undefined) throw new Error('Conflicting replay records for source identity ' + key);
+    seen.set(key, content);
+    return true;
+  }
   if (format === 'native') {
     const { records, skipped } = readReplay(text);
-    if (skipped) throw new Error('The native journal has ' + skipped + ' invalid records.');
-    for (const record of records) {
+    for (const record of records.sort((a, b) => a.runId.localeCompare(b.runId) || a.sequence - b.sequence)) {
+      if (!register(JSON.stringify([record.runId, record.sequence]), record)) continue;
       add({ kind: 'imported', format, name: record.evidence.kind, payload: record }, record.recordedAt);
     }
+    if (skipped) add({ kind: 'reconciliation', status: skipped + ' unreadable record(s) in the original journal' });
   } else if (format === 'acp') {
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       const { params } = acpRecord.parse(JSON.parse(line));
+      if (params.update.eventId && !register(JSON.stringify([params.sessionId, params.update.eventId]), params.update)) continue;
       add({ kind: 'imported', format, name: params.update.sessionUpdate, payload: params.update }, importedAt, params.sessionId);
     }
   } else {
-    const seen = new Set<string>();
-    for (const resource of otlpRecord.parse(JSON.parse(text)).resourceSpans) {
-      for (const scope of resource.scopeSpans) {
-        for (const span of scope.spans) {
-          const sourceId = span.traceId + ':' + span.spanId;
-          if (seen.has(sourceId)) throw new Error('The OTLP export repeats span ' + sourceId);
-          seen.add(sourceId);
-          add({ kind: 'imported', format, name: span.name, payload: span }, importedAt, span.traceId);
-        }
-      }
+    const spans = otlpRecord.parse(JSON.parse(text)).resourceSpans
+      .flatMap(resource => resource.scopeSpans.flatMap(scope => scope.spans))
+      .filter(span => register(span.traceId + ':' + span.spanId, span));
+    const time = (span: typeof spans[number]) => BigInt(span.startTimeUnixNano ?? '0');
+    spans.sort((a, b) => time(a) === time(b)
+      ? (a.traceId + ':' + a.spanId).localeCompare(b.traceId + ':' + b.spanId)
+      : time(a) < time(b) ? -1 : 1);
+    for (const span of spans) {
+      const date = new Date(Number(time(span) / 1_000_000n));
+      const orphan = !!span.parentSpanId && !seen.has(span.traceId + ':' + span.parentSpanId);
+      add({ kind: 'imported', format, name: span.name, payload: { ...span, orphan } },
+        span.startTimeUnixNano && Number.isFinite(date.valueOf()) ? date.toISOString() : importedAt,
+        span.traceId);
     }
   }
   if (!output.length) throw new Error('No replay events were found.');
   return { id, count: output.length, content: output.map(record => JSON.stringify(record)).join('\n') + '\n' };
+}
+
+type ReplayEvent = ReturnType<typeof readReplay>['records'][number]['evidence'];
+
+export function projectReplay(records: ReturnType<typeof readReplay>['records'], index: number) {
+  const proposals = new Map<string, unknown>();
+  const approvals = new Map<string, unknown>();
+  const tools = new Map<string, unknown>();
+  const checks: ReplayEvent[] = [];
+  for (const record of records.slice(0, index + 1)) {
+    const event = record.evidence;
+    const payload = event.payload as { evidence?: ReplayEvent; toolCallId?: string } | undefined;
+    const evidence = event.kind === 'imported' && event.format === 'native' && payload?.evidence
+      ? payload.evidence : event;
+    if (evidence.kind === 'proposal') {
+      const proposal = evidence.proposal as { key?: string } | undefined;
+      if (proposal?.key) proposals.set(proposal.key, proposal);
+    }
+    if (evidence.kind === 'check') checks.push(evidence);
+    if (evidence.kind === 'agent-event') {
+      const item = evidence.event as { kind?: string; toolCallId?: string } | undefined;
+      if (item?.toolCallId && item.kind === 'approval') approvals.set(item.toolCallId, item);
+    }
+    if (event.kind === 'imported' && event.format === 'acp' && payload?.toolCallId) {
+      const previous = tools.get(payload.toolCallId);
+      tools.set(payload.toolCallId, { ...(typeof previous === 'object' ? previous : {}), ...payload });
+    }
+  }
+  return { proposals: [...proposals.values()], approvals: [...approvals.values()], toolCalls: [...tools.values()], checks };
 }

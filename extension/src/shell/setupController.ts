@@ -79,6 +79,7 @@ export class SetupController {
   async init(): Promise<void> {
     await this.start(getConfig().autoStartTrueForge);
     const status = await this.refresh();
+    if (!getConfig().autoRegisterTrueForge) return;
     if (status.trueforge === 'running' && status.primaryModel === inceptionModel &&
         status.models.includes(inceptionModel) && !isSetupComplete(status)) {
       await this.register(true);

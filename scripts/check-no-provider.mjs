@@ -1,5 +1,6 @@
 // Fails (exit 1) if the build output contains LLM-provider URLs or SDK imports.
 // Usage: node scripts/check-no-provider.mjs [dir=dist]
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
@@ -27,10 +28,23 @@ function* walk(dir) {
   }
 }
 
+const archive = root.toLowerCase().endsWith('.vsix');
+function readZip(listing, file) {
+  const unpacker = process.platform === 'win32' ? 'tar' : 'unzip';
+  const args = process.platform === 'win32'
+    ? (listing ? ['-tf', root] : ['-xOf', root, file])
+    : (listing ? ['-Z1', root] : ['-p', root, file]);
+  return execFileSync(unpacker, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+}
+
 const hits = [];
 try {
-  for (const file of walk(root)) {
-    const text = readFileSync(file, 'utf8');
+  const files = archive
+    ? readZip(true).split(/\r?\n/).filter(name => /^extension\/dist\/.+\.(?:[cm]?js|json|html|css)$/.test(name))
+    : [...walk(root)];
+  if (archive && !files.includes('extension/dist/extension.js')) throw new Error('Packaged host bundle is missing');
+  for (const file of files) {
+    const text = archive ? readZip(false, file) : readFileSync(file, 'utf8');
     for (const m of markers) {
       if (typeof m === 'string' ? text.includes(m) : m.test(text)) hits.push(`${file}: ${m}`);
     }

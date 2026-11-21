@@ -5,12 +5,32 @@ import type { RunJournal } from '../run/journal';
 import type { Run } from '../types';
 import { normalizeReviewPath } from './matching';
 
-const sources = ['Jenkins', 'GitHub PR', 'BuildKit provenance'] as const;
+const sources = ['Jenkins', 'GitHub PR', 'BuildKit provenance', 'BuildKit file'] as const;
 const maxBytes = 8 * 1024 * 1024;
 
-async function download(url: URL, headers: Record<string, string>) {
+class ProviderResponseError extends Error {
+  constructor(readonly status: number) {
+    super(status === 401 ? 'Provider credentials were rejected.'
+      : status === 403 ? 'The provider refused access to this resource.'
+      : status === 429 ? 'The provider rate limit is active. Retry after its reset window.'
+      : 'Provider returned HTTP ' + status);
+  }
+}
+
+async function download(url: URL, headers: Record<string, string>, attempts = 2) {
   const response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) });
-  if (!response.ok || !response.body) throw new Error('Provider returned HTTP ' + response.status);
+  if (!response.ok || !response.body) {
+    await response.body?.cancel();
+    if (attempts > 1 && [429, 502, 503, 504].includes(response.status)) {
+      const header = response.headers.get('retry-after');
+      const delay = header ? (/^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - Date.now()) : 300;
+      if (Number.isFinite(delay) && delay <= 2000) {
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, delay)));
+        return download(url, headers, attempts - 1);
+      }
+    }
+    throw new ProviderResponseError(response.status);
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -33,6 +53,12 @@ const jenkins = z.object({
   actions: z.array(z.object({ lastBuiltRevision: z.object({ SHA1: z.string() }).optional() })).optional(),
 });
 
+const testReport = z.object({
+  passCount: z.number().int().nonnegative(),
+  failCount: z.number().int().nonnegative(),
+  skipCount: z.number().int().nonnegative(),
+});
+
 const comments = z.array(z.object({
   id: z.number(), body: z.string(), path: z.string(), commit_id: z.string().optional(),
   original_commit_id: z.string().optional(), line: z.number().nullable().optional(),
@@ -51,6 +77,27 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
     if (!run) throw new Error('Open a run before importing evidence.');
     const source = await vscode.window.showQuickPick(sources, { placeHolder: 'Choose an external evidence source' });
     if (!source) return;
+    if (source === 'BuildKit file') {
+      const [file] = await vscode.window.showOpenDialog({
+        canSelectMany: false, filters: { 'BuildKit statements': ['json'] },
+      }) ?? [];
+      if (!file) return;
+      const stat = await vscode.workspace.fs.stat(file);
+      if (stat.size > maxBytes) throw new Error('Attestation exceeds 8 MiB.');
+      const bytes = await vscode.workspace.fs.readFile(file);
+      if (bytes.length > maxBytes) throw new Error('Attestation exceeds 8 MiB.');
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const statement = attestation.parse(JSON.parse(Buffer.from(bytes).toString('utf8')));
+      for (const subject of statement.subject) {
+        journal.record(run.id, {
+          kind: 'check', source: 'BuildKit provenance', name: subject.name, status: 'local statement imported',
+          detail: statement.predicateType, externalId: 'sha256:' + digest + ':' + subject.digest.sha256,
+        });
+      }
+      await journal.flush();
+      void vscode.window.showInformationMessage('Imported the BuildKit statement and calculated its digest.');
+      return;
+    }
     const input = await vscode.window.showInputBox({
       prompt: source === 'Jenkins' ? 'Build URL including its build number'
         : source === 'GitHub PR' ? 'GitHub pull request URL' : 'HTTPS URL of a BuildKit provenance statement',
@@ -95,8 +142,22 @@ export function registerIntegrations(context: vscode.ExtensionContext, journal: 
     if (source === 'Jenkins') {
       const build = jenkins.parse(raw);
       const revisions = [...new Set(build.actions?.flatMap(action => action.lastBuiltRevision?.SHA1 ?? []) ?? [])];
+      const testUrl = new URL(url);
+      testUrl.pathname = testUrl.pathname.replace(/\/api\/json$/, '/testReport/api/json');
+      testUrl.searchParams.set('tree', 'passCount,failCount,skipCount');
+      let detail: string | undefined;
+      if (!build.building) {
+        try {
+          const test = await download(testUrl, headers);
+          const counts = testReport.parse(JSON.parse(test.body.toString('utf8')));
+          detail = `${counts.passCount} passed, ${counts.failCount} failed, ${counts.skipCount} skipped`;
+        } catch (error) {
+          detail = error instanceof ProviderResponseError && error.status === 404
+            ? 'No test report published' : 'Test report unavailable';
+        }
+      }
       journal.record(run.id, { kind: 'check', source, name: 'Build #' + build.number, status: build.building ? 'running' : build.result ?? 'unknown',
-        revision: revisions.length === 1 ? revisions[0] : undefined, externalId: url.origin + url.pathname });
+        revision: revisions.length === 1 ? revisions[0] : undefined, externalId: url.origin + url.pathname, detail });
     } else if (source === 'GitHub PR') {
       const items = comments.parse(raw);
       let next = result.next;

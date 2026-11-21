@@ -22,10 +22,12 @@ import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import type { AppliedHunk, Hunk, ToWebview } from '../types';
 import { log } from '../log';
 import { sha256 } from './proposal';
+import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 
 function resolveUri(rel: string): vscode.Uri {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
   if (!root) throw new Error('No workspace folder open');
+  resolveUnder(root.fsPath, rel);
   return vscode.Uri.joinPath(root, ...rel.split('/'));
 }
 
@@ -82,32 +84,49 @@ export class UndoStack {
     await this.storage?.update('review.history.v1', hunks);
   }
 
-  async applyFiles(m: Map<string, string>): Promise<void> {
+  async applyFiles(m: Map<string, string>, expected?: ReadonlyMap<string, string>): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
-    const docs: Array<{ uri: vscode.Uri; text: string }> = [];
+    if (!m.size) return;
+    const docs: Array<{ uri: vscode.Uri; text: string; document?: vscode.TextDocument; version?: number }> = [];
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
     for (const [rel, text] of m) {
       const uri = resolveUri(rel);
+      if (root?.scheme === 'file') await assertNativeWorkspacePath(root.fsPath, rel);
       let existing: vscode.TextDocument | undefined;
       try {
         existing = await vscode.workspace.openTextDocument(uri);
       } catch {
         existing = undefined;
       }
+      const base = expected?.get(rel);
+      if (base !== undefined && base !== (existing ? sha256(existing.getText()) : 'new')) {
+        throw new Error('STALE_BASE: ' + rel + ' changed before apply.');
+      }
       if (existing) {
         const full = new vscode.Range(existing.positionAt(0), existing.positionAt(existing.getText().length));
         edit.replace(uri, full, text);
       } else {
-        edit.createFile(uri, { overwrite: false, ignoreIfExists: true });
+        edit.createFile(uri, { overwrite: false, ignoreIfExists: false });
         edit.insert(uri, new vscode.Position(0, 0), text);
       }
-      docs.push({ uri, text });
+      docs.push({ uri, text, document: existing, version: existing?.version });
+    }
+    if (vscode.workspace.workspaceFolders?.[0]?.uri.toString() !== root?.toString()) {
+      throw new Error('The workspace changed before apply.');
+    }
+    for (const entry of docs) {
+      if (entry.document && (entry.document.isClosed || entry.document.version !== entry.version)) {
+        throw new Error('STALE_BASE: ' + entry.uri.path + ' changed before apply.');
+      }
     }
     const ok = await vscode.workspace.applyEdit(edit);
     if (!ok) throw new Error('workspace.applyEdit returned false');
     for (const { uri, text } of docs) {
       const doc = await vscode.workspace.openTextDocument(uri);
       if (!await doc.save()) throw new Error('Could not save ' + uri.fsPath);
-      if (sha256(doc.getText()) !== sha256(text)) log('external-transform: saved text differs from expected for', uri.fsPath);
+      if (sha256(doc.getText()) !== sha256(text)) {
+        throw new Error('The saved file differs from the reviewed text: ' + uri.path);
+      }
     }
   }
 
@@ -135,8 +154,10 @@ export class UndoStack {
     const rec = this.history.find((h) => h.hunkId === id);
     if (!rec || rec.undone === undo) return false;
     let next: string | null;
+    let currentHash = '';
     try {
       const cur = await this.readCurrent(rec.path);
+      currentHash = sha256(cur);
       next = undo ? undoPatchOn(cur, rec.patch) : applyHunkPatch(cur, rec.patch);
     } catch (e) {
       log('undo read failed', rec.path, String(e));
@@ -146,7 +167,7 @@ export class UndoStack {
       void vscode.window.showWarningMessage(`Cannot ${undo ? 'undo' : 'redo'} automatically: ${rec.path} changed at this hunk`);
       return false;
     }
-    await this.applyFiles(new Map([[rec.path, next]]));
+    await this.applyFiles(new Map([[rec.path, next]]), new Map([[rec.path, currentHash]]));
     rec.undone = undo;
     await this.saveHistory();
     return true;

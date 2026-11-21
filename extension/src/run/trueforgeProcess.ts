@@ -5,7 +5,7 @@
  *  - isLocalUrl(url), portOf(url)
  *  - checkNode(): runs `node --version`, returns { ok, version }.
  *  - ensureTrueForge(o): if o.ping() succeeds -> { startedByUs:false }. Else, when the URL is localhost, Node >= 22.14
- *    and autoStart: spawns `npx -y @truefoundry/trueforge@latest --port <port>` (shell:true for npx.cmd on Windows; the only
+ *    and autoStart: spawns `npx -y @truefoundry/trueforge@0.185.1 --port <port>` (shell:true for npx.cmd on Windows; the only
  *    interpolated value is a numeric port), pipes output to o.log, polls ping until healthy (default 120 s).
  *    Reports state via o.onState ('starting' | 'running' | 'down' | 'node-missing').
  *  - handle.stop(): tree-kills the child, only if WE started it.
@@ -68,7 +68,7 @@ export async function checkNode(read: () => Promise<string> = systemNodeVersion)
 }
 
 function defaultSpawn(port: number): ChildProcess {
-  return spawn('npx', ['-y', '@truefoundry/trueforge@latest', '--port', String(Math.trunc(port))], {
+  return spawn('npx', ['-y', '@truefoundry/trueforge@0.185.1', '--port', String(Math.trunc(port))], {
     shell: true,
     detached: false,
     windowsHide: true,
@@ -141,7 +141,7 @@ export async function ensureTrueForge(o: EnsureOpts): Promise<TfProcHandle> {
 
   const port = portOf(o.url);
   o.onState?.('starting', 'Starting TrueForge (the first run downloads it, this can take a minute)...');
-  o.log(`trueforge: spawning npx @truefoundry/trueforge@latest --port ${port}`);
+  o.log(`trueforge: spawning npx @truefoundry/trueforge@0.185.1 --port ${port}`);
   const child = (o.spawnFn ?? defaultSpawn)(port);
   let exited = false;
   child.stdout?.on('data', (d: Buffer) => o.log('[trueforge]', String(d).trimEnd()));

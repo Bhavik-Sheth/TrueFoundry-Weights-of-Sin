@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { mkdir, readdir, writeFile, link, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, link, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { RunJournal } from '../run/journal';
-import { importReplay, readReplay } from './records';
+import { importReplay, projectReplay, readReplay } from './records';
 
 const maxBytes = 16 * 1024 * 1024;
 
@@ -35,12 +35,7 @@ export function registerReplay(ctx: vscode.ExtensionContext, directory: string, 
     await openReplay(journal, result.id);
   }));
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.replayRun', async () => {
-    await journal.flush();
-    const files = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return [];
-      throw error;
-    });
-    const id = await vscode.window.showQuickPick(files.filter(file => /^[\w-]+\.jsonl$/.test(file)).map(file => file.slice(0, -6)), {
+    const id = await vscode.window.showQuickPick(await journal.list(), {
       placeHolder: 'Choose a run to inspect',
     });
     if (id) await openReplay(journal, id);
@@ -59,7 +54,13 @@ async function openReplay(journal: RunJournal, id: string) {
   while (index !== undefined) {
     const current: number = index;
     const record = records[current];
-    const document = await vscode.workspace.openTextDocument({ content: JSON.stringify(record, null, 2), language: 'json' });
+    const digest = record.evidence.kind === 'review-checkpoint' ? record.evidence.artifact : undefined;
+    const snapshot = typeof digest === 'string' && !id.startsWith('import-')
+      ? await journal.readArtifact(digest).catch(() => ({ diagnostic: 'Review artifact is missing or corrupted.' }))
+      : undefined;
+    const document = await vscode.workspace.openTextDocument({
+      content: JSON.stringify({ event: record, stateAtEvent: projectReplay(records, current), snapshot }, null, 2), language: 'json',
+    });
     await vscode.window.showTextDocument(document, { preview: true, viewColumn: vscode.ViewColumn.Beside });
     const choices = [
       ...(current > 0 ? [{ label: 'Previous event', index: current - 1 }] : []),

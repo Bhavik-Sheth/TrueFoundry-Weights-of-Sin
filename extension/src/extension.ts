@@ -25,6 +25,7 @@ import { registerReview } from './review/diffView';
 import { createSessionInspector, createTfClient } from './run/tfClient';
 import { registerAssistant } from './shell/chatParticipant';
 import { RunManager } from './run/runManager';
+import { createAdmin } from './run/trueforgeAdmin';
 import { RunRoutes } from './mcp/runRoutes';
 import { reviewCheckpointKey } from './run/reviewCheckpoint';
 import type { ReviewCheckpoint } from './run/reviewCheckpoint';
@@ -32,6 +33,7 @@ import { getOrCreateToken, startServer } from './mcp/server';
 import type { McpHandle } from './mcp/server';
 import { makeToolRegistrar } from './mcp/tools';
 import { registerInlineEdit } from './shell/inlineEdit';
+import { EditorAgentBridge, registerCopilotBridge } from './shell/agentBridge';
 import { registerDevCommands } from './dev/devCommands';
 import { SetupController } from './shell/setupController';
 import { SessionController } from './shell/sessionController';
@@ -40,10 +42,10 @@ import { RunJournal } from './run/journal';
 import { registerReplay } from './replay/commands';
 import { registerEvidence } from './review/evidence';
 import { registerIntegrations } from './review/integrations';
-import { matchingHunks, normalizeReviewPath, reviewCoordinates } from './review/matching';
+import { matchingHunks, reviewCoordinates } from './review/matching';
 import { rebuildFile, sha256 } from './review/proposal';
 import { compareProposalImpact } from './review/impactGraph';
-import { readdir } from 'node:fs/promises';
+import { parseSarif } from './review/sarif';
 
 let journalRef: RunJournal | undefined;
 let mcpHandle: McpHandle | undefined;
@@ -52,6 +54,12 @@ let setupRef: SetupController | undefined;
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const cfg = getConfig();
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.showRuntimeCapabilities', async () => {
+    const runtime = await createAdmin(getConfig().trueforgeUrl).inspectRuntime();
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({
+      content: JSON.stringify(runtime, null, 2), language: 'json',
+    }));
+  }));
   const panel = new ContexoPanelProvider(ctx);
   ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(ContexoPanelProvider.viewId, panel));
   const post = (m: ToWebview) => panel.post(m);
@@ -98,6 +106,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   if (journalDirectory && journal) registerReplay(ctx, journalDirectory, journal);
   if (journal) registerEvidence(ctx, journal, () => review.pending);
   review.onProposal = p => {
+    agentBridge?.finish(p);
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);
     if (p.status !== 'reviewing' && saved?.proposal.key === p.key && saved.run.id === p.runId) {
       void ctx.workspaceState.update(reviewCheckpointKey, undefined).then(undefined, error => log('Could not clear review checkpoint', String(error)));
@@ -109,14 +118,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     });
   };
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.openRunRecord', async () => {
-    await journal?.flush();
-    const files = journalDirectory
-      ? await readdir(journalDirectory).catch((error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT') return [];
-          throw error;
-        })
-      : [];
-    const ids = files.filter(file => file.endsWith('.jsonl')).map(file => file.slice(0, -6));
+    const ids = await journal?.list() ?? [];
     if (!journal || !ids.length) {
       await vscode.window.showInformationMessage('No recorded runs in this workspace yet.');
       return;
@@ -136,34 +138,15 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     const reviewed = review.pending;
     const selection = await vscode.window.showOpenDialog({ filters: { SARIF: ['sarif', 'json'] }, canSelectMany: false });
     if (!selection?.length) return;
-    const report = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(selection[0])).toString('utf8'));
-    if (report.version !== '2.1.0' || !Array.isArray(report.runs)) {
-      throw new Error('Expected a SARIF 2.1.0 report.');
-    }
-    type SarifLocation = {
-      artifactLocation?: { uri?: string; uriBaseId?: string };
-      region?: { startLine?: number; endLine?: number };
-    };
-    const findings = report.runs.flatMap((scan: { tool: { driver: { name: string } }; results?: Array<{
-      ruleId?: string; level?: string; message: { text?: string };
-      properties?: { contexoSha256?: string; contexoSide?: 'base' | 'candidate' };
-      locations?: Array<{ physicalLocation?: SarifLocation }>;
-    }> }) => (scan.results ?? []).flatMap(result => {
-      const locations = result.locations?.length ? result.locations : [{}];
-      return locations.map(({ physicalLocation }) => ({
-        source: scan.tool.driver.name, name: result.message.text ?? result.ruleId ?? 'Finding',
-        status: result.level ?? 'warning', physicalLocation, properties: result.properties,
-      }));
-    }));
+    const workspace = run.workspaceUri ?? rootId();
+    if (!workspace) throw new Error('Open the workspace for this run.');
+    const stat = await vscode.workspace.fs.stat(selection[0]);
+    if (stat.size > 16 * 1024 * 1024) throw new Error('SARIF imports are limited to 16 MiB.');
+    const bytes = await vscode.workspace.fs.readFile(selection[0]);
+    if (bytes.length > 16 * 1024 * 1024) throw new Error('SARIF imports are limited to 16 MiB.');
+    const findings = parseSarif(JSON.parse(Buffer.from(bytes).toString('utf8')), workspace);
     for (const finding of findings) {
-      const { physicalLocation, properties, ...evidence } = finding;
-      const artifact = physicalLocation?.artifactLocation;
-      const reported = artifact?.uri;
-      const location = reported && !artifact?.uriBaseId ? normalizeReviewPath(reported) : undefined;
-      const startLine = physicalLocation?.region?.startLine;
-      const endLine = physicalLocation?.region?.endLine ?? startLine;
-      const side = properties?.contexoSide;
-      const revision = properties?.contexoSha256;
+      const { location, reportedUri, startLine, endLine, side, revision, ...evidence } = finding;
       const file = reviewed?.runId === run.id ? reviewed.files.find(file => file.path === location) : undefined;
       let hunkIds: string[] = [];
       if (reviewed && file && location && startLine !== undefined && endLine !== undefined &&
@@ -175,7 +158,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           hunkIds = matchingHunks(coordinateHunks, { path: location, startLine, endLine, side });
         }
       }
-      journal.record(run.id, { kind: 'check', ...evidence, location: location ?? reported, startLine, endLine, side, revision,
+      journal.record(run.id, { kind: 'check', ...evidence, location: location ?? reportedUri, startLine, endLine, side, revision,
         proposalKey: hunkIds.length ? reviewed?.key : undefined, hunkIds });
     }
     journal.record(run.id, { kind: 'check', source: 'SARIF', name: 'Imported security report', status: findings.length + ' findings' });
@@ -201,12 +184,18 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       throw error;
     }
   }));
+  const rootId = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+  let agentBridge: EditorAgentBridge | undefined;
   const runs = new RunManager({
-    record: journal?.record,
-    tf, review, cfg,
+    record: journal?.record, flushEvidence: journal ? () => journal.flush() : undefined,
+    tf, review, cfg, workspaceUri: rootId,
     askCommandApproval: async (argv) =>
       (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, 'Allow', 'Deny')) === 'Allow',
   });
+  ctx.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    const run = runs.active;
+    if (run?.workspaceUri && run.workspaceUri !== rootId()) void runs.stop();
+  }));
   const ask = async (provided?: string) => {
     const text = typeof provided === 'string' ? provided : await vscode.window.showInputBox({ prompt: 'What should the Contexo assistant do?' });
     if (!text?.trim()) return;
@@ -217,14 +206,21 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   runsRef = runs;
   registerWorkbench(ctx, review, journal, runs, cfg.trueforgeUrl);
   registerAssistant(ctx, runs);
-  const rootId = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString();
-  review.persistDecision = async proposal => {
-    const root = rootId();
+  agentBridge = new EditorAgentBridge(ctx.workspaceState, review, runs, journal?.record);
+  review.persistDecision = async (proposal, run) => {
+    const root = run.workspaceUri ?? rootId();
     if (!root) return;
+    if (root !== rootId()) throw new Error('The run belongs to a different workspace.');
+    await journal?.checkpointReview(proposal, root);
+    if (run.origin === 'external') {
+      await agentBridge!.persist(proposal, run);
+      return;
+    }
     const saved = runs.checkpoint(proposal, root);
     if (saved) await ctx.workspaceState.update(reviewCheckpointKey, saved);
   };
   review.validateApply = async proposal => {
+    if (await agentBridge?.validate(proposal)) return;
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);
     if (saved?.proposal.key === proposal.key && saved.run.id === proposal.runId && saved.root !== rootId()) {
       throw new Error('The workspace root changed after this proposal was staged.');
@@ -233,21 +229,32 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   };
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.restorePendingReview', async () => {
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);
-    if (!saved) throw new Error('There is no pending review to restore.');
+    if (!saved) {
+      if (await agentBridge?.restore()) return;
+      throw new Error('There is no pending review to restore.');
+    }
     if (saved.root !== rootId()) throw new Error('Open the original workspace root to restore this review.');
     if (ctx.workspaceState.get('review.apply.v1')) throw new Error('An interrupted file apply still needs recovery.');
     await runs.restoreReview(saved);
   }));
   if (journal) registerIntegrations(ctx, journal, () => runs.active);
   const token = await getOrCreateToken(ctx.secrets);
+  const agentToken = agentBridge.workspaceId
+    ? await getOrCreateToken(ctx.secrets, 'contexo.editorAgent.' + sha256(agentBridge.workspaceId))
+    : undefined;
   const mcp = await startServer({
     port: cfg.mcpPort,
     token,
     lookupRoute: connector => routes.get(connector),
-    registerTools: (server, route) => makeToolRegistrar({ index, review, runs, post }, { requireRoute: true, route })(server),
+    agent: agentToken ? {
+      token: agentToken,
+      registerTools: makeToolRegistrar({ index, review, runs, post }, { external: agentBridge }),
+    } : undefined,
+    registerTools: (server, route) => makeToolRegistrar({ index, review, runs, post, journal }, { requireRoute: true, route })(server),
   });
   mcpHandle = mcp;
   routeConfig.port = mcp.port;
+  if (agentToken) registerCopilotBridge(ctx, mcp.url + '/agent', agentToken);
   const FAILURE_KEY = 'contexo.simulatedPrimaryFailure';
   const setup = new SetupController({
     post, token, mcpPort: mcp.port, index,
@@ -377,7 +384,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 export async function deactivate(): Promise<void> {
   const runs = runsRef;
   if (runs?.active?.state === 'streaming') await runs.stop();
-  await journalRef?.flush().catch(error => log('Journal flush failed', String(error)));
+  await journalRef?.close().catch(error => log('Journal flush failed', String(error)));
   await setupRef?.dispose();
   setupRef = undefined;
   await mcpHandle?.stop();

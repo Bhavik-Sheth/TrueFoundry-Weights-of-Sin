@@ -36,12 +36,19 @@ export interface TfClient {
   createSession(agent: string, run?: Run): Promise<string>;
   streamTurn(sessionId: string, content: string, signal?: AbortSignal): AsyncIterable<TfEvent>;
   approve(a: { sessionId: string; turnId: string; threadId: string; toolCallId: string; allow: boolean; reason?: string; afterEventId: string; signal?: AbortSignal }): AsyncIterable<TfEvent>;
+  subscribeExisting?(sessionId: string, turnId: string, afterEventId: string, signal?: AbortSignal): AsyncIterable<TfEvent>;
   readTurnState?(sessionId: string, turnId: string): Promise<{ status: string; message?: string }>;
   resumeReview?(run: Run, turnId: string, toolCallId: string, threadId: string, requireOnlyPending?: boolean): Promise<string>;
   cancel(sessionId: string): Promise<void>;
   sessionUrl(sessionId: string): string;
   ping(): Promise<boolean>;
   releaseRoute?(): Promise<void>;
+}
+
+export class ApprovalDeliveryUnknown extends Error {
+  constructor(cause: unknown) {
+    super('Could not confirm TrueForge received the approval. Inspect the session before retrying.', { cause });
+  }
 }
 
 type AnyEvent = { type: string; id?: string; [k: string]: unknown };
@@ -149,17 +156,60 @@ export function createTfClient(cfg: ContexoConfig, routing?: { routes: RunRoutes
       })();
     },
 
+    subscribeExisting(sessionId, turnId, afterEventId, signal) {
+      return (async function* () {
+        let stream;
+        try {
+          if (!afterEventId) throw Object.assign(new Error('A current cursor is required.'), { statusCode: 410 });
+          stream = await client.sessions.subscribeToTurn(sessionId, turnId, { afterEventId }, {
+            abortSignal: signal, maxRetries: 0,
+          });
+        } catch (error) {
+          const status = (error as { statusCode?: number }).statusCode;
+          if (signal?.aborted || ![400, 404, 410, 422].includes(status ?? 0)) throw error;
+          // Reconstruct from persisted history before subscribing after an expired cursor.
+          let page = await client.sessions.listTurnEvents(sessionId, turnId, { limit: 200, order: 'asc' }, {
+            abortSignal: signal, maxRetries: 0,
+          });
+          const events = [...page.data];
+          while (page.hasNextPage() && events.length < 5000) {
+            page = await page.getNextPage();
+            events.push(...page.data);
+          }
+          if (page.hasNextPage()) throw new Error('Turn history exceeds the automatic replay bound.');
+          for (const event of mergeStoredDeltas(events)) yield event as TfEvent;
+          const latest = events.at(-1)?.id;
+          if (!latest || events.at(-1)?.type === 'turn.done') return;
+          stream = await client.sessions.subscribeToTurn(sessionId, turnId, { afterEventId: latest }, {
+            abortSignal: signal, maxRetries: 0,
+          });
+        }
+        yield* withMerge(stream);
+      })();
+    },
+
     approve(a) {
       return (async function* () {
         const stream = await client.sessions.subscribeToTurn(a.sessionId, a.turnId, { afterEventId: a.afterEventId }, { abortSignal: a.signal });
-        await client.sessions.createTurnEvents(a.sessionId, a.turnId, {
-          events: [{
-            type: 'user.tool_approval',
-            threadId: a.threadId,
-            toolCallId: a.toolCallId,
-            approval: a.allow ? { status: 'allow' } : { status: 'deny', reason: a.reason },
-          }],
-        });
+        try {
+          await client.sessions.createTurnEvents(a.sessionId, a.turnId, {
+            events: [{
+              type: 'user.tool_approval',
+              threadId: a.threadId,
+              toolCallId: a.toolCallId,
+              approval: a.allow ? { status: 'allow' } : { status: 'deny', reason: a.reason },
+            }],
+          }, { maxRetries: 0 });
+        } catch (error) {
+          const observed = await client.sessions.listTurnEvents(a.sessionId, a.turnId,
+            { limit: 200, order: 'desc' }, { maxRetries: 0, timeoutInSeconds: 5 })
+            .catch(() => undefined);
+          const decision = observed?.data.find(event => event.type === 'user.tool_approval' &&
+            event.threadId === a.threadId && event.toolCallId === a.toolCallId);
+          if (decision?.type !== 'user.tool_approval' || decision.approval.status !== (a.allow ? 'allow' : 'deny')) {
+            throw new ApprovalDeliveryUnknown(error);
+          }
+        }
         yield* withMerge(stream);
       })();
     },

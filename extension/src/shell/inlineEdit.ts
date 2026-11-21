@@ -52,8 +52,12 @@ export function registerInlineEdit(ctx: vscode.ExtensionContext, runs: RunManage
       }
       const selection = captureSelection(editor);
       const instruction = typeof provided === 'string' ? provided : await vscode.window.showInputBox({ prompt: 'Contexo: what should change?' });
-      if (!instruction) return;
-      await runs.start('inline', instruction, selection);
+      if (!instruction?.trim()) return;
+      if (editor.document.isClosed || editor.document.version !== selection.docVersion) {
+        void vscode.window.showWarningMessage('The selected file changed. Select the current text and retry.');
+        return;
+      }
+      await runs.start('inline', instruction.trim(), selection);
     }),
   );
 }

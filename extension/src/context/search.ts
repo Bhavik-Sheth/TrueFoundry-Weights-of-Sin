@@ -44,41 +44,43 @@ export function tokenize(text: string): string[] {
 export interface Bm25Doc { id: string; text: string }
 
 export class Bm25 {
-  private tf: Array<Map<string, number>> = [];
-  private len: number[] = [];
-  private df = new Map<string, number>();
-  private avg = 0;
-  constructor(private docs: Bm25Doc[], private k1 = 1.2, private b = 0.75) {
-    let total = 0;
-    for (const d of docs) {
-      const toks = tokenize(d.text);
-      const m = new Map<string, number>();
-      for (const t of toks) m.set(t, (m.get(t) ?? 0) + 1);
-      for (const t of m.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
-      this.tf.push(m);
-      this.len.push(toks.length);
-      total += toks.length;
-    }
-    this.avg = docs.length ? total / docs.length : 0;
-  }
-  /** `query` is free text or a list of terms (each tokenized). Returns docs with score > 0, best first, at most k. */
-  rank(query: string | string[], k?: number): Array<{ id: string; score: number }> {
-    const q = [...new Set(tokenize(Array.isArray(query) ? query.join(' ') : query))];
-    const n = this.docs.length;
-    const res: Array<{ id: string; score: number }> = [];
-    this.docs.forEach((d, i) => {
-      let s = 0;
-      for (const t of q) {
-        const f = this.tf[i].get(t);
-        if (!f) continue;
-        const df = this.df.get(t) ?? 0;
-        const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
-        s += (idf * f * (this.k1 + 1)) / (f + this.k1 * (1 - this.b + (this.b * this.len[i]) / (this.avg || 1)));
+  private postings = new Map<string, Array<{ document: number; frequency: number }>>();
+  private normalization: number[];
+  private ids: string[];
+
+  constructor(docs: Bm25Doc[], private k1 = 1.2, private b = 0.75) {
+    this.ids = docs.map(doc => doc.id);
+    const lengths = docs.map(({ text }, document) => {
+      const tokens = tokenize(text);
+      const frequencies = new Map<string, number>();
+      for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
+      for (const [token, frequency] of frequencies) {
+        const list = this.postings.get(token);
+        if (list) list.push({ document, frequency });
+        else this.postings.set(token, [{ document, frequency }]);
       }
-      if (s > 0) res.push({ id: d.id, score: s });
+      return tokens.length;
     });
-    res.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-    return k ? res.slice(0, k) : res;
+    const average = lengths.reduce((sum, length) => sum + length, 0) / (docs.length || 1);
+    this.normalization = lengths.map(length => this.k1 * (1 - this.b + this.b * length / (average || 1)));
+  }
+
+  /** Returns documents matching at least one term, in deterministic BM25 rank order. */
+  rank(query: string | string[], k?: number): Array<{ id: string; score: number }> {
+    const terms = new Set(tokenize(Array.isArray(query) ? query.join(' ') : query));
+    const scores = new Map<number, number>();
+    for (const term of terms) {
+      const matches = this.postings.get(term);
+      if (!matches) continue;
+      const idf = Math.log(1 + (this.ids.length - matches.length + 0.5) / (matches.length + 0.5));
+      for (const { document, frequency } of matches) {
+        const contribution = (idf * frequency * (this.k1 + 1)) / (frequency + this.normalization[document]);
+        scores.set(document, (scores.get(document) ?? 0) + contribution);
+      }
+    }
+    const ranked = [...scores].map(([document, score]) => ({ id: this.ids[document], score }))
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    return k ? ranked.slice(0, k) : ranked;
   }
 }
 

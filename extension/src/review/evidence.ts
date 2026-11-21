@@ -4,7 +4,7 @@ import type { RunJournal } from '../run/journal';
 import { readReplay } from '../replay/records';
 import type { Proposal } from '../types';
 
-type Requirement = { id: string; text: string };
+type Requirement = { id: string; text: string; revision: number };
 
 export function registerEvidence(
   context: vscode.ExtensionContext,
@@ -20,8 +20,9 @@ export function registerEvidence(
     for (const { evidence } of records) {
       const id = evidence.requirementId;
       const text = evidence.requirementText;
-      if (evidence.kind === 'requirement-link' && typeof id === 'string' && typeof text === 'string') {
-        requirements.set(id, { id, text });
+      if (['requirement', 'requirement-link'].includes(evidence.kind) && typeof id === 'string' && typeof text === 'string') {
+        const revision = typeof evidence.requirementRevision === 'number' ? evidence.requirementRevision : 1;
+        if (revision >= (requirements.get(id)?.revision ?? 0)) requirements.set(id, { id, text, revision });
       }
     }
     const choice = await vscode.window.showQuickPick([
@@ -33,7 +34,22 @@ export function registerEvidence(
     if (!requirement) {
       const text = (await vscode.window.showInputBox({ prompt: 'Enter one requirement this change addresses' }))?.trim();
       if (!text) return;
-      requirement = { id: randomUUID(), text };
+      requirement = { id: randomUUID(), text, revision: 1 };
+    } else {
+      const action = await vscode.window.showQuickPick(['Link this revision', 'Edit requirement'] as const);
+      if (!action) return;
+      if (action === 'Edit requirement') {
+        const text = (await vscode.window.showInputBox({ prompt: 'Update the requirement for the next revision', value: requirement.text }))?.trim();
+        if (!text) return;
+        if (text !== requirement.text) requirement = { ...requirement, text, revision: requirement.revision + 1 };
+      }
+    }
+    if (proposal !== currentProposal()) throw new Error('The proposal changed while editing the requirement.');
+    if (requirements.get(requirement.id)?.revision !== requirement.revision) {
+      journal.record(proposal.runId, {
+        kind: 'requirement', requirementId: requirement.id, requirementText: requirement.text, requirementRevision: requirement.revision,
+      });
+      await journal.flush();
     }
     const hunks = await vscode.window.showQuickPick(proposal.hunks.map(hunk => ({
       label: hunk.path + ':' + hunk.newStart, description: hunk.decision, id: hunk.id,
@@ -50,7 +66,7 @@ export function registerEvidence(
     if (!selected) return;
     if (proposal !== currentProposal()) throw new Error('The proposal changed while choosing evidence.');
     journal.record(proposal.runId, {
-      kind: 'requirement-link', requirementId: requirement.id, requirementText: requirement.text, proposalKey: proposal.key,
+      kind: 'requirement-link', requirementId: requirement.id, requirementText: requirement.text, requirementRevision: requirement.revision, proposalKey: proposal.key,
       hunkIds: hunks.map(hunk => hunk.id), checkSequences: selected.map(check => check.sequence),
       source: 'manual',
     });

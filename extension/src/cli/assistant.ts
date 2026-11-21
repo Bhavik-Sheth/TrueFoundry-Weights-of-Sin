@@ -4,13 +4,15 @@ import { stdin, stderr, stdout } from 'node:process';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { z } from 'zod';
-import { assembleContext, formatForModel } from '../context/assembler';
+import { fileContextInput, fileContextReader } from '../context/fileContext';
+import { assembleContext, prepareContextForModel } from '../context/assembler';
 import { loadWorkspaceIndex } from './index';
 import { RunRoutes } from '../mcp/runRoutes';
 import { startServer } from '../mcp/server';
 import { runCommandIn } from '../mcp/runCommand';
 import { RunManager, type RunReview } from '../run/runManager';
 import { createTfClient } from '../run/tfClient';
+import { contextReceipt, continuation, continuationInput } from '../run/continuation';
 import { RunJournal } from '../run/journal';
 import { computeResult, proposalKey, sha256 } from '../review/proposal';
 import type { ContexoConfig } from '../config';
@@ -21,7 +23,7 @@ export async function assist(root: string, text: string, url: string, selection?
   const cfg: ContexoConfig = { trueforgeUrl: url, primaryAgent: process.env.CONTEXO_AGENT || 'contexo',
     fallbackAgent: process.env.CONTEXO_FALLBACK_AGENT || 'contexo-fallback', excerptBudget: 8000,
     firstEventTimeoutMs: 120000, commandAllowlist: ['python', 'pytest', 'flask'], mcpPort: 0,
-    devMode: false, autoStartTrueForge: false, stopTrueForgeOnExit: 'never', primaryModel: '', fallbackModel: '' };
+    devMode: false, autoStartTrueForge: false, autoRegisterTrueForge: false, stopTrueForgeOnExit: 'never', primaryModel: '', fallbackModel: '' };
   const routes = new RunRoutes();
   const index = await loadWorkspaceIndex(root);
   const journal = new RunJournal(resolve(process.env.CONTEXO_RUNS_DIR || join(homedir(), '.contexo', 'runs')), error => console.error('Run journal:', error));
@@ -62,11 +64,25 @@ export async function assist(root: string, text: string, url: string, selection?
       tool('search_workspace', 'Search source files for literal text.', { query: z.string().min(1), limit: z.number().int().min(1).max(30).default(20) }, a => search(root, [a.query], a.limit));
       tool('assemble_context', 'Rank context excerpts and explicit @file or @symbol mentions under a token budget.', {
         request: z.string(), mentions: z.array(z.string()).optional(), budget: z.number().int().min(500).max(32000).optional(),
-      }, async a => formatForModel(await assembleContext({ ...a, runId: route!.run.id, rg: async term =>
+      }, async a => {
+        const packet = await assembleContext({ ...a, selection: route!.run.selection, runId: route!.run.id, rg: async term =>
         (await search(root, [term], 40)).flatMap(line => {
           const m = /^(.+?):(\d+):(.*)$/.exec(line);
           return m ? [{ path: m[1], line: Number(m[2]), preview: m[3] }] : [];
-        }) }, index)));
+        }) }, index);
+        await fileContextReader(root, index).addToPacket(packet, a.mentions);
+        const result = prepareContextForModel(packet);
+        runs.recordContext(route!.run, contextReceipt(packet, result));
+        return result.text;
+      });
+      tool('resume_context', 'Recover saved goal, source pointers, review decisions and checks after a long turn. Use the returned proposal key to page through files.',
+        continuationInput, async args => {
+          const records = await journal.continuationRecords(route!.run.id);
+          if (!active()) throw new Error('Inactive run route');
+          return continuation(route!.run, records, args, pending);
+        });
+      tool('file_context', 'Inspect current and previous versions of a relevant workspace file. With version, read an exact historical range.',
+        fileContextInput, async args => fileContextReader(root, index).inspect(args));
       tool('list_symbols', 'List indexed functions, classes, methods and documentation.', {
         path: z.string().optional(), query: z.string().optional(),
       }, async a => (a.path ? index.inFile(a.path) : index.symbols()).filter(s => !a.query ||
@@ -145,6 +161,6 @@ export async function assist(root: string, text: string, url: string, selection?
     terminal.close();
     await server.stop();
     await tf.releaseRoute?.();
-    await journal.flush();
+    await journal.close();
   }
 }

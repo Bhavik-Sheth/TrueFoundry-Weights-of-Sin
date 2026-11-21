@@ -68,7 +68,7 @@ const MIN_REL_SCORE = 0.5;
 
 function categoryOf(s: { path: string; kind?: string }): Candidate['category'] {
   if (s.kind === 'doc' || /\.(rst|md)$/.test(s.path)) return 'docs';
-  if (/(^|\/)tests?\//.test(s.path) || /(^|\/)test_[^/]*$/.test(s.path)) return 'test';
+  if (/(^|\/)tests?\//.test(s.path) || /(^|\/)test_[^/]*$|_test\.go$/.test(s.path)) return 'test';
   return 'impl';
 }
 
@@ -193,10 +193,11 @@ export function extractAnchors(
   const mandatory: Candidate[] = [];
   if (sel) {
     const reason: Reason = { kind: 'selection' };
-    const enc = index?.enclosing(sel.path, sel.startLine + 1);
-    mandatory.push(enc
-      ? fromSymbol(enc, [reason], 1)
-      : { id: `${sel.path}#sel@${sel.startLine + 1}`, path: sel.path, startLine: sel.startLine + 1, endLine: sel.endLine + 1, category: categoryOf({ path: sel.path }), text: sel.text, score: 1, reasons: [reason] });
+    mandatory.push({
+      id: `${sel.path}#sel@${sel.startLine + 1}`,
+      path: sel.path, startLine: sel.startLine + 1, endLine: sel.endLine + 1,
+      category: categoryOf({ path: sel.path }), text: sel.text, score: 1, reasons: [reason],
+    });
   }
   if (index) for (const m of mentions) mandatory.push(...mentionCandidates(m, terms, index, budget));
   const seen = new Map<string, Candidate>();
@@ -225,29 +226,53 @@ function firstMatchingTerm(text: string, terms: string[]): string | undefined {
   return terms.find((t) => termTokens(t).some((x) => toks.has(x)));
 }
 
+// SymbolIndex returns a new array when source is reindexed. Cache by that snapshot
+// so reindexing cannot reuse obsolete postings, while unchanged turns share the index.
+const searchSnapshots = new WeakMap<SymbolEntry[], ReturnType<typeof buildSearchSnapshot>>();
+
+function buildSearchSnapshot(symbols: SymbolEntry[]) {
+  const code = symbols.filter(isCode);
+  const docs = symbols.filter(symbol => symbol.kind === 'doc');
+  const byId = new Map(symbols.map(symbol => [symbol.id, symbol]));
+  const postings = new Map<string, number[]>();
+  for (const [id, { path, qualifiedName, text }] of code.entries()) {
+    for (const token of new Set(tokenize(`${path} ${qualifiedName} ${text}`))) {
+      const items = postings.get(token);
+      if (items) items.push(id);
+      else postings.set(token, [id]);
+    }
+  }
+  const docFrequency = (term: string) => {
+    const matches = termTokens(term).map(token => postings.get(token) ?? []);
+    if (!code.length) return 0;
+    if (matches.length === 1) return matches[0].length / code.length;
+    const unique = new Set<number>();
+    for (const list of matches) for (const id of list) unique.add(id);
+    return unique.size / code.length;
+  };
+  const bm25 = (items: SymbolEntry[]) => new Bm25(items.map(symbol => ({
+    id: symbol.id,
+    text: `${symbol.qualifiedName} ${symbol.qualifiedName} ${symbol.path} ${symbol.decorators.join(' ')} ${symbol.text}`,
+  })));
+  return { code, docs, byId, docFrequency, codeRanker: bm25(code), docRanker: bm25(docs) };
+}
+
 export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn): Promise<RankedList[]> {
   const all = index.symbols();
-  const code = all.filter(isCode);
-  const docs = all.filter((s) => s.kind === 'doc');
+  if (!terms.length) return [];
+  let snapshot = searchSnapshots.get(all);
+  if (!snapshot) {
+    snapshot = buildSearchSnapshot(all);
+    searchSnapshots.set(all, snapshot);
+  }
+  const { code, docs, byId, docFrequency: dfOf, codeRanker, docRanker } = snapshot;
   const lists: RankedList[] = [];
-  if (!terms.length) return lists;
 
   // Drop non-discriminating terms (present in > 30% of code symbols).
-  const sets = code.map((s) => new Set(tokenize(`${s.path} ${s.qualifiedName} ${s.text}`)));
-  const dfOf = (t: string) => {
-    const toks = termTokens(t);
-    return toks.length && code.length ? sets.filter((st) => toks.some((x) => st.has(x))).length / code.length : 0;
-  };
-  const useful = terms.filter((t) => termTokens(t).length > 0 && dfOf(t) <= 0.3);
+  const useful = terms.filter(t => termTokens(t).length > 0 && dfOf(t) <= 0.3);
   const q = useful.length ? useful : terms;
-
-  const byId = new Map(all.map((s) => [s.id, s]));
-  const bm = (name: string, syms: SymbolEntry[]): RankedList => {
-    const docsIn = syms.map((s) => ({
-      id: s.id,
-      text: `${s.qualifiedName} ${s.qualifiedName} ${s.path} ${s.decorators.join(' ')} ${s.text}`,
-    }));
-    const ranked = new Bm25(docsIn).rank(q, LIST_CAP);
+  const bm = (name: string, ranker: Bm25): RankedList => {
+    const ranked = ranker.rank(q, LIST_CAP);
     return {
       name,
       items: ranked.map((r, i) => {
@@ -259,8 +284,8 @@ export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn
   };
   lists.push({ name: 'corpus-vectors', weight: 0.35, items: corpusNeighbors(all, q, LIST_CAP)
     .map(({ symbol }, i) => fromSymbol(symbol, [{ kind: 'semantic', rank: i + 1 }])) });
-  lists.push(bm('bm25-symbols', code));
-  if (docs.length) lists.push(bm('bm25-docs', docs));
+  lists.push(bm('bm25-symbols', codeRanker));
+  if (docs.length) lists.push(bm('bm25-docs', docRanker));
 
   const names = symbolNameMatch(q.flatMap((t) => [t, ...termTokens(t)]), code)
     .filter((m) => m.score === 3 || (m.score === 2 && m.term.length >= 5))
@@ -275,10 +300,22 @@ export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn
   const rgTerms = q.filter((t) => t.length >= 3 && dfOf(t) <= 0.08).slice(0, 4); // only distinctive terms are worth a grep
   const hitsByTerm = await Promise.all(rgTerms.map(async (t) => ({ t, hits: await run(t).catch(() => []) })));
   const agg = new Map<string, { sym: SymbolEntry; terms: Set<string>; n: number }>();
+  const raw = new Map<string, { candidate: Candidate; terms: Set<string> }>();
   for (const { t, hits } of hitsByTerm) {
     for (const h of hits) {
       const sym = index.enclosing(h.path, h.line);
-      if (!sym) continue;
+      if (!sym) {
+        if (!/\.(?:go|rs)$/.test(h.path) || !h.preview.trim() || h.line < 1) continue;
+        const id = JSON.stringify([h.path, h.line]);
+        const item = raw.get(id) ?? {
+          candidate: { id, path: h.path, startLine: h.line, endLine: h.line, category: categoryOf(h),
+            text: h.preview.slice(0, 200), score: 0, reasons: [] },
+          terms: new Set<string>(),
+        };
+        item.terms.add(t);
+        raw.set(id, item);
+        continue;
+      }
       const cur = agg.get(sym.id) ?? { sym, terms: new Set<string>(), n: 0 };
       cur.terms.add(t);
       cur.n++;
@@ -291,6 +328,23 @@ export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn
       name: 'ripgrep',
       items: rgRanked.map((x, i) => fromSymbol(x.sym, [{ kind: 'lexical', term: [...x.terms][0], rank: i + 1 }])),
     });
+  }
+  if (raw.size) {
+    // A declaration is a stronger starting point than a comment or incidental use.
+    const declaration = ({ candidate, terms }: { candidate: Candidate; terms: Set<string> }) =>
+      /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:func|fn|struct|enum|trait|type|const)\s+/.test(candidate.text)
+      && [...terms].some(term => wordRe(term).test(candidate.text.toLowerCase()));
+    const perFile = new Map<string, number>();
+    const selected = [...raw.values()].sort((a, b) =>
+      Number(declaration(b)) - Number(declaration(a)) || b.terms.size - a.terms.size).filter(({ candidate }) => {
+      const count = perFile.get(candidate.path) ?? 0;
+      if (count >= 3) return false;
+      perFile.set(candidate.path, count + 1);
+      return true;
+    }).slice(0, 12);
+    lists.push({ name: 'source-preview', items: selected.map(({ candidate, terms }, rank) => ({
+      ...candidate, reasons: [{ kind: 'source-preview', term: [...terms][0], rank: rank + 1 }],
+    })) });
   }
   return lists;
 }
@@ -518,6 +572,11 @@ export function pack(
   const taken = new Set<string>();
   const markTaken = (c: Candidate) => taken.add(c.id);
 
+  if (!excerpts.some(e => e.category === 'impl') && !eligible.some(c => c.category === 'impl')) {
+    const preview = ranked.find(c => c.category === 'impl' && c.reasons.some(r => r.kind === 'source-preview'));
+    if (preview) { markTaken(preview); tryAdd(preview, 'ranked'); }
+  }
+
   // 2. coverage quota: best test and best docs candidate
   for (const cat of ['test', 'docs'] as const) {
     if (excerpts.some((e) => e.category === cat && e.reasons.some((r) => r.kind !== 'mention' && r.kind !== 'selection'))) continue;
@@ -576,6 +635,9 @@ export function buildGraph(request: string, _terms: string[], excerpts: Excerpt[
     const sid = symId(e);
     for (const r of e.reasons) {
       switch (r.kind) {
+        case 'source-preview':
+          edge('req', sid, 'search preview', false);
+          break;
         case 'semantic':
           edge('req', sid, 'semantic', true);
           break;
@@ -635,33 +697,111 @@ function reasonText(r: Reason): string {
     case 'mention': return `mention ${r.token}`;
     case 'selection': return 'selection';
     case 'semantic': return `semantic match #${r.rank}`;
+    case 'source-preview': return `search preview "${r.term}" #${r.rank}; use read_file for exact source`;
     case 'lexical': return `lexical "${r.term}" #${r.rank}`;
     case 'symbol-name': return `name "${r.term}" #${r.rank}`;
     default: return `${r.kind} ${r.from}`;
   }
 }
 
-/** Text handed to the model: budget line, excerpts under headers, then the Omitted list. */
-export function formatForModel(p: ContextPacket): string {
-  // The runtime rejects tool responses above 24,000 characters. Include JSON
-  // escaping in the accounting and reserve space for the omission summary.
-  const out = [`Context for: ${p.query.slice(0, 1200)}`, `Budget: ${p.used}/${p.budget} tokens used (≈ estimated)`, ''];
-  let remaining = 22000 - JSON.stringify(out).length;
-  let excluded = 0;
-  function append(text: string) {
-    const cost = JSON.stringify(text).length + 2;
-    if (cost > remaining) { excluded++; return; }
-    remaining -= cost;
-    out.push(text);
+const MODEL_CHARACTER_LIMIT = 22_000;
+
+/** Build the exact MCP text and account for the bytes of source selected for it. */
+export function prepareContextForModel(packet: ContextPacket) {
+  const lines = [
+    `Context for: ${packet.query.slice(0, 1200)}`,
+    `Budget: ${packet.used}/${packet.budget} estimated excerpt tokens packed`,
+    '',
+  ];
+  const excerptIds: string[] = [];
+  let excerptTokens = 0;
+  let omittedExcerpts = 0;
+  let omittedReasons = 0;
+  const filePaths: string[] = [];
+  let fileTokens = 0;
+  const fileBudget = Math.min(1_300, Math.max(200, Math.floor(packet.budget * 0.22)));
+
+  // JSON escaping counts toward TrueForge's character limit. Reserve space for the
+  // delivery summary so every response can tell the model what was left out.
+  const fits = (line: string) => JSON.stringify([...lines, line].join('\n')).length <= MODEL_CHARACTER_LIMIT - 320;
+  // A compact diff sample shows one line from each side. Larger hunks stay in file_context.
+  const sample = (change: NonNullable<ContextPacket['files']>[number]['changes']) => {
+    const lines = change?.hunks?.flatMap(hunk => hunk.lines ?? []) ?? [];
+    return ['-', '+'].flatMap(sign => {
+      const line = lines.find(line => line.startsWith(sign));
+      return line ? [JSON.stringify(line.slice(0, 96))] : [];
+    }).join(' → ');
+  };
+  for (const file of packet.files ?? []) {
+    const needed = file.reasons.map(reasonText).join(', ');
+    const contents = file.symbols.slice(0, 3).map(symbol => `${symbol.name} L${symbol.start}–${symbol.end}`).join(', ');
+    const opening = file.openingLines?.slice(0, 2).map(line => `L${line.line} ${JSON.stringify(line.text)}`).join(', ');
+    const change = file.changes;
+    const counts = change?.added !== undefined ? ` (+${change.added} / −${change.removed})` : '';
+    const ranges = change?.hunks?.map(hunk =>
+      `old L${hunk.oldStart}+${hunk.oldLines} → new L${hunk.newStart}+${hunk.newLines}`).join(', ');
+    const last = file.lastCommit;
+    const history = last ? ` Last file commit ${last.commit.slice(0, 12)}: ${JSON.stringify(last.subject)}.` : '';
+    const summary = [
+      filePaths.length ? '' : '## File map (repository evidence). Use file_context for before/after hunks or exact historical lines.',
+      `- ${file.path} · needed for: ${needed || 'workspace anchor'}.`,
+      contents ? `  Indexed contents: ${contents} (${file.symbolCount} total).` : opening ? `  Opening lines: ${opening}.` : '  See exact reads for file contents.',
+      `  ${file.source} vs Git HEAD${file.head ? ' ' + file.head.slice(0, 12) : ''}: ${change?.status ?? 'unavailable'}${counts}.${ranges ? ' Changed ranges: ' + ranges + '.' : ''}${history}`,
+    ].filter(Boolean).join('\n');
+    const localSample = sample(change);
+    const prior = file.previousChanges;
+    const priorSample = sample(prior);
+    const details = [
+      localSample && `  Current change sample: ${localSample}.`,
+      last?.previousPath && last.previousPath !== file.path && `  Previous path: ${JSON.stringify(last.previousPath)}.`,
+      prior && `  Last commit delta: ${prior.status}${prior.added === undefined ? '' : ` (+${prior.added} / −${prior.removed})`}${last?.parent ? ` from ${last.parent.slice(0, 12)}` : ''}.${priorSample ? ' Sample: ' + priorSample + '.' : ''}`,
+    ].filter(Boolean).join('\n');
+    const expanded = details ? summary + '\n' + details : summary;
+    const block = fileTokens + count(expanded) <= fileBudget && fits(expanded) ? expanded : summary;
+    const tokens = count(block);
+    if (fileTokens + tokens <= fileBudget && fits(block)) {
+      filePaths.push(file.path);
+      fileTokens += tokens;
+      lines.push(block);
+    }
   }
-  for (const e of p.excerpts) {
-    const reasons = e.reasons.length ? e.reasons.map(reasonText).join('; ') : 'no reason recorded';
-    append([`### ${e.path}:${e.startLine}-${e.endLine} · ${e.category} · ${reasons} · ≈${e.tokens} tokens`,
-      '```', e.text, '```', ''].join('\n'));
+  if (filePaths.length) lines.push('');
+  const omittedFiles = (packet.files?.length ?? 0) - filePaths.length;
+  for (const excerpt of packet.excerpts) {
+    const reasons = excerpt.reasons.map(reasonText).join('; ');
+    const block = [
+      `### ${excerpt.path}:${excerpt.startLine}-${excerpt.endLine} · ${excerpt.category} · ${reasons} · ≈${excerpt.tokens} tokens`,
+      '```', excerpt.text, '```', '',
+    ].join('\n');
+    if (fits(block)) {
+      lines.push(block);
+      excerptIds.push(excerpt.id);
+      excerptTokens += excerpt.tokens;
+    } else {
+      omittedExcerpts++;
+    }
   }
-  out.push('## Omitted');
-  if (!p.omitted.length && !excluded) out.push('(none)');
-  for (const o of p.omitted) append(`- ${o.path}:${o.startLine}-${o.endLine} · ${o.reason} · ≈${o.tokens} tokens`);
-  if (excluded) out.push(excluded + ' entries omitted at the runtime response limit. Use read_file for exact source.');
-  return out.join('\n');
+  lines.push('## Omitted');
+  if (!packet.omitted.length && !omittedExcerpts && !omittedFiles) lines.push('(none)');
+  for (const item of packet.omitted) {
+    const line = `- ${item.path}:${item.startLine}-${item.endLine} · ${item.reason} · ≈${item.tokens} tokens`;
+    if (fits(line)) lines.push(line);
+    else omittedReasons++;
+  }
+  if (omittedExcerpts || omittedReasons) {
+    lines.push(`Transport limit omitted ${omittedExcerpts} excerpt(s) and ${omittedReasons} omission detail(s). Use read_file for exact source.`);
+  }
+  if (omittedFiles) lines.push(`File-map budget omitted ${omittedFiles} file(s). Use file_context for specific files.`);
+  const text = lines.join('\n');
+  return {
+    text,
+    delivery: {
+      excerptIds, excerptTokens, packetTokens: count(text), serializedCharacters: JSON.stringify(text).length,
+      characterLimit: MODEL_CHARACTER_LIMIT, omittedExcerpts, omittedReasons, filePaths, omittedFiles,
+    },
+  };
+}
+
+export function formatForModel(packet: ContextPacket): string {
+  return prepareContextForModel(packet).text;
 }

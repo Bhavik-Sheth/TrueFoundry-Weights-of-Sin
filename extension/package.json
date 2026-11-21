@@ -18,6 +18,8 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "chatSkills": [{ "path": "./skills/contexo-review/SKILL.md" }],
+    "mcpServerDefinitionProviders": [{ "id": "contexo.workspace", "label": "Contexo Workspace" }],
     "chatParticipants": [
       {
         "id": "contexo.assistant",
@@ -27,6 +29,9 @@
       }
     ],
     "commands": [
+      { "command": "contexo.showRuntimeCapabilities", "title": "Contexo: Inspect TrueForge Runtime Capabilities" },
+      { "command": "contexo.installClaudeSkill", "title": "Contexo: Install Claude Code Workspace Skill" },
+      { "command": "contexo.copyAgentConnection", "title": "Contexo: Copy Copilot or Claude MCP Connection" },
       {
         "command": "contexo.ask",
         "title": "Contexo: Ask Assistant"
@@ -297,6 +302,11 @@
           "default": "startedByContexo",
           "description": "What happens to the local TrueForge when Contexo stops (VS Code closes or reloads)."
         },
+        "contexo.autoRegisterTrueForge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reconcile Contexo registration automatically when VS Code opens. Disable for a managed runtime or when testing existing TrueForge agent profiles."
+        },
         "contexo.autoStartTrueForge": {
           "type": "boolean",
           "default": true,
@@ -355,7 +365,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
     "test": "vitest run",
     "check": "node ../scripts/check-no-provider.mjs dist",
-    "package": "npm run build && npm run check && vsce package --no-dependencies -o dist/contexo.vsix",
+    "package": "npm run build && npm run check && vsce package --no-dependencies -o dist/contexo.vsix && node ../scripts/check-no-provider.mjs dist/contexo.vsix",
     "install:local": "npm run package && code --install-extension dist/contexo.vsix --force"
   }
 }

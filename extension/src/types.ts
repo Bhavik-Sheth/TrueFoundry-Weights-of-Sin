@@ -27,6 +27,8 @@ export interface Selection {
 export interface Run {
   id: string;
   mode: 'inline' | 'agent';
+  origin?: 'external';
+  workspaceUri?: string;
   request: string;
   selection?: Selection;
   sessionId: string;
@@ -53,7 +55,7 @@ export type Reason =
   | { kind: 'mention'; token: string }
   | { kind: 'selection' }
   | { kind: 'semantic'; rank: number }
-  | { kind: 'lexical'; term: string; rank: number }
+  | { kind: 'lexical' | 'source-preview'; term: string; rank: number }
   | { kind: 'symbol-name'; term: string; rank: number }
   | { kind: 'calls' | 'called-by' | 'registers' | 'tests' | 'documents'; from: string };
 
@@ -69,12 +71,50 @@ export interface Excerpt {
   text: string;
 }
 
+export interface FileChange {
+  status: 'unchanged' | 'added' | 'deleted' | 'modified' | 'missing' | 'unavailable';
+  detail?: string;
+  added?: number;
+  removed?: number;
+  hunkCount?: number;
+  hunks?: Array<{ oldStart: number; oldLines: number; newStart: number; newLines: number;
+    symbols: string[]; lines?: string[]; truncated?: boolean }>;
+}
+
+export interface FileContext {
+  path: string;
+  reasons: Reason[];
+  symbols: Array<{ name: string; kind: SymbolEntry['kind']; start: number; end: number }>;
+  symbolCount: number;
+  openingLines?: Array<{ line: number; text: string }>;
+  source: 'working tree' | 'editor buffer';
+  workingStatus: 'text' | 'missing' | 'binary' | 'too_large' | 'unavailable';
+  head?: string;
+  lastCommit?: { commit: string; parent?: string; previousPath?: string; date: string; subject: string; message?: string };
+  changes?: FileChange;
+  previousChanges?: FileChange;
+}
+
+export interface ContextDelivery {
+  excerptIds: string[];
+  excerptTokens: number;
+  packetTokens?: number;
+  serializedCharacters: number;
+  characterLimit: number;
+  omittedExcerpts: number;
+  omittedReasons: number;
+  filePaths?: string[];
+  omittedFiles?: number;
+}
+
 export interface ContextPacket {
   id: string;
   runId: string;
   query: string;
   budget: number;
   used: number;
+  delivery?: ContextDelivery;
+  files?: FileContext[];
   excerpts: Excerpt[];
   omitted: Array<{
     path: string;
@@ -116,7 +156,7 @@ export interface Proposal {
   threadId: string;
   files: Array<{ path: string; base: string; proposed: string; baseHash: Sha }>;
   hunks: Hunk[];
-  status: 'reviewing' | 'applied' | 'rejected' | 'stale' | 'discarded';
+  status: 'reviewing' | 'applied' | 'rejected' | 'stale' | 'discarded' | 'interrupted';
   result?: { applied: string[]; rejected: string[] };
 }
 

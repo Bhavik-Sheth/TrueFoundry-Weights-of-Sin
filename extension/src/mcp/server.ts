@@ -19,6 +19,7 @@
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
+import { lstat, realpath } from 'node:fs/promises';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { RunRoute } from './runRoutes';
@@ -32,6 +33,7 @@ function log(...args: unknown[]): void {
 export interface McpHandle { port: number; url: string; stop(): Promise<void> }
 
 const MCP_PATH = '/mcp';
+const AGENT_PATH = '/mcp/agent';
 const TOKEN_KEY = 'contexo.mcpToken';
 
 export function capOutput(s: string, max = 16000): { text: string; truncated: boolean } {
@@ -56,6 +58,27 @@ export function resolveUnder(root: string, p: string): string {
   return abs;
 }
 
+export async function assertNativeWorkspacePath(root: string, relative: string): Promise<string> {
+  const target = resolveUnder(root, relative);
+  const rootReal = await realpath(root);
+  // A new file can have new parents. Resolve the closest existing path before allowing it.
+  let existing = target;
+  while (existing !== root) {
+    try {
+      await lstat(existing);
+      const resolved = await realpath(existing);
+      if (resolved !== rootReal) resolveUnder(rootReal, path.relative(rootReal, resolved));
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // An existing dangling link is not a candidate for creating a file.
+      if (await lstat(existing).then(() => true, () => false)) throw error;
+      existing = path.dirname(existing);
+    }
+  }
+  return target;
+}
+
 export function resolveInWorkspace(p: string): string {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof vscode;
@@ -64,11 +87,11 @@ export function resolveInWorkspace(p: string): string {
   return resolveUnder(folder.uri.fsPath, p);
 }
 
-export async function getOrCreateToken(secrets: vscode.SecretStorage): Promise<string> {
-  const existing = await secrets.get(TOKEN_KEY);
+export async function getOrCreateToken(secrets: vscode.SecretStorage, key = TOKEN_KEY): Promise<string> {
+  const existing = await secrets.get(key);
   if (existing) return existing;
   const token = crypto.randomBytes(32).toString('hex');
-  await secrets.store(TOKEN_KEY, token);
+  await secrets.store(key, token);
   return token;
 }
 
@@ -82,8 +105,16 @@ function tokenOk(header: string | string[] | undefined, token: string): boolean 
 
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    let size = 0;
     const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > 1024 * 1024) {
+        reject(new Error('MCP request exceeds 1 MiB.'));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve(undefined);
@@ -99,14 +130,21 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown, extra
   res.end(JSON.stringify(body));
 }
 
-export function startServer(o: { port: number; token: string; registerTools: (s: McpServer, route?: RunRoute) => void; lookupRoute?: (connector: string) => RunRoute | undefined }): Promise<McpHandle> {
+export function startServer(o: {
+  port: number;
+  token: string;
+  registerTools: (server: McpServer, route?: RunRoute) => void;
+  lookupRoute?: (connector: string) => RunRoute | undefined;
+  agent?: { token: string; registerTools: (server: McpServer) => void };
+}): Promise<McpHandle> {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const connector = /^\/mcp\/(contexo-run-[a-f0-9]{24})$/.exec(url.pathname)?.[1];
       const route = connector ? o.lookupRoute?.(connector) : undefined;
-      if (!route && url.pathname !== MCP_PATH) return sendJson(res, 404, { error: 'not found' });
-      if (!tokenOk(req.headers['x-contexo-token'], route?.token ?? o.token)) return sendJson(res, 401, { error: 'unauthorized' });
+      const agent = url.pathname === AGENT_PATH ? o.agent : undefined;
+      if (!agent && !route && url.pathname !== MCP_PATH) return sendJson(res, 404, { error: 'not found' });
+      if (!tokenOk(req.headers['x-contexo-token'], agent?.token ?? route?.token ?? o.token)) return sendJson(res, 401, { error: 'unauthorized' });
       if (req.method !== 'POST') {
         return sendJson(res, 405, {
           jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed (stateless server: POST only)' }, id: null,
@@ -114,7 +152,8 @@ export function startServer(o: { port: number; token: string; registerTools: (s:
       }
       const body = await readBody(req);
       const mcp = new McpServer({ name: 'contexo-editor', version: '0.1.0' });
-      o.registerTools(mcp, route);
+      if (agent) agent.registerTools(mcp);
+      else o.registerTools(mcp, route);
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       res.on('close', () => {
         void transport.close();

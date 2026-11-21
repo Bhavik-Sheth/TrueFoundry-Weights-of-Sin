@@ -31,6 +31,7 @@ import * as vscode from 'vscode';
 import type { Hunk, Proposal, ProposeArgs, Run, Sha, ToWebview } from '../types';
 import type { IndexApi } from '../context/indexer';
 import { log } from '../log';
+import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 import { UndoStack, pickHunk } from './applyUndo';
 import { addedLines, scopeGuard, symbolCheck } from './guards';
 import {
@@ -64,15 +65,15 @@ function errText(e: unknown): string {
 function resolveWorkspaceUri(rel: string): vscode.Uri {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri;
   if (!root) throw new Error('PATH_ERROR: no workspace folder open');
-  if (rel.startsWith('/') || /^[a-zA-Z]:/.test(rel) || rel.split('/').includes('..')) {
-    throw new Error(`PATH_ERROR: ${rel} must be workspace-relative without ".."`);
-  }
+  resolveUnder(root.fsPath, rel);
   return vscode.Uri.joinPath(root, ...rel.split('/'));
 }
 
 /** Live text: open (possibly dirty) document if any, else disk. undefined = file does not exist. */
 async function readLive(rel: string): Promise<string | undefined> {
   const uri = resolveWorkspaceUri(rel);
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (root?.scheme === 'file') await assertNativeWorkspacePath(root.fsPath, rel);
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
   if (open) return open.getText();
   try {
@@ -96,7 +97,7 @@ export class ReviewEngine {
   /** Set by extension.ts (integration) so symbolCheck can see the workspace index. */
   index?: IndexApi;
 
-  persistDecision?: (proposal: Proposal) => PromiseLike<void>;
+  persistDecision?: (proposal: Proposal, run: Run) => PromiseLike<void>;
   validateApply?: (proposal: Proposal) => PromiseLike<void>;
   onProposal?: (p: Proposal) => void;
   private proposals = new Map<Sha, Proposal>();
@@ -105,6 +106,10 @@ export class ReviewEngine {
   private latest?: Result;
   private pendingKey?: Sha;
   private outsideDeco?: vscode.TextEditorDecorationType;
+  private sourceDeco?: vscode.TextEditorDecorationType;
+  private attaching = false;
+  private decisionUpdates = Promise.resolve();
+  private failedDecision?: Sha;
 
   constructor(post: (m: ToWebview) => void = () => {}, private readonly storage?: vscode.Memento) {
     this.undo = new UndoStack(post, storage);
@@ -127,7 +132,7 @@ export class ReviewEngine {
   ): Promise<'reviewing' | { deny: string }> {
     if (this.pending) return { deny: 'ANOTHER_PROPOSAL_UNDER_REVIEW: finish or reject the open proposal first, then retry.' };
     if (!args || !Array.isArray(args.edits) || args.edits.length === 0) return { deny: 'INVALID_ARGS: edits must be a non-empty array.' };
-    const key = proposalKey(args);
+    const key = run.origin === 'external' ? sha256(run.id + proposalKey(args)) : proposalKey(args);
 
     // Group edits by path, preserving order; chain several edits on the same file.
     const order: string[] = [];
@@ -189,63 +194,122 @@ export class ReviewEngine {
   }
 
   async attachProposal(run: Run, proposal: Proposal): Promise<void> {
-    if (this.pending) throw new Error('Finish the active review before restoring another.');
-    const { key, files, hunks } = proposal;
-    await this.persistDecision?.(proposal);
-    this.proposals.set(key, proposal);
-    this.onProposal?.(proposal);
-    this.runs.set(key, run);
-    this.resolvers.set(key, once((allow, reason) => this.onResolve?.(allow, reason)));
-    this.pendingKey = key;
-
-    for (const f of files) {
-      this.docs.set(docUri(BASE_SCHEME, key, f.path).toString(), f.base);
-      this.docs.set(docUri(PROPOSED_SCHEME, key, f.path).toString(), f.proposed);
-    }
-    this.codeLensChanged.fire();
-
-    let first = true;
-    for (const [i, f] of files.entries()) {
-      const n = hunks.filter((h) => h.path === f.path).length;
-      const name = f.path.split('/').pop() ?? f.path;
-      try {
-        await vscode.commands.executeCommand(
-          'vscode.diff',
-          docUri(BASE_SCHEME, key, f.path),
-          docUri(PROPOSED_SCHEME, key, f.path),
-          `${name} · Contexo proposal file ${i + 1}/${files.length} (${n} hunks)`,
-          { preview: false, preserveFocus: !first },
-        );
-      } catch (err) {
-        log('vscode.diff failed', errText(err));
+    if (this.pending || this.attaching) throw new Error('Finish the active review before opening another.');
+    this.attaching = true;
+    try {
+      await this.persistDecision?.(proposal, run);
+      const { key, files } = proposal;
+      this.proposals.set(key, proposal);
+      this.runs.set(key, run);
+      const resolve = run.origin === 'external' ? undefined : this.onResolve;
+      this.resolvers.set(key, once(resolve));
+      this.pendingKey = key;
+      for (const f of files) {
+        this.docs.set(docUri(BASE_SCHEME, key, f.path).toString(), f.base);
+        this.docs.set(docUri(PROPOSED_SCHEME, key, f.path).toString(), f.proposed);
       }
-      first = false;
+      this.onProposal?.(proposal);
+      this.codeLensChanged.fire();
+
+      try {
+        const first = files[0];
+        if ((run.mode === 'inline' || run.origin === 'external') && first.baseHash !== 'new') {
+          const doc = await vscode.workspace.openTextDocument(resolveWorkspaceUri(first.path));
+          const hunk = proposal.hunks.find(h => h.path === first.path);
+          const line = Math.max(0, (hunk?.oldStart ?? 1) - 1);
+          await vscode.window.showTextDocument(doc, { preview: false, selection: new vscode.Range(line, 0, line, 0) });
+        } else {
+          for (const [i, f] of files.entries()) await this.openDiff(key, f.path, i > 0);
+        }
+      } catch (error) {
+        log('Could not open review in editor', errText(error));
+      }
+      this.refreshDecorations();
+    } finally {
+      this.attaching = false;
     }
-    this.refreshDecorations();
+  }
+
+  async openDiff(key: Sha, path: string, preserveFocus = false): Promise<void> {
+    const proposal = this.pending;
+    if (proposal?.key !== key || !proposal.files.some(f => f.path === path)) return;
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      docUri(BASE_SCHEME, key, path),
+      docUri(PROPOSED_SCHEME, key, path),
+      `${path} · Contexo review`,
+      { preview: false, preserveFocus },
+    );
+  }
+
+  externalStatus(key: Sha) {
+    const proposal = this.proposals.get(key);
+    if (!proposal || this.runs.get(key)?.origin !== 'external') return undefined;
+    return {
+      reviewId: key,
+      status: proposal.status,
+      files: proposal.files.map(f => f.path),
+      applied: proposal.result?.applied,
+      rejected: proposal.result?.rejected,
+    };
+  }
+
+  private proposalFile(doc: vscode.TextDocument) {
+    const proposal = this.pending;
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!proposal || !root || doc.uri.scheme !== root.scheme) return undefined;
+    return proposal.files.find(file => file.baseHash !== 'new' &&
+      vscode.Uri.joinPath(root, ...file.path.split('/')).toString() === doc.uri.toString());
+  }
+
+  private sourceLine(doc: vscode.TextDocument, hunk: Hunk): number {
+    const changed = hunk.lines.findIndex(line => /^[+-]/.test(line));
+    return Math.max(0, Math.min(hunk.oldStart - 1 + Math.max(0, changed), doc.lineCount - 1));
+  }
+
+  private updateDecisions(proposal: Proposal, change: (hunks: Hunk[]) => boolean): Promise<void> {
+    const operation = this.decisionUpdates.then(async () => {
+      if (this.pending !== proposal || this.applying) return;
+      const hunks = structuredClone(proposal.hunks);
+      if (!change(hunks)) return;
+      try {
+        await this.persistDecision?.({ ...proposal, hunks }, this.runs.get(proposal.key)!);
+        this.failedDecision = undefined;
+      } catch (error) {
+        this.failedDecision = proposal.key;
+        throw error;
+      }
+      if (this.pending !== proposal) return;
+      proposal.hunks = hunks;
+      this.codeLensChanged.fire();
+      this.refreshDecorations();
+    });
+    this.decisionUpdates = operation.catch(() => undefined);
+    return operation;
   }
 
   async setDecision(hunkId: string, d: 'accepted' | 'rejected'): Promise<void> {
-    const p = this.pending;
-    if (!p || this.applying) return;
-    if (setHunkDecision(p.hunks, hunkId, d)) {
-      await this.persistDecision?.(p);
-      this.codeLensChanged.fire();
-    }
+    const proposal = this.pending;
+    if (proposal) await this.updateDecisions(proposal, hunks => setHunkDecision(hunks, hunkId, d));
   }
 
   async acceptAll(key: Sha): Promise<void> {
-    const p = this.proposals.get(key);
-    if (!p || p.status !== 'reviewing' || this.applying) return;
-    setAllDecisions(p.hunks, 'accepted');
-    await this.persistDecision?.(p);
-    this.codeLensChanged.fire();
+    const proposal = this.pending;
+    if (proposal?.key !== key) return;
+    await this.updateDecisions(proposal, hunks => {
+      setAllDecisions(hunks, 'accepted');
+      return true;
+    });
   }
 
   private applying = false;
 
   async recoverApply(): Promise<void> {
-    const saved = this.storage?.get<{ runId: string; hunks: Proposal['hunks']; files: Array<{ path: string; base: string; target: string }> }>('review.apply.v1');
+    const saved = this.storage?.get<{ root?: string; proposal?: Proposal; runId: string; hunks: Proposal['hunks']; files: Array<{ path: string; base: string; target: string }> }>('review.apply.v1');
     if (!saved || this.applying) return;
+    if (saved.root && saved.root !== vscode.workspace.workspaceFolders?.[0]?.uri.toString()) {
+      throw new Error('Open the original workspace to recover this apply.');
+    }
     this.applying = true;
     try {
       const pending = new Map<string, string>();
@@ -257,16 +321,22 @@ export class ReviewEngine {
         }
         pending.set(file.path, file.target);
       }
-      if (pending.size) await this.undo.applyFiles(pending);
+      if (pending.size) await this.undo.applyFiles(pending, new Map(saved.files.map(file => [file.path, file.base])));
       const known = new Set(this.undo.list().filter(h => h.runId === saved.runId).map(h => h.hunkId));
       await this.undo.recordApplied(saved.runId, saved.hunks.filter(h => !known.has(h.id)));
       await this.storage?.update('review.apply.v1', undefined);
+      if (saved.proposal) {
+        const applied = this.proposals.get(saved.proposal.key) ?? saved.proposal;
+        this.finish(applied, 'applied', computeResult(applied.hunks));
+      }
     } finally {
       this.applying = false;
     }
   }
 
   async applyAccepted(key: Sha): Promise<void> {
+    await this.decisionUpdates;
+    if (this.failedDecision === key) throw new Error('Save the review decisions before applying this proposal.');
     const p = this.proposals.get(key);
     if (!p || p.status !== 'reviewing') return;
     if (acceptedCount(p.hunks) === 0) {
@@ -301,6 +371,8 @@ export class ReviewEngine {
         if (text !== f.base) out.set(f.path, text);
       }
       await this.storage?.update('review.apply.v1', {
+        root: vscode.workspace.workspaceFolders?.[0]?.uri.toString(),
+        proposal: structuredClone(p),
         runId: run.id, hunks: p.hunks.filter(h => h.decision === 'accepted'),
         files: p.files.filter(f => out.has(f.path)).map(f => ({ path: f.path, base: f.baseHash, target: out.get(f.path)! })),
       });
@@ -308,19 +380,34 @@ export class ReviewEngine {
         await this.storage?.update('review.apply.v1', undefined);
         return;
       }
-      await this.undo.applyFiles(out);
+      await this.undo.applyFiles(out, new Map(p.files.map(file => [file.path, file.baseHash])));
       await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
       await this.storage?.update('review.apply.v1', undefined);
     } catch (err) {
       log('applyAccepted failed', errText(err));
-      this.finish(p, 'rejected', { applied: [], rejected: p.hunks.map((h) => h.id) });
-      resolve(false, `APPLY_FAILED: ${errText(err)}`);
+      if (this.storage?.get('review.apply.v1')) {
+        this.finish(p, 'interrupted');
+        void vscode.window.showErrorMessage('Contexo could not finish applying the reviewed files. Recover the interrupted apply from the command palette.');
+      } else {
+        this.finish(p, 'rejected', { applied: [], rejected: p.hunks.map((h) => h.id) });
+        resolve(false, `APPLY_FAILED: ${errText(err)}`);
+      }
       return;
     } finally {
       this.applying = false;
     }
     this.finish(p, 'applied', computeResult(p.hunks));
     resolve(true);
+    const applied = p.hunks.find(hunk => hunk.decision === 'accepted');
+    if (applied) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(resolveWorkspaceUri(applied.path));
+        const line = Math.max(0, Math.min(applied.newStart - 1, doc.lineCount - 1));
+        await vscode.window.showTextDocument(doc, { preview: false, selection: new vscode.Range(line, 0, line, 0) });
+      } catch (error) {
+        log('Could not focus applied file', errText(error));
+      }
+    }
   }
 
   rejectAll(key: Sha): void {
@@ -350,18 +437,20 @@ export class ReviewEngine {
     void this.closeDiffs(p.key);
     this.dropDocs(p);
     this.codeLensChanged.fire();
+    this.refreshDecorations();
   }
 
   /** Common end-of-review bookkeeping (the resolver call is made by the caller). */
-  private finish(p: Proposal, status: Proposal['status'], result: Result): void {
+  private finish(p: Proposal, status: Proposal['status'], result?: Result): void {
     p.status = status;
     p.result = result;
     this.onProposal?.(p);
-    this.latest = result;
+    if (result) this.latest = result;
     if (this.pendingKey === p.key) this.pendingKey = undefined;
     void this.closeDiffs(p.key);
     this.dropDocs(p);
     this.codeLensChanged.fire();
+    this.refreshDecorations();
   }
 
   private dropDocs(p: Proposal): void {
@@ -401,8 +490,23 @@ export class ReviewEngine {
         overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.errorForeground'),
         overviewRulerLane: vscode.OverviewRulerLane.Right,
       });
+      this.sourceDeco ??= vscode.window.createTextEditorDecorationType({
+        isWholeLine: true,
+        backgroundColor: new vscode.ThemeColor('diffEditor.insertedLineBackground'),
+      });
       for (const ed of editors) {
-        if (ed.document.uri.scheme !== PROPOSED_SCHEME) continue;
+        if (ed.document.uri.scheme !== PROPOSED_SCHEME) {
+          const file = this.proposalFile(ed.document);
+          const hunks = file && sha256(ed.document.getText()) === file.baseHash
+            ? this.pending!.hunks.filter(h => h.path === file.path && h.decision !== 'rejected') : [];
+          ed.setDecorations(this.sourceDeco, hunks.map(hunk => {
+            const line = this.sourceLine(ed.document, hunk);
+            const preview = new vscode.MarkdownString();
+            preview.appendCodeblock(hunk.lines.join('\n'), 'diff');
+            return { range: new vscode.Range(line, 0, line, 0), hoverMessage: preview };
+          }));
+          continue;
+        }
         const m = /^\/([0-9a-f]+)\/(.+)$/.exec(ed.document.uri.path);
         const p = m ? this.proposals.get(m[1]) : undefined;
         const ranges: vscode.Range[] = [];
@@ -422,23 +526,29 @@ export class ReviewEngine {
 
   dispose(): void {
     this.outsideDeco?.dispose();
+    this.sourceDeco?.dispose();
     this.outsideDeco = undefined;
+    this.sourceDeco = undefined;
   }
 
   provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
-    const m = /^\/([0-9a-f]+)\/(.+)$/.exec(doc.uri.path);
-    if (!m) return [];
-    const p = this.proposals.get(m[1]);
-    if (!p || p.status !== 'reviewing') return [];
-    const path = m[2];
+    const source = doc.uri.scheme !== PROPOSED_SCHEME;
+    const m = source ? null : /^\/([0-9a-f]+)\/(.+)$/.exec(doc.uri.path);
+    const file = source ? this.proposalFile(doc) : undefined;
+    const p = source ? this.pending : m ? this.proposals.get(m[1]) : undefined;
+    const path = source ? file?.path : m?.[2];
+    if (!path || !p || p.status !== 'reviewing') return [];
     const top = new vscode.Range(0, 0, 0, 0);
+    const diff = new vscode.CodeLens(top, { title: 'Contexo: Open full diff', command: 'contexo.proposal.openDiff', arguments: [p.key, path] });
+    if (file && sha256(doc.getText()) !== file.baseHash) return [diff];
     const lenses: vscode.CodeLens[] = [
       new vscode.CodeLens(top, { title: `Apply accepted (${acceptedCount(p.hunks)})`, command: 'contexo.proposal.apply', arguments: [p.key] }),
       new vscode.CodeLens(top, { title: 'Accept all', command: 'contexo.proposal.acceptAll', arguments: [p.key] }),
       new vscode.CodeLens(top, { title: 'Reject all', command: 'contexo.proposal.rejectAll', arguments: [p.key] }),
     ];
+    if (source) lenses.push(diff);
     for (const h of p.hunks.filter((x) => x.path === path)) {
-      const line = Math.max(0, Math.min(h.newStart - 1, Math.max(0, doc.lineCount - 1)));
+      const line = source ? this.sourceLine(doc, h) : Math.max(0, Math.min(h.newStart - 1, Math.max(0, doc.lineCount - 1)));
       const r = new vscode.Range(line, 0, line, 0);
       lenses.push(
         new vscode.CodeLens(r, {
@@ -485,6 +595,15 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
     vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, provider),
     vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, provider),
     vscode.languages.registerCodeLensProvider({ scheme: PROPOSED_SCHEME }, lens),
+    vscode.languages.registerCodeLensProvider({ scheme: 'file' }, lens),
+    vscode.languages.registerCodeLensProvider({ scheme: 'vscode-remote' }, lens),
+    vscode.workspace.onDidChangeTextDocument(({ document }) => {
+      if (!review.pending) return;
+      if (!vscode.window.visibleTextEditors.some(editor => editor.document === document)) return;
+      review.codeLensChanged.fire();
+      review.refreshDecorations();
+    }),
+    vscode.commands.registerCommand('contexo.proposal.openDiff', (key: string, path: string) => review.openDiff(key, path)),
     vscode.commands.registerCommand('contexo.undoHunk', async (hunkId?: string) => {
       const id = hunkId ?? (await pickHunk(review.undo, 'undo'));
       if (id) await review.undo.undoHunk(id);

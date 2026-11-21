@@ -21,7 +21,7 @@ export interface ProviderList { catalog: CatalogProviderInfo[]; configured: stri
 export interface ExtraProviderFields { name?: string; baseUrl?: string; modelIds?: string[] }
 
 /** Structural view of the SDK client (lets tests inject a fake). */
-export type AdminClient = Pick<TrueForge, 'server' | 'models' | 'settings' | 'catalogs' | 'agents'>;
+export type AdminClient = Pick<TrueForge, 'server' | 'models' | 'settings' | 'catalogs' | 'agents'> & Partial<Pick<TrueForge, 'sandboxEnvironments'>>;
 
 export interface AdminDeps { agentNames?: Record<'primary' | 'fallback', string>; client?: AdminClient; log?: (...a: unknown[]) => void }
 
@@ -48,6 +48,18 @@ export function friendlyError(e: unknown, secrets: string[] = []): Error {
   return new Error(msg);
 }
 
+function matchesOwnedFields(observed: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(observed) && observed.length === expected.length &&
+      expected.every((value, i) => matchesOwnedFields(observed[i], value));
+  }
+  if (expected !== null && typeof expected === 'object') {
+    return observed !== null && typeof observed === 'object' && Object.entries(expected)
+      .every(([key, value]) => matchesOwnedFields((observed as Record<string, unknown>)[key], value));
+  }
+  return observed === expected;
+}
+
 export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
   const client: AdminClient = deps.client ?? new TrueForge({ baseUrl: baseUrl.replace(/\/+$/, ''), timeoutInSeconds: 60 });
   const names = deps.agentNames ?? AGENT_NAMES;
@@ -72,6 +84,29 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
         log('admin.health failed', friendlyError(e).message);
         return false;
       }
+    },
+
+    inspectRuntime() {
+      return wrap('inspectRuntime', [], async () => {
+        const options = { timeoutInSeconds: 6, maxRetries: 0 };
+        const capabilities = await client.server.getCapabilities(options);
+        const [skills, environments] = await Promise.allSettled([
+          client.settings.skills.list(options),
+          client.sandboxEnvironments?.list({ limit: 50 }, options),
+        ]);
+        return {
+          sdk: '0.185.0',
+          bundledRuntime: '0.185.1',
+          advertised: capabilities,
+          installedSkills: skills.status === 'fulfilled'
+            ? skills.value.data.map(({ name, manifest }) => ({ name, type: manifest.type, ref: 'ref' in manifest ? manifest.ref : undefined }))
+            : 'unavailable',
+          sandboxEnvironments: environments.status === 'fulfilled' && environments.value
+            ? { count: environments.value.data.length, more: environments.value.hasNextPage() }
+            : 'unavailable',
+          observedExecution: 'Inspect a recorded session for tool and skill execution evidence.',
+        };
+      });
     },
 
     listProviders(): Promise<ProviderList> {
@@ -139,23 +174,45 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
     },
 
     /** Creates or UPDATES one agent (primary or fallback) with the given model. */
-    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): Promise<{ name: string; action: 'created' | 'updated' }> {
+    ensureAgent(kind: 'primary' | 'fallback', model: string, instructions: string, runtime?: { sandbox: string; skills?: string[] }): Promise<{ name: string; action: 'created' | 'updated' | 'unchanged' }> {
       return wrap('ensureAgent', [], async () => {
         const req = buildAgentRequest(kind, model, instructions, runtime);
         req.name = names[kind];
         const page = await client.agents.list({ agentName: req.name, limit: 50 });
         const existing = page.data.find((a) => a.name === req.name);
-        if (existing) {
-          await client.agents.update(existing.id, { description: req.description, manifest: req.manifest });
-          return { name: req.name, action: 'updated' as const };
+        const find = async () => (await client.agents.list({ agentName: req.name, limit: 50 }))
+          .data.find(agent => agent.name === req.name);
+        const matches = (agent: typeof existing) => !!agent && matchesOwnedFields(agent, {
+          description: req.description, manifest: req.manifest,
+        });
+        if (matches(existing)) return { name: req.name, action: 'unchanged' };
+        try {
+          if (existing) {
+            const current = existing.manifest;
+            await client.agents.update(existing.id, {
+              description: req.description,
+              manifest: {
+                ...current, ...req.manifest,
+                model: { ...current.model, ...req.manifest.model },
+                config: { ...current.config, ...req.manifest.config },
+              },
+            });
+            return { name: req.name, action: 'updated' };
+          }
+          await client.agents.create(req);
+          return { name: req.name, action: 'created' };
+        } catch (error) {
+          // A write can succeed when its response is lost. Use stable identity and read back.
+          if (matches(await find().catch(() => undefined))) {
+            return { name: req.name, action: 'unchanged' };
+          }
+          throw error;
         }
-        await client.agents.create(req);
-        return { name: req.name, action: 'created' as const };
       });
     },
 
     /** Creates or UPDATES the contexo / contexo-fallback agents. */
-    async ensureAgents(primaryModel: string, fallbackModel: string | undefined, instructions: string): Promise<Array<{ name: string; action: 'created' | 'updated' }>> {
+    async ensureAgents(primaryModel: string, fallbackModel: string | undefined, instructions: string): Promise<Array<{ name: string; action: 'created' | 'updated' | 'unchanged' }>> {
       const out = [
         await this.ensureAgent('primary', primaryModel, instructions),
         await this.ensureAgent('fallback', fallbackModel || primaryModel, instructions),
@@ -164,7 +221,7 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
       return out;
     },
 
-    async register(options: { port: number; token: string; primaryModel: string; fallbackModel?: string; instructions: string; runtime?: { sandbox: string; skills?: string[] } }) {
+    async register(options: { port: number; token: string; primaryModel: string; fallbackModel?: string; instructions: string; rotateToken?: boolean; runtime?: { sandbox: string; skills?: string[] } }) {
       const steps: Array<{ label: string; ok: boolean; detail?: string }> = [];
       const connector = { label: 'MCP connector contexo-editor', ok: false };
       try {
@@ -177,13 +234,25 @@ export function createAdmin(baseUrl: string, deps: AdminDeps = {}) {
             previous.data.manifest.description !== desired.description)) {
           throw new Error('An existing connector uses the Contexo name with different ownership metadata.');
         }
-        await this.ensureConnector(options.port, options.token);
-        const { data } = await client.settings.mcpServers.get(CONNECTOR_NAME);
+        const sameUrl = previous?.data.manifest.type === 'remote' && previous.data.manifest.url === desired.url;
+        let writeError: unknown;
+        if (!sameUrl || options.rotateToken) {
+          try {
+            await this.ensureConnector(options.port, options.token);
+          } catch (error) {
+            // The masked read-back can verify a newly created URL, but not an explicit token rotation.
+            if (options.rotateToken) throw error;
+            writeError = error;
+          }
+        }
+        const { data } = await client.settings.mcpServers.get(CONNECTOR_NAME).catch(error => {
+          throw writeError ?? error;
+        });
         if (data.manifest.type !== 'remote' || data.manifest.url !== desired.url) {
-          throw new Error('Connector read-back did not match the requested URL.');
+          throw writeError ?? new Error('Connector read-back did not match the requested URL.');
         }
         connector.ok = true;
-        steps.push(connector);
+        steps.push({ ...connector, detail: sameUrl && !options.rotateToken ? 'unchanged' : 'verified' });
       } catch (error) {
         steps.push({ ...connector, detail: friendlyError(error, [options.token]).message });
       }

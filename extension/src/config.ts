@@ -22,6 +22,7 @@ export interface ContexoConfig {
   mcpPort: number;
   devMode: boolean;
   autoStartTrueForge: boolean;
+  autoRegisterTrueForge: boolean;
   stopTrueForgeOnExit: 'startedByContexo' | 'always' | 'never';
   /** 'provider/model' names chosen in the setup wizard (strings only, never keys). */
   primaryModel: string;
@@ -40,6 +41,7 @@ export function getConfig(): ContexoConfig {
     mcpPort: c.get<number>('mcpPort', 8791),
     devMode: c.get<boolean>('devMode', false),
     autoStartTrueForge: c.get<boolean>('autoStartTrueForge', true),
+    autoRegisterTrueForge: c.get<boolean>('autoRegisterTrueForge', true),
     stopTrueForgeOnExit: c.get<'startedByContexo' | 'always' | 'never'>('stopTrueForgeOnExit', 'startedByContexo'),
     primaryModel: c.get<string>('primaryModel', inceptionModel),
     fallbackModel: c.get<string>('fallbackModel', ''),

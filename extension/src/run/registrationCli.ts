@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   const skills = process.env.CONTEXO_SKILLS?.split(',').map(skill => skill.trim()).filter(Boolean);
   if (skills?.length && !sandbox) throw new Error('Skills require CONTEXO_SANDBOX.');
   const runtime = sandbox ? { sandbox, skills } : undefined;
-  const steps = await createAdmin(baseUrl.toString()).register({ port, token, primaryModel, fallbackModel, instructions, runtime });
+  const steps = await createAdmin(baseUrl.toString()).register({ port, token, primaryModel, fallbackModel, instructions, runtime, rotateToken: process.env.CONTEXO_ROTATE_TOKEN === '1' });
   for (const step of steps) {
     const message = step.label + (step.detail ? ' — ' + step.detail : '');
     if (step.ok) console.log(message);
