@@ -16,6 +16,7 @@
  * vscode is only required lazily so the core can be tested with Vitest.
  * Depends on: tree-kill, mcp/server (capOutput). Depended on by: mcp/tools, run/runManager.
  */
+import { workspaceRoot, hasNativeFiles } from '../shell/workspaceRoot';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -122,8 +123,8 @@ export async function runCommandIn(root: string, allowlist: string[], argv: stri
 export async function runCommand(argv: string[], timeoutSec?: number, owner?: string): Promise<RunResult> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
-  const folder = vs.workspace.workspaceFolders?.[0];
-  if (!folder) return refuse('NO_WORKSPACE: open a folder first');
+  const folder = workspaceRoot();
+  if (!folder || !hasNativeFiles(folder.uri)) return refuse('NO_WORKSPACE: open a folder first');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getConfig } = require('../config') as typeof import('../config');
   return runCommandIn(folder.uri.fsPath, getConfig().commandAllowlist, argv, timeoutSec, owner);

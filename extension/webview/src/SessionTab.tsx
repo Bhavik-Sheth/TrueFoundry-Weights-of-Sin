@@ -1,165 +1,219 @@
-/**
- * SessionTab.tsx - Session tab: read-only view of the TrueForge session(s) of the current run (or any recent
- * session), built by the host from TrueForge's API (no iframe). Host counterpart: src/shell/sessionController.ts.
- *
- * Exports:
- *  - SessionTab (React component): picker (current run / recent sessions), Refresh button, one block per session
- *    (id, agent, model, primary/fallback + sealed badges) with its turns (status, timing, tokens) and an ordered
- *    timeline: user message, model messages (collapsed), tool calls (name, MCP server, deferred marker, args,
- *    result), approvals (requested/allowed/denied), subagent threads, turn.done status/error.
- *  - State lives at module level so it survives tab switches; the host re-pushes on every turn end.
- *
- * Depends on: bridge.ts, ../../src/types. Depended on by: App.tsx.
- */
 import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
-import type { SessionSummary, SessionView, TimelineEntry, TurnView } from '../../src/types';
+import type { TimelineEntry, SessionSummary, SessionView, TurnView } from '../../src/types';
 import { post, subscribe } from './bridge';
+import { MessageBody } from './MessageBody';
 
 interface SessionState { sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string; loaded: boolean }
 let state: SessionState = { sessions: [], recent: [], selected: [], loaded: false };
 const listeners = new Set<() => void>();
-subscribe((m) => {
-  if (m.type === 'sessionView') {
-    state = { sessions: m.sessions, recent: m.recent, selected: m.selected, error: m.error, loaded: true };
-    listeners.forEach((l) => l());
-  }
+subscribe(message => {
+  if (message.type !== 'sessionView') return;
+  state = { sessions: message.sessions, recent: message.recent, selected: message.selected, error: message.error, loaded: true };
+  listeners.forEach(listener => listener());
 });
 
-const s: Record<string, CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', gap: 8, padding: 8 },
-  muted: { color: 'var(--vscode-descriptionForeground)', fontSize: 12 },
-  chip: { display: 'inline-block', padding: '1px 8px', borderRadius: 10, fontSize: 11, background: 'var(--vscode-badge-background)', color: 'var(--vscode-badge-foreground)', marginRight: 6 },
-  badge: { padding: '0 6px', borderRadius: 8, fontSize: 10, border: '1px solid var(--vscode-focusBorder)', marginLeft: 6 },
-  box: { border: '1px solid var(--vscode-panel-border)', padding: 6, display: 'flex', flexDirection: 'column', gap: 4 },
-  pre: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '4px 0 0', fontSize: 11, background: 'var(--vscode-textCodeBlock-background)', padding: 6 },
-  err: { color: 'var(--vscode-errorForeground)' },
+const terminal = new Set(['done', 'cancelled', 'error', 'failed']);
+const filters = ['All', 'Tools', 'Messages', 'Approvals'] as const;
+type Filter = typeof filters[number];
+const number = (n?: number) => n === undefined ? '—' : n.toLocaleString();
+const duration = (ms?: number) => ms === undefined ? '—' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+const when = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 };
-const statusColor: Record<string, string> = {
-  done: 'var(--vscode-testing-iconPassed)', error: 'var(--vscode-errorForeground)', cancelled: 'var(--vscode-editorWarning-foreground)',
-  allowed: 'var(--vscode-testing-iconPassed)', denied: 'var(--vscode-errorForeground)', requested: 'var(--vscode-editorWarning-foreground)',
-};
+const group = (entry: TimelineEntry): Filter =>
+  entry.kind === 'tool' ? 'Tools' : entry.kind === 'approval' ? 'Approvals' :
+  entry.kind === 'user' || entry.kind === 'model' ? 'Messages' : 'All';
 
-const json = (v: unknown) => { try { return JSON.stringify(v, null, 2) ?? ''; } catch { return String(v); } };
-const secs = (ms?: number) => (ms === undefined ? '' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
-const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(); };
+function readableStatus(status: string) {
+  if (status === 'done') return 'Completed';
+  if (status === 'requested') return 'Requested';
+  return status.replace(/[_-]/g, ' ');
+}
 
-function Entry({ e }: { e: TimelineEntry }) {
-  switch (e.kind) {
+function titleFor(tool: string) {
+  const labels: Record<string, string> = {
+    assemble_context: 'Build context', file_context: 'Inspect file history', resume_context: 'Restore context checkpoint',
+    read_file: 'Read source', search_workspace: 'Search workspace', list_symbols: 'List symbols',
+    propose_write: 'Propose edits', run_command: 'Run command',
+  };
+  return labels[tool] ?? tool;
+}
+
+function displayJson(value: unknown) {
+  if (typeof value === 'string') {
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+  }
+  return JSON.stringify(value, null, 2) ?? '';
+}
+
+function toolTarget(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return;
+  const args = value as Record<string, unknown>;
+  if (typeof args.path !== 'string') return;
+  const lines = typeof args.startLine === 'number' ? `:${args.startLine}${typeof args.endLine === 'number' ? `–${args.endLine}` : ''}` : '';
+  return args.path + lines;
+}
+
+function Entry({ entry }: { entry: TimelineEntry }) {
+  switch (entry.kind) {
     case 'user':
-      return <div><span style={s.chip}>user</span><span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.text}</span></div>;
-    case 'model': {
-      const usage = e.inputTokens !== undefined ? ` · ${e.inputTokens} in / ${e.outputTokens ?? 0} out` : '';
-      return (
-        <details>
-          <summary><span style={s.chip}>model{e.threadId !== 'main' ? ` (${e.threadId})` : ''}</span><span style={s.muted}>{e.model ?? ''}{e.finishReason ? ` · ${e.finishReason}` : ''}{usage}</span></summary>
-          <pre style={s.pre}>{e.text || '(no text)'}</pre>
-        </details>
-      );
-    }
-    case 'tool':
-      return (
-        <details>
-          <summary>
-            <span style={s.chip}>tool: {e.name}</span>
-            {e.server && <span style={s.badge}>MCP {e.server}</span>}
-            {e.deferred && <span style={s.badge}>deferred</span>}
-            {e.threadId !== 'main' && <span style={s.badge}>thread {e.threadId}</span>}
-            {e.result === undefined && <span style={s.muted}> no result</span>}
-          </summary>
-          {e.args !== undefined && <pre style={s.pre}>args {json(e.args)}</pre>}
-          {e.result !== undefined && <pre style={s.pre}>result {e.result}</pre>}
-        </details>
-      );
-    case 'approval':
-      return <div><span style={{ ...s.chip, background: statusColor[e.status] }}>approval: {e.name} · {e.status}</span>{e.reason && <span style={s.muted}> {e.reason}</span>}</div>;
-    case 'thread':
-      return (
-        <div style={s.box}>
-          <div>
-            <span style={s.chip}>subagent: {e.title}</span>
-            <span style={s.badge}>thread {e.threadId}</span>
-            <span style={{ ...s.badge, color: statusColor[e.status] }}>{e.status}</span>
-          </div>
-          <div style={s.muted}>{[e.agent, e.model, e.parentThreadId ? `from ${e.parentThreadId}` : ''].filter(Boolean).join(' · ')}</div>
-          {e.error && <div style={s.err}>{e.error}</div>}
+      return <article className="session-message"><strong>Request</strong><MessageBody text={entry.text} /></article>;
+    case 'model':
+      return <details className="activity-entry">
+        <summary className="activity-heading">
+          <span className="activity-name">Model response</span>
+          {entry.inputTokens !== undefined && <span className="activity-meta">{number(entry.inputTokens)} in · {number(entry.outputTokens)} out</span>}
+        </summary>
+        <div className="activity-details">
+          <p className="muted">{[entry.model, entry.finishReason, entry.threadId !== 'main' ? entry.threadId : undefined].filter(Boolean).join(' · ')}</p>
+          {entry.text ? <MessageBody text={entry.text} /> : <p className="muted">This response returned tool actions.</p>}
         </div>
-      );
+      </details>;
+    case 'tool': {
+      const target = toolTarget(entry.args);
+      return <details className="activity-entry">
+        <summary className="activity-heading">
+          <span className="activity-name">{titleFor(entry.name)}</span>
+          <span className="activity-meta">{entry.result === undefined ? 'Pending' : 'Result'}{entry.deferred && ' · on demand'}</span>
+          {target && <span className="activity-target">{target}</span>}
+        </summary>
+        <div className="activity-details">
+          <p className="muted"><code>{entry.name}</code>{entry.server && ` · MCP ${entry.server}`}{entry.threadId !== 'main' && ` · ${entry.threadId}`}</p>
+          {entry.args !== undefined && <div className="activity-detail"><span>Input</span><pre>{displayJson(entry.args)}</pre></div>}
+          {entry.result !== undefined && <div className="activity-detail"><span>Result</span><pre>{displayJson(entry.result)}</pre></div>}
+        </div>
+      </details>;
+    }
+    case 'approval':
+      return <div className="activity-notice">
+        <span className="activity-name">{titleFor(entry.name)}</span>
+        <span className={entry.status === 'denied' ? 'err' : entry.status === 'allowed' ? 'ok' : 'warn'}>
+          {entry.status === 'requested' ? 'Approval requested' : `Approval ${entry.status}`}
+        </span>
+        {entry.reason && <span className="muted">{entry.reason}</span>}
+      </div>;
+    case 'thread':
+      return <details className="activity-entry">
+        <summary className="activity-heading"><span className="activity-name">{entry.title}</span>
+          <span className="activity-meta">Subagent · {readableStatus(entry.status)}</span></summary>
+        <div className="activity-details">
+          <p className="muted">{[entry.agent, entry.model, entry.threadId].filter(Boolean).join(' · ')}</p>
+          {entry.error && <p className="err">{entry.error}</p>}
+        </div>
+      </details>;
     case 'turn-done':
-      return <div style={e.error ? s.err : s.muted}>turn.done: {e.status}{e.reason ? ` (${e.reason})` : ''}{e.error ? ` - ${e.error}` : ''}</div>;
+      return entry.error ? <p className="err" role="alert">{entry.error}</p> : null;
     case 'info':
-      return <div style={s.muted}>{e.text}</div>;
+      return <p className="muted session-info">{entry.text}</p>;
   }
 }
 
-function Turn({ t, n }: { t: TurnView; n: number }) {
-  const tok = t.totalTokens !== undefined ? ` · ${t.inputTokens ?? 0} in / ${t.outputTokens ?? 0} out (${t.totalTokens})` : '';
-  return (
-    <details open={n === 0 || t.status !== 'done'} style={s.box}>
-      <summary>
-        <span style={{ ...s.chip, background: statusColor[t.status] ?? undefined }}>turn {n + 1}: {t.status}</span>
-        <span style={s.muted}>{when(t.createdAt)}{t.durationMs !== undefined ? ` · ${secs(t.durationMs)}` : ''}{tok}{t.costUsd ? ` · $${t.costUsd.toFixed(4)}` : ''}</span>
-      </summary>
-      {t.error && <div style={s.err}>{t.error}</div>}
-      {t.entries.map((e, i) => <Entry key={i} e={e} />)}
-    </details>
-  );
+function SessionTurn({ turn, filter }: { turn: TurnView; filter: Filter }) {
+  const [limit, setLimit] = useState(30);
+  const entries = turn.entries.filter(entry => filter === 'All' || group(entry) === filter);
+  return <>
+    <dl className="session-metrics session-usage">
+      <div><dt>Status</dt><dd className={['error', 'failed'].includes(turn.status) ? 'err' : undefined}>{readableStatus(turn.status)}</dd></div>
+      <div><dt>Duration</dt><dd>{duration(turn.durationMs)}</dd></div>
+      <div><dt>Input</dt><dd>{number(turn.inputTokens)}</dd></div>
+      <div><dt>Output</dt><dd>{number(turn.outputTokens)}</dd></div>
+    </dl>
+    {turn.error && !entries.some(entry => entry.kind === 'turn-done' && entry.error) && <p className="err" role="alert">{turn.error}</p>}
+    {!entries.length && <p className="muted">No {filter === 'All' ? 'activity' : filter.toLowerCase()} in this turn.</p>}
+    <div className="session-timeline">
+      {entries.length > limit && <button type="button" className="inline-action" onClick={() => setLimit(limit + 30)}>
+        Show earlier activity ({entries.length - limit})
+      </button>}
+      {entries.slice(-limit).map((entry, index) => <Entry key={entry.kind === 'tool' ? entry.toolCallId : entry.kind === 'model' || entry.kind === 'user' ? entry.id : index} entry={entry} />)}
+    </div>
+  </>;
 }
 
-function Session({ v }: { v: SessionView }) {
-  return (
-    <section style={{ ...s.box, gap: 6 }}>
-      <div>
-        <strong>{v.agent}</strong>
-        {v.role === 'fallback' && <span style={{ ...s.badge, color: 'var(--vscode-editorWarning-foreground)' }}>fallback takeover</span>}
-        {v.role === 'primary' && <span style={s.badge}>primary</span>}
-        {v.sealed && <span style={s.badge}>sealed</span>}
-      </div>
-      <div style={s.muted}>session {v.id} · {v.model ?? 'model unknown'}{v.title ? ` · ${v.title}` : ''}</div>
-      {v.turns.length === 0 && <div style={s.muted}>No turns.</div>}
-      {v.turns.length > 1 && <details>
-        <summary>Compare turns</summary>
-        <table><thead><tr><th>Turn</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Tool calls</th></tr></thead>
-          <tbody>{v.turns.map((turn, i) => <tr key={turn.id}>
-            <td>{i + 1}</td><td>{turn.status}</td><td>{secs(turn.durationMs) || '—'}</td>
-            <td>{turn.totalTokens ?? '—'}</td><td>{turn.entries.filter(entry => entry.kind === 'tool').length}</td>
-          </tr>)}</tbody></table>
-      </details>}
-      {v.turns.map((t, i) => <Turn key={t.id} t={t} n={i} />)}
-    </section>
-  );
-}
-
-export function SessionTab() {
+export function SessionTab({ onViewContext }: { onViewContext: () => void }) {
   const [st, setSt] = useState(state);
+  const [sessionId, setSessionId] = useState('');
+  const [turnId, setTurnId] = useState('');
+  const [filter, setFilter] = useState<Filter>('All');
   useEffect(() => {
-    const l = () => setSt(state);
-    listeners.add(l);
+    const listener = () => setSt(state);
+    listeners.add(listener);
+    listener();
     post({ type: 'sessionLoad' });
-    return () => { listeners.delete(l); };
+    return () => { listeners.delete(listener); };
   }, []);
   useEffect(() => {
     if (!st.loaded || st.error || !st.sessions.some(session => !session.sealed &&
-      session.turns.some(turn => !['done', 'cancelled', 'error', 'failed'].includes(turn.status)))) return;
+      session.turns.some(turn => !terminal.has(turn.status)))) return;
     const timer = window.setTimeout(() => post({ type: 'sessionLoad', sessionIds: st.selected }), 3000);
     return () => window.clearTimeout(timer);
   }, [st]);
-  const current = st.selected.length && st.recent.some((r) => r.id === st.selected[0]) ? st.selected[0] : '';
-  return (
-    <div style={s.root}>
-      <div className="row">
-        <select aria-label="Session" value={current} onChange={(e) => post(e.target.value ? { type: 'sessionLoad', sessionIds: [e.target.value] } : { type: 'sessionLoad' })} style={{ flex: 1, minWidth: 0 }}>
+
+  const current = st.recent.some(r => r.id === st.selected[0]) ? st.selected[0] : '';
+  const session = st.sessions.find(item => item.id === sessionId) ?? st.sessions.find(item => !item.sealed) ?? st.sessions[0];
+  const turn = session?.turns.find(item => item.id === turnId) ?? session?.turns.at(-1);
+  const load = (id: string) => {
+    setSessionId('');
+    setTurnId('');
+    post(id ? { type: 'sessionLoad', sessionIds: [id] } : { type: 'sessionLoad' });
+  };
+
+  return <section className="session-explorer" aria-label="Session explorer">
+    <div className="session-toolbar">
+      <label htmlFor="run-picker">Session</label>
+      <div className="control-row">
+        <select id="run-picker" value={current} onChange={event => load(event.target.value)}>
           <option value="">Current run</option>
-          {st.recent.map((r) => (
-            <option key={r.id} value={r.id}>{`${r.agent} · ${(r.title ?? r.id).slice(0, 40)} · ${when(r.createdAt)}${r.status ? ` · ${r.status}` : ''}`}</option>
-          ))}
+          {st.recent.map(item => <option key={item.id} value={item.id}>
+            {item.title ?? item.agent} · {when(item.createdAt)}
+          </option>)}
         </select>
-        <button className="btn secondary" onClick={() => post(current ? { type: 'sessionLoad', sessionIds: [current] } : { type: 'sessionLoad' })}>Refresh</button>
+        <button className="btn secondary" type="button" onClick={() => post(current ? { type: 'sessionLoad', sessionIds: [current] } : { type: 'sessionLoad' })}>Refresh</button>
       </div>
-      {st.error && <div style={s.err} role="alert">Could not load sessions: {st.error}</div>}
-      {st.loaded && !st.error && st.sessions.length === 0 && <div style={s.muted}>No session yet. Send a request in the Chat tab, or pick a recent session above.</div>}
-      {!st.loaded && <div style={s.muted}>Loading...</div>}
-      {st.sessions.map((v) => <Session key={v.id} v={v} />)}
     </div>
-  );
+    {st.error && <p className="err" role="alert">{st.error}</p>}
+    {!st.loaded && <p className="muted" role="status">Loading sessions…</p>}
+    {st.loaded && !st.error && !session && <p className="muted">Start a chat or choose a recent session.</p>}
+    {session && <>
+      <header className="session-header">
+        <div><strong>{session.agent}</strong><div className="muted">{session.model ?? 'Model unavailable'}</div></div>
+        {!current && <button className="inline-action" type="button" onClick={onViewContext}>View context</button>}
+      </header>
+      {st.sessions.length > 1 && <label className="session-field">Run session
+        <select aria-label="Run session" value={session.id} onChange={event => { setSessionId(event.target.value); setTurnId(''); }}>
+          {st.sessions.map(item => <option key={item.id} value={item.id}>{item.agent} · {item.role}{item.sealed ? ' · closed' : ''}</option>)}
+        </select>
+      </label>}
+      {turn ? <>
+        <label className="session-field">Turn
+          <select aria-label="Turn" value={turn.id} onChange={event => setTurnId(event.target.value)}>
+            {session.turns.map((item, index) => <option key={item.id} value={item.id}>Turn {index + 1} · {readableStatus(item.status)}</option>)}
+          </select>
+        </label>
+        <div className="filter-bar" role="group" aria-label="Filter activity">
+          {filters.map(item => <button type="button" key={item} aria-pressed={item === filter} onClick={() => setFilter(item)}>
+            {item}{item !== 'All' && <span>{turn.entries.filter(entry => group(entry) === item).length}</span>}
+          </button>)}
+        </div>
+        <SessionTurn key={`${turn.id}:${filter}`} turn={turn} filter={filter} />
+      </> : <p className="muted">This session has no recorded turns.</p>}
+      <details className="session-metadata">
+        <summary>Session details</summary>
+        <dl>
+          <dt>Session ID</dt><dd><code>{session.id}</code></dd>
+          <dt>Started</dt><dd>{when(session.createdAt)}</dd>
+          <dt>Route</dt><dd>{session.role}{session.sealed && ' · closed'}</dd>
+          {turn && <><dt>Turn ID</dt><dd><code>{turn.id}</code></dd></>}
+          {turn?.costUsd !== undefined && <><dt>Estimated cost</dt><dd>${turn.costUsd.toFixed(4)}</dd></>}
+        </dl>
+      </details>
+    </>}
+    <details className="session-metadata">
+      <summary>Trace actions</summary>
+      <div className="control-row">
+        <button className="btn secondary" type="button" onClick={() => post({ type: 'reviewAction', action: 'replay' })}>Replay run</button>
+        <button className="btn secondary" type="button" onClick={() => post({ type: 'reviewAction', action: 'import' })}>Import trace</button>
+      </div>
+    </details>
+  </section>;
 }

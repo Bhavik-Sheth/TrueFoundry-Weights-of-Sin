@@ -16,6 +16,7 @@
  * unit-tested with Vitest.
  * Depends on: @modelcontextprotocol/sdk, node:http, node:crypto, node:path. Depended on by: extension.
  */
+import { workspaceRoot } from '../shell/workspaceRoot';
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
@@ -82,7 +83,7 @@ export async function assertNativeWorkspacePath(root: string, relative: string):
 export function resolveInWorkspace(p: string): string {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof vscode;
-  const folder = vs.workspace.workspaceFolders?.[0];
+  const folder = workspaceRoot();
   if (!folder) throw new Error('NO_WORKSPACE: open a folder first');
   return resolveUnder(folder.uri.fsPath, p);
 }

@@ -152,7 +152,7 @@ export class SqliteJournal {
     if (!db.prepare('SELECT 1 FROM journal_runs WHERE run_id = ?').get(runId)) return;
     const recent = db.prepare(`SELECT record FROM journal_events WHERE run_id = ?
       AND json_extract(record, '$.evidence.kind') = ? ORDER BY sequence DESC LIMIT ?`);
-    return (['context', 'proposal', 'check'] as const).flatMap(kind =>
+    return (['context', 'proposal', 'check', 'batch-plan'] as const).flatMap(kind =>
       recent.all(runId, kind, kind === 'check' ? 6 : 1).map(row => JSON.parse(String(row.record)) as RunRecord));
   }
 

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { bm25Rank, symbolNameMatch, tokenize } from '../src/context/search';
 import { assembleContext, buildGraph, expandOneHop, extractAnchors, formatForModel, pack, rrfFuse } from '../src/context/assembler';
 import type { Candidate } from '../src/context/assembler';
+import { sourceWindow } from '../src/context/sourceWindow';
 import { count, previewSelection } from '../src/context/tokens';
 import { samplePacket } from '../src/dev/fixtures';
 import type { IndexApi } from '../src/context/indexer';
@@ -71,6 +72,17 @@ describe('formatForModel + count', () => {
     expect(count(preview.text)).toBeLessThanOrEqual(1600);
     expect(previewSelection('def example():\n    return 1')).toEqual({ text: 'def example():\n    return 1', truncated: false });
     expect(count('<|endoftext|>')).toBeGreaterThan(1);
+  });
+  it('keeps exact current line endings and accounts for MCP JSON escaping', () => {
+    expect(sourceWindow('a.py', 'first\r\nsecond\r\n', 2, 2)).toMatchObject({
+      text: 'second\r\n', totalLines: 2, truncated: false,
+    });
+    expect(() => sourceWindow('a.py', 'first', 2, 1)).toThrow('endLine');
+    const long = '\"'.repeat(15_000);
+    const read = sourceWindow('a.py', long, 1, 1);
+    expect(read.truncated).toBe(true);
+    expect(long.startsWith(read.text)).toBe(true);
+    expect(JSON.stringify(JSON.stringify(read)).length).toBeLessThanOrEqual(20_000);
   });
   it('count returns a positive integer that grows with text length', () => {
     const n = count('abcdefgh');
@@ -225,6 +237,13 @@ describe('assembleContext (in-memory index)', () => {
     const rg = async (t: string) => (t === 'unrelated' ? [{ path: 'src/app/other.py', line: 2, preview: 'x' }] : []);
     const p = await assembleContext({ request: 'look at unrelated', runId: 'r', rg }, fakeIndex(SYMS));
     expect(p.excerpts.some((e) => e.id === 'src/app/other.py#unrelated')).toBe(true);
+  });
+  it('keeps task evidence ahead of model-supplied search hints', async () => {
+    const p = await assembleContext({ request: 'Add a routes command to the CLI', runId: 'r',
+      budget: 1800, mentions: ['unrelated', 'JSON output'], rg: noRg }, fakeIndex(SYMS));
+    expect(p.excerpts[0].path).not.toBe('src/app/other.py');
+    expect(p.excerpts.every(excerpt => excerpt.reasons.every(reason => reason.kind !== 'mention'))).toBe(true);
+    expect(p.excerpts.map(excerpt => excerpt.path)).toEqual(expect.arrayContaining(['src/app/cli.py', 'tests/test_cli.py', 'docs/cli.rst']));
   });
   it('a mention comes first as a mandatory excerpt', async () => {
     const p = await assembleContext({ request: 'explain it', mentions: ['@unrelated'], runId: 'r', rg: noRg }, fakeIndex(SYMS));

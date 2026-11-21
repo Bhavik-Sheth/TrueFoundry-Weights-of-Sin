@@ -12,6 +12,7 @@
  * so this module is importable under Vitest.
  * Depends on: types, node:child_process. Depended on by: context/indexer, context/assembler, mcp/tools.
  */
+import { workspaceRoot } from '../shell/workspaceRoot';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -124,7 +125,7 @@ export function resolveRgPath(appRoot?: string): string {
 export function vscodeRgContext(): { rgPath: string; cwd?: string } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
-  return { rgPath: resolveRgPath(vs.env.appRoot), cwd: vs.workspace.workspaceFolders?.[0]?.uri.fsPath };
+  return { rgPath: resolveRgPath(vs.env.appRoot), cwd: workspaceRoot()?.uri.fsPath };
 }
 
 export interface RgOptions { glob?: string; max?: number; cwd?: string; rgPath?: string }

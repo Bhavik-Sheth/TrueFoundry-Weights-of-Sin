@@ -11,6 +11,7 @@
  * ([INLINE EDIT] ...) is built by RunManager/Slice 3, not here.
  * Depends on: types, review/proposal (sha256), run/runManager (type). Depended on by: extension.
  */
+import { workspaceRoot } from './workspaceRoot';
 import * as vscode from 'vscode';
 import type { Selection } from '../types';
 import type { RunManager } from '../run/runManager';
@@ -45,7 +46,7 @@ export function registerInlineEdit(ctx: vscode.ExtensionContext, runs: RunManage
         void vscode.window.showInformationMessage('Contexo: a run is already active. Stop it first.');
         return;
       }
-      const root = vscode.workspace.workspaceFolders?.[0];
+      const root = workspaceRoot();
       if (!root || vscode.workspace.getWorkspaceFolder(editor.document.uri)?.uri.toString() !== root.uri.toString()) {
         void vscode.window.showWarningMessage('Open the folder containing this file as the Contexo workspace to edit the selection.');
         return;

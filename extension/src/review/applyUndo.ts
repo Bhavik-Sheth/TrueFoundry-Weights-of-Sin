@@ -17,6 +17,7 @@
  * Rules: in-memory history only (lost on reload, documented limitation). Paths are workspace-relative POSIX.
  * Depends on: vscode, diff, review/proposal, types, log. Depended on by: review/diffView, shell/panel.
  */
+import { workspaceRoot, hasNativeFiles } from '../shell/workspaceRoot';
 import * as vscode from 'vscode';
 import { applyPatch, formatPatch, parsePatch, reversePatch } from 'diff';
 import type { AppliedHunk, Hunk, ToWebview } from '../types';
@@ -25,7 +26,7 @@ import { sha256 } from './proposal';
 import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 
 function resolveUri(rel: string): vscode.Uri {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const root = workspaceRoot()?.uri;
   if (!root) throw new Error('No workspace folder open');
   resolveUnder(root.fsPath, rel);
   return vscode.Uri.joinPath(root, ...rel.split('/'));
@@ -79,19 +80,18 @@ export class UndoStack {
   }
 
   private async saveHistory(): Promise<void> {
-    const hunks = this.list();
-    this.post({ type: 'changes', hunks });
-    await this.storage?.update('review.history.v1', hunks);
+    this.post({ type: 'changes', hunks: this.list() });
+    await this.storage?.update('review.history.v1', this.history);
   }
 
   async applyFiles(m: Map<string, string>, expected?: ReadonlyMap<string, string>): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
     if (!m.size) return;
     const docs: Array<{ uri: vscode.Uri; text: string; document?: vscode.TextDocument; version?: number }> = [];
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const root = workspaceRoot()?.uri;
     for (const [rel, text] of m) {
       const uri = resolveUri(rel);
-      if (root?.scheme === 'file') await assertNativeWorkspacePath(root.fsPath, rel);
+      if (root && hasNativeFiles(root)) await assertNativeWorkspacePath(root.fsPath, rel);
       let existing: vscode.TextDocument | undefined;
       try {
         existing = await vscode.workspace.openTextDocument(uri);
@@ -111,7 +111,7 @@ export class UndoStack {
       }
       docs.push({ uri, text, document: existing, version: existing?.version });
     }
-    if (vscode.workspace.workspaceFolders?.[0]?.uri.toString() !== root?.toString()) {
+    if (workspaceRoot()?.uri.toString() !== root?.toString()) {
       throw new Error('The workspace changed before apply.');
     }
     for (const entry of docs) {
@@ -124,7 +124,8 @@ export class UndoStack {
     for (const { uri, text } of docs) {
       const doc = await vscode.workspace.openTextDocument(uri);
       if (!await doc.save()) throw new Error('Could not save ' + uri.fsPath);
-      if (sha256(doc.getText()) !== sha256(text)) {
+      const disk = new TextDecoder('utf-8', { fatal: true }).decode(await vscode.workspace.fs.readFile(uri));
+      if (doc.getText() !== text || disk !== text) {
         throw new Error('The saved file differs from the reviewed text: ' + uri.path);
       }
     }
@@ -140,7 +141,7 @@ export class UndoStack {
         newHeader: '',
         hunks: [{ oldStart: h.oldStart, oldLines: h.oldLines, newStart: h.newStart, newLines: h.newLines, lines: h.lines }],
       });
-      this.history.push({ hunkId: h.id, path: h.path, runId, patch, appliedAt: now, undone: false });
+      this.history.push({ hunkId: h.id, path: h.path, runId, workspaceUri: workspaceRoot()?.uri.toString(), patch, appliedAt: now, undone: false });
     }
     await this.saveHistory();
   }
@@ -151,8 +152,9 @@ export class UndoStack {
   }
 
   private async change(id: string, undo: boolean): Promise<boolean> {
-    const rec = this.history.find((h) => h.hunkId === id);
+    const rec = this.history.find(h => h.hunkId === id && this.inWorkspace(h));
     if (!rec || rec.undone === undo) return false;
+    const root = workspaceRoot()?.uri.toString();
     let next: string | null;
     let currentHash = '';
     try {
@@ -167,6 +169,7 @@ export class UndoStack {
       void vscode.window.showWarningMessage(`Cannot ${undo ? 'undo' : 'redo'} automatically: ${rec.path} changed at this hunk`);
       return false;
     }
+    if (workspaceRoot()?.uri.toString() !== root) return false;
     await this.applyFiles(new Map([[rec.path, next]]), new Map([[rec.path, currentHash]]));
     rec.undone = undo;
     await this.saveHistory();
@@ -182,14 +185,19 @@ export class UndoStack {
   }
 
   async undoLastApply(): Promise<void> {
-    const live = this.history.filter((h) => !h.undone);
+    const live = this.history.filter(h => this.inWorkspace(h) && !h.undone);
     if (live.length === 0) return;
     const at = Math.max(...live.map((h) => h.appliedAt));
     const group = live.filter((h) => h.appliedAt === at).reverse();
     for (const h of group) await this.undoHunk(h.hunkId);
   }
 
+  private inWorkspace(hunk: AppliedHunk) {
+    return hunk.workspaceUri ? hunk.workspaceUri === workspaceRoot()?.uri.toString()
+      : (vscode.workspace.workspaceFolders?.length ?? 0) <= 1;
+  }
+
   list(): AppliedHunk[] {
-    return this.history.map((h) => ({ ...h }));
+    return this.history.filter(hunk => this.inWorkspace(hunk)).map((h) => ({ ...h }));
   }
 }

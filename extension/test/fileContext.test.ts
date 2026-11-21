@@ -92,3 +92,20 @@ test('reports untracked files and records a ranked, bounded file map in the mode
   expect(delivery.filePaths).toContain('parse.py');
   expect(delivery.serializedCharacters).toBeLessThanOrEqual(22_000);
 });
+
+test('reuses pinned history independently of dirty text and a new HEAD', async () => {
+  const folder = path.join(root, 'src');
+  const inspect = () => fileContextReader(folder, index).inspect({ path: 'parse.py' });
+  expect(await inspect()).toMatchObject({ lastCommit: { subject: 'Trim input before parsing' } });
+  await writeFile(path.join(folder, 'parse.py'), liveSource);
+  expect(await inspect()).toMatchObject({
+    lastCommit: { subject: 'Trim input before parsing' },
+    changes: { status: 'modified', added: 1, removed: 1 },
+  });
+  git('commit', '-qam', 'Normalize input before parsing');
+  expect(await inspect()).toMatchObject({
+    lastCommit: { subject: 'Normalize input before parsing' },
+    changes: { status: 'unchanged' },
+    previousChanges: { status: 'modified', added: 1, removed: 1 },
+  });
+});

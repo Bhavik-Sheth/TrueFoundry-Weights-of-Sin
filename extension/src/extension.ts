@@ -12,6 +12,7 @@
  * Depends on: config, log, types, shell/*, run/*, mcp/*, context/*, review/*, dev/*.
  * Depended on by: VS Code (package.json "main" via dist/extension.js).
  */
+import { workspaceRoot, hasNativeFiles, selectWorkspaceRoot } from './shell/workspaceRoot';
 import * as vscode from 'vscode';
 import { getConfig } from './config';
 import { log } from './log';
@@ -21,7 +22,7 @@ import { StatusBar } from './shell/statusBar';
 import { startIndexing } from './context/indexer';
 import { registerImpact } from './context/impact';
 import { registerWorkbench } from './review/workbench';
-import { registerReview } from './review/diffView';
+import { readLive, registerReview } from './review/diffView';
 import { createSessionInspector, createTfClient } from './run/tfClient';
 import { registerAssistant } from './shell/chatParticipant';
 import { RunManager } from './run/runManager';
@@ -29,7 +30,7 @@ import { createAdmin } from './run/trueforgeAdmin';
 import { RunRoutes } from './mcp/runRoutes';
 import { reviewCheckpointKey } from './run/reviewCheckpoint';
 import type { ReviewCheckpoint } from './run/reviewCheckpoint';
-import { getOrCreateToken, startServer } from './mcp/server';
+import { assertNativeWorkspacePath, getOrCreateToken, startServer } from './mcp/server';
 import type { McpHandle } from './mcp/server';
 import { makeToolRegistrar } from './mcp/tools';
 import { registerInlineEdit } from './shell/inlineEdit';
@@ -38,6 +39,7 @@ import { registerDevCommands } from './dev/devCommands';
 import { SetupController } from './shell/setupController';
 import { SessionController } from './shell/sessionController';
 
+import { BatchPlans, proposalOutput } from './run/batchPlan';
 import { RunJournal } from './run/journal';
 import { registerReplay } from './replay/commands';
 import { registerEvidence } from './review/evidence';
@@ -65,6 +67,9 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const post = (m: ToWebview) => panel.post(m);
   const status = new StatusBar();
   ctx.subscriptions.push(status);
+  const savedRoot = ctx.workspaceState.get<string>('contexo.selectedWorkspace');
+  const initialRoot = vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === savedRoot);
+  if (initialRoot) selectWorkspaceRoot(initialRoot.uri);
   const index = startIndexing();
   registerImpact(ctx);
   const review = registerReview(ctx, post);
@@ -88,6 +93,21 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     ? new RunJournal(journalDirectory, error => console.error('Contexo run recording failed', error))
     : undefined;
   journalRef = journal;
+  review.flushEvidence = journal ? () => journal.flush() : undefined;
+  const batchPlans = new Map<string, BatchPlans>();
+  const batchesFor = (workspace?: string) => {
+    const root = vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === workspace)?.uri;
+    if (!workspace || !root || !journal) return undefined;
+    let batches = batchPlans.get(workspace);
+    if (!batches) {
+      batches = new BatchPlans(journal, workspace, path => readLive(path, root));
+      batchPlans.set(workspace, batches);
+    }
+    return batches;
+  };
+  review.validateProposal = async (run, args) => {
+    if (run.origin !== 'external') await batchesFor(run.workspaceUri)?.assertScope(run, args.edits);
+  };
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.compareProposalImpact', async () => {
     const proposal = review.pending;
     if (!proposal) throw new Error('Open a proposal and accept the hunks to compare.');
@@ -115,6 +135,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     kind: 'proposal',
     proposal: { key: p.key, toolCallId: p.toolCallId, hunks: p.hunks, status: p.status, result: p.result },
     bases: p.files.map(file => ({ path: file.path, hash: file.baseHash })),
+    output: p.status === 'applied' ? proposalOutput(p) : undefined,
     });
   };
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.openRunRecord', async () => {
@@ -167,7 +188,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   }));
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.checkCandidate', async () => {
     const proposal = review.pending;
-    const root = vscode.workspace.workspaceFolders?.[0];
+    const root = workspaceRoot();
     if (!proposal || !root) throw new Error('Open a proposal and accept the hunks to test first.');
     const answer = await vscode.window.showWarningMessage('Run pytest on a temporary copy with accepted hunks? Tests run with your local account permissions.', { modal: true }, 'Run pytest');
     if (answer !== 'Run pytest') return;
@@ -184,7 +205,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       throw error;
     }
   }));
-  const rootId = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+  const rootId = () => workspaceRoot()?.uri.toString();
   let agentBridge: EditorAgentBridge | undefined;
   const runs = new RunManager({
     record: journal?.record, flushEvidence: journal ? () => journal.flush() : undefined,
@@ -192,9 +213,32 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     askCommandApproval: async (argv) =>
       (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, 'Allow', 'Deny')) === 'Allow',
   });
+  let indexedRoot = rootId();
+  ctx.subscriptions.push(vscode.commands.registerCommand('contexo.selectWorkspaceRoot', async (uri?: vscode.Uri) => {
+    const folders = vscode.workspace.workspaceFolders?.filter(folder => hasNativeFiles(folder.uri)) ?? [];
+    const choices = folders.map(folder => ({
+      label: folder.name, description: folder.uri.fsPath, folder,
+    }));
+    const picked = uri ? choices.find(choice => choice.folder.uri.toString() === uri.toString())
+      : await vscode.window.showQuickPick(choices, { placeHolder: 'Choose the workspace folder Contexo should use' });
+    if (!picked || picked.folder.uri.toString() === rootId()) return;
+    const state = runs.active?.state;
+    if (review.pending || review.isApplying || state === 'streaming' || state === 'awaiting-review') {
+      throw new Error('Finish the current run or review before switching workspace folders.');
+    }
+    selectWorkspaceRoot(picked.folder.uri);
+    indexedRoot = rootId();
+    post({ type: 'changes', hunks: review.undo.list() });
+    await Promise.all([index.reindexAll(), ctx.workspaceState.update('contexo.selectedWorkspace', indexedRoot)]);
+  }));
   ctx.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
     const run = runs.active;
     if (run?.workspaceUri && run.workspaceUri !== rootId()) void runs.stop();
+    if (indexedRoot !== rootId()) {
+      indexedRoot = rootId();
+      post({ type: 'changes', hunks: review.undo.list() });
+      void index.reindexAll();
+    }
   }));
   const ask = async (provided?: string) => {
     const text = typeof provided === 'string' ? provided : await vscode.window.showInputBox({ prompt: 'What should the Contexo assistant do?' });
@@ -250,7 +294,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       token: agentToken,
       registerTools: makeToolRegistrar({ index, review, runs, post }, { external: agentBridge }),
     } : undefined,
-    registerTools: (server, route) => makeToolRegistrar({ index, review, runs, post, journal }, { requireRoute: true, route })(server),
+    registerTools: (server, route) => makeToolRegistrar({ index, review, runs, post, journal, batchesFor }, { requireRoute: true, route })(server),
   });
   mcpHandle = mcp;
   routeConfig.port = mcp.port;
@@ -313,11 +357,21 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           void runs.stop();
           break;
         case 'openSource': {
-          const folder = vscode.workspace.workspaceFolders?.[0];
+          const folder = workspaceRoot();
           if (!folder) break;
-          const uri = vscode.Uri.joinPath(folder.uri, m.path);
-          const line = Math.max(0, m.line - 1);
-          void vscode.window.showTextDocument(uri, { selection: new vscode.Range(line, 0, line, 0) });
+          if (typeof m.path !== 'string' || !m.path || /[\x00-\x1f\\:]/.test(m.path) ||
+              m.path.startsWith('/') || m.path.split('/').some(part => part === '..' || part === '.git') ||
+              !Number.isSafeInteger(m.line) || m.line < 1) break;
+          const line = m.line - 1;
+          void (async () => {
+            try {
+              if (hasNativeFiles(folder.uri)) await assertNativeWorkspacePath(folder.uri.fsPath, m.path);
+              const uri = vscode.Uri.joinPath(folder.uri, m.path);
+              await vscode.window.showTextDocument(uri, { selection: new vscode.Range(line, 0, line, 0) });
+            } catch {
+              void vscode.window.showWarningMessage('Contexo could not open this workspace source reference.');
+            }
+          })();
           break;
         }
         case 'undo':

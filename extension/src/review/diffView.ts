@@ -27,7 +27,9 @@
  * Rules: nothing reaches disk until Apply accepted.
  * Depends on: review/proposal, review/guards, review/applyUndo, types, log. Depended on by: run/runManager, mcp/tools, extension.
  */
+import { workspaceRoot, hasNativeFiles } from '../shell/workspaceRoot';
 import * as vscode from 'vscode';
+import { buildProposalFiles } from './editBatch';
 import type { Hunk, Proposal, ProposeArgs, Run, Sha, ToWebview } from '../types';
 import type { IndexApi } from '../context/indexer';
 import { log } from '../log';
@@ -35,7 +37,7 @@ import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 import { UndoStack, pickHunk } from './applyUndo';
 import { addedLines, scopeGuard, symbolCheck } from './guards';
 import {
-  acceptedCount, applyEditExact, buildHunks, computeResult, once, proposalKey, rebuildFile, setAllDecisions,
+  acceptedCount, buildHunks, computeResult, once, proposalKey, rebuildFile, setAllDecisions,
   setHunkDecision, sha256,
 } from './proposal';
 
@@ -62,24 +64,28 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function resolveWorkspaceUri(rel: string): vscode.Uri {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+function resolveWorkspaceUri(rel: string, root = workspaceRoot()?.uri): vscode.Uri {
   if (!root) throw new Error('PATH_ERROR: no workspace folder open');
   resolveUnder(root.fsPath, rel);
   return vscode.Uri.joinPath(root, ...rel.split('/'));
 }
 
 /** Live text: open (possibly dirty) document if any, else disk. undefined = file does not exist. */
-async function readLive(rel: string): Promise<string | undefined> {
-  const uri = resolveWorkspaceUri(rel);
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-  if (root?.scheme === 'file') await assertNativeWorkspacePath(root.fsPath, rel);
+export async function readLive(rel: string, root = workspaceRoot()?.uri): Promise<string | undefined> {
+  if (!root) throw new Error('Open a workspace folder.');
+  resolveUnder(root.fsPath, rel);
+  const uri = vscode.Uri.joinPath(root, ...rel.split('/'));
+  if (root && hasNativeFiles(root)) await assertNativeWorkspacePath(root.fsPath, rel);
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
-  if (open) return open.getText();
+  return open ? open.getText() : readDisk(uri);
+}
+
+async function readDisk(uri: vscode.Uri): Promise<string | undefined> {
   try {
-    return Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
-  } catch {
-    return undefined;
+    return new TextDecoder('utf-8', { fatal: true }).decode(await vscode.workspace.fs.readFile(uri));
+  } catch (error) {
+    if ((error as { code?: string }).code === 'FileNotFound') return undefined;
+    throw error;
   }
 }
 
@@ -98,6 +104,8 @@ export class ReviewEngine {
   index?: IndexApi;
 
   persistDecision?: (proposal: Proposal, run: Run) => PromiseLike<void>;
+  validateProposal?: (run: Run, args: ProposeArgs) => PromiseLike<void>;
+  flushEvidence?: () => PromiseLike<void>;
   validateApply?: (proposal: Proposal) => PromiseLike<void>;
   onProposal?: (p: Proposal) => void;
   private proposals = new Map<Sha, Proposal>();
@@ -134,48 +142,13 @@ export class ReviewEngine {
     if (!args || !Array.isArray(args.edits) || args.edits.length === 0) return { deny: 'INVALID_ARGS: edits must be a non-empty array.' };
     const key = run.origin === 'external' ? sha256(run.id + proposalKey(args)) : proposalKey(args);
 
-    // Group edits by path, preserving order; chain several edits on the same file.
-    const order: string[] = [];
-    const byPath = new Map<string, { baseHash: Sha; base: string; text: string }>();
+    let files: Proposal['files'];
     try {
-      for (const e of args.edits) {
-        let st = byPath.get(e.path);
-        if (!st) {
-          const live = await readLive(e.path);
-          if (e.baseHash === 'new') {
-            if (live !== undefined) {
-              return { deny: `FILE_EXISTS ${e.path}: baseHash "new" but the file already exists. Use read_file and its hash.` };
-            }
-            st = { baseHash: 'new', base: '', text: '' };
-          } else {
-            if (live === undefined) {
-              return { deny: `FILE_NOT_FOUND ${e.path}: file does not exist. For a new file use baseHash "new" and oldText "".` };
-            }
-            const h = sha256(live);
-            if (h !== e.baseHash) return { deny: `STALE_BASE ${e.path}: file changed (current hash ${h}). Re-read and retry.` };
-            st = { baseHash: e.baseHash, base: live, text: live };
-          }
-          byPath.set(e.path, st);
-          order.push(e.path);
-        } else if (e.baseHash !== st.baseHash) {
-          return { deny: `STALE_BASE ${e.path}: edits for the same file must share one baseHash.` };
-        }
-        try {
-          st.text = applyEditExact(st.text, e.oldText, e.newText);
-        } catch (err) {
-          return { deny: `${errText(err)} (${e.path})` };
-        }
-      }
+      await this.validateProposal?.(run, args);
+      files = await buildProposalFiles(args.edits, readLive);
     } catch (err) {
       return { deny: errText(err) };
     }
-
-    const files: Proposal['files'] = order
-      .map((p) => {
-        const s = byPath.get(p)!;
-        return { path: p, base: s.base, proposed: s.text, baseHash: s.baseHash };
-      })
-      .filter((f) => f.base !== f.proposed);
     if (files.length === 0) return { deny: 'NO_CHANGE: the proposed edits do not change any file.' };
 
     const hunks: Hunk[] = files.flatMap((f) => buildHunks(f.path, f.base, f.proposed, f.baseHash));
@@ -256,7 +229,7 @@ export class ReviewEngine {
 
   private proposalFile(doc: vscode.TextDocument) {
     const proposal = this.pending;
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const root = workspaceRoot()?.uri;
     if (!proposal || !root || doc.uri.scheme !== root.scheme) return undefined;
     return proposal.files.find(file => file.baseHash !== 'new' &&
       vscode.Uri.joinPath(root, ...file.path.split('/')).toString() === doc.uri.toString());
@@ -303,32 +276,42 @@ export class ReviewEngine {
   }
 
   private applying = false;
+  get isApplying() { return this.applying; }
 
   async recoverApply(): Promise<void> {
-    const saved = this.storage?.get<{ root?: string; proposal?: Proposal; runId: string; hunks: Proposal['hunks']; files: Array<{ path: string; base: string; target: string }> }>('review.apply.v1');
+    const saved = this.storage?.get<{ root?: string; proposal?: Proposal; runId: string; hunks: Proposal['hunks']; files: Array<{ path: string; base: string; target: string; diskBase?: string }> }>('review.apply.v1');
     if (!saved || this.applying) return;
-    if (saved.root && saved.root !== vscode.workspace.workspaceFolders?.[0]?.uri.toString()) {
+    const root = workspaceRoot()?.uri;
+    if (!root || (saved.root && saved.root !== root.toString())) {
       throw new Error('Open the original workspace to recover this apply.');
     }
     this.applying = true;
     try {
       const pending = new Map<string, string>();
+      const expected = new Map<string, string>();
       for (const file of saved.files) {
-        const text = await readLive(file.path);
-        if (text === file.target) continue;
-        if ((text === undefined ? 'new' : sha256(text)) !== file.base) {
+        const text = await readLive(file.path, root);
+        const disk = await readDisk(resolveWorkspaceUri(file.path, root));
+        if (text === file.target && disk === file.target) continue;
+        const liveHash = text === undefined ? 'new' : sha256(text);
+        const diskHash = disk === undefined ? 'new' : sha256(disk);
+        if ((text !== file.target && liveHash !== file.base) ||
+            (disk !== file.target && diskHash !== (file.diskBase ?? file.base))) {
           throw new Error('Recovery paused because the file changed: ' + file.path);
         }
         pending.set(file.path, file.target);
+        expected.set(file.path, liveHash);
       }
-      if (pending.size) await this.undo.applyFiles(pending, new Map(saved.files.map(file => [file.path, file.base])));
+      if (workspaceRoot()?.uri.toString() !== root.toString()) throw new Error('The workspace changed during recovery.');
+      if (pending.size) await this.undo.applyFiles(pending, expected);
       const known = new Set(this.undo.list().filter(h => h.runId === saved.runId).map(h => h.hunkId));
       await this.undo.recordApplied(saved.runId, saved.hunks.filter(h => !known.has(h.id)));
-      await this.storage?.update('review.apply.v1', undefined);
       if (saved.proposal) {
         const applied = this.proposals.get(saved.proposal.key) ?? saved.proposal;
         this.finish(applied, 'applied', computeResult(applied.hunks));
+        await this.flushEvidence?.();
       }
+      await this.storage?.update('review.apply.v1', undefined);
     } finally {
       this.applying = false;
     }
@@ -348,6 +331,7 @@ export class ReviewEngine {
     this.applying = true;
     const resolve = this.resolvers.get(key)!;
     const run = this.runs.get(key)!;
+    const root = workspaceRoot()?.uri;
     try {
       await this.validateApply?.(p);
     } catch (error) {
@@ -357,7 +341,7 @@ export class ReviewEngine {
     try {
       if (p.status !== 'reviewing' || this.pending !== p) return;
       for (const f of p.files) {
-        const live = await readLive(f.path);
+        const live = await readLive(f.path, root);
         const ok = f.baseHash === 'new' ? live === undefined : live !== undefined && sha256(live) === f.baseHash;
         if (!ok) {
           this.finish(p, 'stale', { applied: [], rejected: p.hunks.map((h) => h.id) });
@@ -370,18 +354,26 @@ export class ReviewEngine {
         const text = rebuildFile(f.base, f.path, p.hunks);
         if (text !== f.base) out.set(f.path, text);
       }
+      const files = await Promise.all(p.files.filter(file => out.has(file.path)).map(async file => {
+        const disk = await readDisk(resolveWorkspaceUri(file.path, root));
+        return { path: file.path, base: file.baseHash, diskBase: disk === undefined ? 'new' : sha256(disk),
+          target: out.get(file.path)! };
+      }));
+      if (!root || workspaceRoot()?.uri.toString() !== root.toString()) throw new Error('The workspace changed before apply.');
       await this.storage?.update('review.apply.v1', {
-        root: vscode.workspace.workspaceFolders?.[0]?.uri.toString(),
+        root: root.toString(),
         proposal: structuredClone(p),
-        runId: run.id, hunks: p.hunks.filter(h => h.decision === 'accepted'),
-        files: p.files.filter(f => out.has(f.path)).map(f => ({ path: f.path, base: f.baseHash, target: out.get(f.path)! })),
+        runId: run.id, hunks: p.hunks.filter(h => h.decision === 'accepted'), files,
       });
       if (p.status !== 'reviewing' || this.pending !== p) {
         await this.storage?.update('review.apply.v1', undefined);
         return;
       }
+      if (workspaceRoot()?.uri.toString() !== root.toString()) throw new Error('The workspace changed before apply.');
       await this.undo.applyFiles(out, new Map(p.files.map(file => [file.path, file.baseHash])));
       await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
+      this.finish(p, 'applied', computeResult(p.hunks));
+      await this.flushEvidence?.();
       await this.storage?.update('review.apply.v1', undefined);
     } catch (err) {
       log('applyAccepted failed', errText(err));
@@ -396,7 +388,6 @@ export class ReviewEngine {
     } finally {
       this.applying = false;
     }
-    this.finish(p, 'applied', computeResult(p.hunks));
     resolve(true);
     const applied = p.hunks.find(hunk => hunk.decision === 'accepted');
     if (applied) {

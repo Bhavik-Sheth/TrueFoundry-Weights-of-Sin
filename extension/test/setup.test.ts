@@ -41,14 +41,15 @@ describe('setup flow needs no TrueForge web UI', () => {
     expect(isSetupComplete(s)).toBe(true);
     expect(Object.keys(s).some((k) => /url/i.test(k))).toBe(false);
   });
-  it('the webview has no required "Open TrueForge" step (only the advanced link in Settings)', async () => {
+  it('offers Open TrueForge only in Runtime settings', async () => {
     const { readFileSync } = await import('node:fs');
     const setup = readFileSync(new URL('../webview/src/SetupView.tsx', import.meta.url), 'utf8');
     const chat = readFileSync(new URL('../webview/src/ChatTab.tsx', import.meta.url), 'utf8');
-    expect(setup).not.toMatch(/>\s*Open TrueForge\s*</);
-    expect(chat).not.toMatch(/Open in TrueForge/);
-    expect((setup.match(/openTrueForge/g) ?? []).length).toBe(1);
-    expect(setup).toMatch(/Advanced: open TrueForge web UI/);
+    const [wizard, settings] = setup.split('export function SettingsTab');
+    expect(wizard).not.toContain('openTrueForge');
+    expect(chat).not.toContain('openTrueForge');
+    expect((settings.match(/openTrueForge/g) ?? []).length).toBe(1);
+    expect(settings).toMatch(/group === 'Runtime'[^\n]+openTrueForge/);
   });
 });
 

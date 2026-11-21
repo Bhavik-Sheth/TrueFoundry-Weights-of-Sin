@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { realpath, writeFile } from 'node:fs/promises';
 import { loadWorkspaceIndex } from '../../src/cli/index';
-import { applyReviewed, stage, workspaceText } from '../../src/cli/workspace';
+import { applyReviewed, search, stage, workspaceText } from '../../src/cli/workspace';
 import { assembleContext, prepareContextForModel } from '../../src/context/assembler';
 import { fileContextReader } from '../../src/context/fileContext';
 import { ripgrepSearch } from '../../src/context/search';
@@ -29,6 +29,28 @@ async function main() {
     const run: Run = { id: item.repo, mode: 'agent', request: item.query, sessionId: 'oss-probe',
       state: 'streaming', agent: 'contexo', sealedSessions: [] };
     const index = await loadWorkspaceIndex(root);
+    if (item.repo === 'flask') {
+      const prompts = [
+        { budget: 1800, request: 'Add a built-in Flask config command that prints the loaded app configuration as JSON. Replace each value for a key containing SECRET, PASSWORD, TOKEN, or KEY with three asterisks. Make the command visible in Flask help. Add a regression test and document the command. Run pytest for the CLI tests after the patch is reviewed.' },
+        { budget: 2200, request: 'Add a built-in Flask config command that prints the loaded app configuration as JSON. Replace values for keys containing SECRET, PASSWORD, TOKEN, or KEY with three asterisks. It must appear in flask --help. Add regression tests and CLI documentation.' },
+      ];
+      for (const input of prompts) {
+        const taskB = await assembleContext({ ...input, runId: 'flask-task-b', rg: async term =>
+          (await search(root, [term], 40)).flatMap(line => {
+            const match = /^(.+?):(\d+):(.*)$/.exec(line);
+            return match ? [{ path: match[1], line: Number(match[2]), preview: match[3] }] : [];
+          }) }, index);
+        await fileContextReader(root, index).addToPacket(taskB);
+        const { delivery: sent } = prepareContextForModel(taskB);
+        const paths = new Set(taskB.excerpts.filter(excerpt => sent.excerptIds.includes(excerpt.id)).map(excerpt => excerpt.path));
+        for (const target of ['src/flask/cli.py', 'tests/test_cli.py', 'docs/cli.rst']) {
+          assert.ok(paths.has(target), `Task B omitted ${target}; delivered ${[...paths].join(', ')}`);
+          assert.ok(sent.filePaths.includes(target), `Task B file map omitted ${target}; delivered ${sent.filePaths.join(', ')}`);
+        }
+        console.log(JSON.stringify({ task: 'Flask Task B, no file mentions', budget: input.budget, paths: [...paths],
+          excerptTokens: sent.excerptTokens, packetTokens: sent.packetTokens, fileMap: sent.filePaths }));
+      }
+    }
     const packet = await assembleContext({ request: item.query, runId: run.id, budget: 1300,
       rg: term => ripgrepSearch(term, { cwd: root, rgPath, max: 50 }) }, index);
     await fileContextReader(root, index).addToPacket(packet);

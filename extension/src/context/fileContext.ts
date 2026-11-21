@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { open } from 'node:fs/promises';
+import { posix } from 'node:path';
 import { promisify } from 'node:util';
 import { structuredPatch } from 'diff';
 import { z } from 'zod';
@@ -68,7 +69,33 @@ async function snapshot(root: string): Promise<Snapshot | undefined> {
   if (prefix !== undefined) return { commit, prefix: prefix.replace(/\r?\n$/, '') };
 }
 
-async function blob(root: string, commit: string, path: string): Promise<Source> {
+function cachedGit<T>(cache: Map<string, Promise<T>>, key: string, limit: number, read: () => Promise<T>, reusable: (result: T) => boolean) {
+  const cached = cache.get(key);
+  if (cached) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
+  const result = read().then(value => {
+    if (!reusable(value) && cache.get(key) === result) cache.delete(key);
+    return value;
+  }, error => {
+    if (cache.get(key) === result) cache.delete(key);
+    throw error;
+  });
+  if (cache.size >= limit) cache.delete(cache.keys().next().value!);
+  cache.set(key, result);
+  return result;
+}
+
+// Only Git objects at pinned revisions are cached. Open buffers and disk contents are always reread.
+const blobCache = new Map<string, Promise<Source>>();
+function blob(root: string, commit: string, path: string): Promise<Source> {
+  const key = JSON.stringify([root, commit, path]);
+  return cachedGit(blobCache, key, 128, () => readBlob(root, commit, path), value => value.status !== 'unavailable');
+}
+
+async function readBlob(root: string, commit: string, path: string): Promise<Source> {
   try {
     return sourceText(await git(root, ['cat-file', 'blob', `${commit}:./${path}`], maxSourceBytes));
   } catch (error) {
@@ -84,9 +111,7 @@ const historyCache = new Map<string, Promise<History | undefined>>();
 
 function lastChange(root: string, head: Snapshot, path: string) {
   const key = JSON.stringify([root, head.commit, path]);
-  const cached = historyCache.get(key);
-  if (cached) return cached;
-  const pending = git(root, [
+  return cachedGit(historyCache, key, 512, () => git(root, [
     'log', '-1', '--follow', '--no-show-signature', '--format=%H%x00%P%x00%aI%x00%s',
     '--name-status', '-z', head.commit, '--', path,
   ]).then(text => {
@@ -99,13 +124,7 @@ function lastChange(root: string, head: Snapshot, path: string) {
       if (previousPath) resolveUnder(root, previousPath);
     }
     return { commit, date, subject: subject.slice(0, 260), parent: parent || undefined, previousPath };
-  }).catch(() => {
-    historyCache.delete(key);
-    return undefined;
-  });
-  if (historyCache.size >= 512) historyCache.delete(historyCache.keys().next().value!);
-  historyCache.set(key, pending);
-  return pending;
+  }), () => true).catch(() => undefined);
 }
 
 function comparable(source: Source): source is { status: 'text'; text: string } | { status: 'missing' } {
@@ -221,6 +240,19 @@ export function fileContextReader(root: string, index: IndexApi, editorText?: (a
       } catch {
         // Non-path mentions will still be handled by symbol retrieval.
       }
+    }
+    for (const excerpt of packet.excerpts) {
+      if (excerpt.priority && scoped.size < automaticFileLimit && !scoped.has(excerpt.path)) scoped.set(excerpt.path, []);
+    }
+    const implementation = packet.excerpts.find(excerpt => excerpt.category === 'impl');
+    const module = implementation && posix.basename(implementation.path, posix.extname(implementation.path));
+    for (const category of ['impl', 'test', 'docs'] as const) {
+      const candidates = packet.excerpts.filter(excerpt => excerpt.category === category);
+      const related = module && candidates.find(excerpt => category === 'docs'
+        ? excerpt.path.startsWith('docs/') && posix.basename(excerpt.path, posix.extname(excerpt.path)) === module
+        : category === 'test' && posix.basename(excerpt.path) === `test_${module}.py`);
+      const excerpt = related || candidates[0];
+      if (excerpt && scoped.size < automaticFileLimit && !scoped.has(excerpt.path)) scoped.set(excerpt.path, []);
     }
     for (const excerpt of packet.excerpts) {
       if (!scoped.has(excerpt.path) && scoped.size >= automaticFileLimit) continue;

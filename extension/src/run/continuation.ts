@@ -52,12 +52,19 @@ export function continuation(
   }
   const nextOffset = args.offset + 12;
   const selection = run.selection;
+  const batch = own.find(entry => entry.evidence.kind === 'batch-plan')?.evidence;
+  const batchPlan = batch?.kind === 'batch-plan' ? {
+    revision: batch.plan.revision,
+    completed: batch.plan.batches.filter(batch => !!batch.complete).length,
+    total: batch.plan.batches.length,
+  } : undefined;
   const packet = context?.evidence.kind === 'context' ? context.evidence : undefined;
   return {
     status: 'checkpoint',
     runId: run.id, sessionId: run.sessionId, state: run.state,
     goal: clip(run.request, 1250),
     selection: selection && { path: clip(selection.path, 160), startLine: selection.startLine, endLine: selection.endLine, hash: selection.hash },
+    batchPlan,
     lastContext: packet && {
       packetId: packet.packetId, journalSequence: context?.sequence, turnId: context?.turnId,
       sha256: packet.contentHash, estimatedTokens: packet.delivery.packetTokens,

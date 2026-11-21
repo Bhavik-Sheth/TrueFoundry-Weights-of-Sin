@@ -24,10 +24,8 @@ subscribe((m) => {
 });
 
 const s: Record<string, CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', gap: 10, padding: 8, color: 'var(--vscode-foreground)', fontFamily: 'var(--vscode-font-family)', fontSize: 'var(--vscode-font-size)' },
   muted: { color: 'var(--vscode-descriptionForeground)', fontSize: 12 },
   barOuter: { height: 8, background: 'var(--vscode-progressBar-background)', opacity: 0.25, borderRadius: 4 },
-  row: { padding: 6, border: '1px solid var(--vscode-panel-border)', borderRadius: 4, cursor: 'pointer' },
   chip: { display: 'inline-block', padding: '0 7px', borderRadius: 9, fontSize: 11, marginRight: 4, background: 'var(--vscode-badge-background)', color: 'var(--vscode-badge-foreground)' },
   reason: { display: 'inline-block', padding: '0 7px', borderRadius: 9, fontSize: 11, marginRight: 4, marginTop: 3, border: '1px solid var(--vscode-panel-border)', color: 'var(--vscode-descriptionForeground)' },
   mono: { fontFamily: 'var(--vscode-editor-font-family)' },
@@ -38,6 +36,7 @@ function reasonLabel(r: Reason): string {
   switch (r.kind) {
     case 'mention': return `you mentioned ${r.token}`;
     case 'selection': return 'your selection';
+    case 'feature-path': return `feature path ${r.term}`;
     case 'source-preview': return `search preview "${r.term}" (#${r.rank})`;
     case 'semantic': return `semantic match #${r.rank}`;
     case 'lexical': return `text match "${r.term}" (#${r.rank})`;
@@ -64,14 +63,14 @@ function BudgetBar({ used, budget }: { used: number; budget: number }) {
 
 function ExcerptRow({ e }: { e: Excerpt }) {
   return (
-    <div style={s.row} onClick={() => post({ type: 'openSource', path: e.path, line: e.startLine })}>
+    <button type="button" className="context-source" onClick={() => post({ type: 'openSource', path: e.path, line: e.startLine })}>
       <div>
         <span style={s.chip}>{e.category}</span>
         <span style={s.mono}>{e.path}:{e.startLine}-{e.endLine}</span>
         <span style={s.muted}> · ≈{e.tokens} tokens</span>
       </div>
       <div>{e.reasons.map((r, i) => <span key={i} style={s.reason}>{reasonLabel(r)}</span>)}</div>
-    </div>
+    </button>
   );
 }
 
@@ -146,6 +145,7 @@ function OmittedList({ items }: { items: ContextPacket['omitted'] }) {
 
 export function ContextTab() {
   const [packet, setPacket] = useState(latest);
+  const [fileFilter, setFileFilter] = useState('');
   useEffect(() => {
     const l = () => setPacket(latest);
     listeners.add(l);
@@ -153,31 +153,46 @@ export function ContextTab() {
     return () => { listeners.delete(l); };
   }, []);
 
-  if (!packet) return <div style={{ ...s.root, ...s.muted }}>No context assembled yet.</div>;
+  if (!packet) return <p className="muted">Context appears here after the agent assembles it.</p>;
+  const query = fileFilter.trim().toLowerCase();
+  const matches = (path: string) => path.toLowerCase().includes(query);
+  const files = packet.files?.filter(file => matches(file.path)) ?? [];
+  const delivery = packet.delivery;
+  const sent = delivery ? new Set(delivery.excerptIds) : undefined;
+  const excerpts = packet.excerpts.filter(excerpt => matches(excerpt.path) && (!sent || sent.has(excerpt.id)));
   return (
-    <div style={s.root}>
-      <div style={s.muted}>{packet.query}</div>
+    <section className="context-explorer" aria-label="Context explorer">
+      <header className="session-header"><div><strong>Context packet</strong><div className="muted">{packet.query}</div></div></header>
       <BudgetBar used={packet.used} budget={packet.budget} />
-      <ContextGraph packet={packet} />
-      {packet.delivery && <div style={s.muted}>
-        Sent to model: {packet.delivery.excerptIds.length} excerpts, ≈{packet.delivery.excerptTokens.toLocaleString()} source tokens,
-        {packet.delivery.packetTokens !== undefined && ` ≈${packet.delivery.packetTokens.toLocaleString()} tokens with packet metadata,`}
-        {' '}{packet.delivery.serializedCharacters.toLocaleString()} / {packet.delivery.characterLimit.toLocaleString()} serialized characters.
-        {packet.delivery.omittedExcerpts > 0 && ` Transport omitted ${packet.delivery.omittedExcerpts} excerpts.`}
-      </div>}
-      {!!packet.files?.length && <section aria-label="File map">
+      {delivery && <dl className="session-metrics">
+        <div><dt>Excerpts sent</dt><dd>{delivery.excerptIds.length}</dd></div>
+        <div><dt>Source tokens</dt><dd>≈{delivery.excerptTokens.toLocaleString()}</dd></div>
+        {delivery.packetTokens !== undefined && <div><dt>Packet tokens</dt><dd>≈{delivery.packetTokens.toLocaleString()}</dd></div>}
+      </dl>}
+      <label className="session-field">Filter by file
+        <input className="context-filter" type="search" value={fileFilter} onChange={event => setFileFilter(event.target.value)} />
+      </label>
+      {!!files.length && <section className="context-list" aria-label="File map">
         <strong>File map</strong>
-        {packet.files.map(file => <FileRow key={file.path} file={file}
-          delivered={packet.delivery?.filePaths?.includes(file.path)} />)}
+        {files.map(file => <FileRow key={file.path} file={file} delivered={delivery?.filePaths?.includes(file.path)} />)}
       </section>}
-      {packet.excerpts.filter(e => !packet.delivery || packet.delivery.excerptIds.includes(e.id))
-        .map((e) => <ExcerptRow key={e.id} e={e} />)}
-      {packet.delivery && packet.delivery.omittedExcerpts > 0 && <details>
-        <summary>Packed excerpts excluded by the transport limit</summary>
-        {packet.excerpts.filter(e => !packet.delivery!.excerptIds.includes(e.id))
-          .map(e => <ExcerptRow key={e.id} e={e} />)}
-      </details>}
-      <OmittedList items={packet.omitted} />
-    </div>
+      {!!excerpts.length && <section className="context-list" aria-label="Included excerpts">
+        <strong>{sent ? 'Sent to model' : 'Selected excerpts'}</strong>
+        {excerpts.map(excerpt => <ExcerptRow key={excerpt.id} e={excerpt} />)}
+      </section>}
+      {query && !files.length && !excerpts.length && <p className="muted">No files match this filter.</p>}
+      <details className="session-metadata"><summary>Context graph</summary><ContextGraph packet={packet} /></details>
+      <details className="session-metadata"><summary>Transport and omissions</summary>
+        <div className="activity-details">
+          {delivery && <p className="muted">{delivery.serializedCharacters.toLocaleString()} / {delivery.characterLimit.toLocaleString()} serialized characters.
+            {delivery.shortenedExcerptIds?.length ? ` ${delivery.shortenedExcerptIds.length} priority excerpts shortened for delivery.` : ''}
+            {delivery.omittedExcerpts > 0 && ` ${delivery.omittedExcerpts} excerpts excluded by the transport cap.`}
+          </p>}
+          {delivery?.omittedExcerpts ? packet.excerpts.filter(excerpt => !sent?.has(excerpt.id) && matches(excerpt.path))
+            .map(excerpt => <ExcerptRow key={excerpt.id} e={excerpt} />) : null}
+          <OmittedList items={packet.omitted.filter(item => matches(item.path))} />
+        </div>
+      </details>
+    </section>
   );
 }

@@ -42,9 +42,13 @@ export function corpusNeighbors(symbols: SymbolEntry[], terms: string[], limit: 
   }
   if (!query.size) return [];
   normalize(query);
-  return index.vectors.map((v, i) => {
-    let score = 0;
-    for (const [t, weight] of v) score += weight * (query.get(t) ?? 0);
-    return { symbol: symbols[i], score };
-  }).filter(x => x.score > 0.12).sort((a, b) => b.score - a.score || a.symbol.id.localeCompare(b.symbol.id)).slice(0, limit);
+  const scores = new Map<number, number>();
+  for (const [term, weight] of query) {
+    for (const id of index.postings.get(term) ?? []) {
+      scores.set(id, (scores.get(id) ?? 0) + weight * (index.vectors[id].get(term) ?? 0));
+    }
+  }
+  return [...scores].filter(([, score]) => score > 0.12)
+    .map(([id, score]) => ({ symbol: symbols[id], score }))
+    .sort((a, b) => b.score - a.score || a.symbol.id.localeCompare(b.symbol.id)).slice(0, limit);
 }

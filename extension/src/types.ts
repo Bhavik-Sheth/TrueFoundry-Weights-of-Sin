@@ -47,6 +47,7 @@ export interface SymbolEntry {
   endLine: number;
   decorators: string[];
   calls: string[];
+  boundCalls?: Array<{ spelling: string; module: string; name: string }>;
   imports: string[];
   text: string;
 }
@@ -55,7 +56,7 @@ export type Reason =
   | { kind: 'mention'; token: string }
   | { kind: 'selection' }
   | { kind: 'semantic'; rank: number }
-  | { kind: 'lexical' | 'source-preview'; term: string; rank: number }
+  | { kind: 'lexical' | 'source-preview' | 'feature-path'; term: string; rank: number }
   | { kind: 'symbol-name'; term: string; rank: number }
   | { kind: 'calls' | 'called-by' | 'registers' | 'tests' | 'documents'; from: string };
 
@@ -68,6 +69,8 @@ export interface Excerpt {
   tokens: number;
   score: number;
   reasons: Reason[];
+  priority?: boolean;
+  readRange?: { startLine: number; endLine: number };
   text: string;
 }
 
@@ -98,6 +101,7 @@ export interface FileContext {
 export interface ContextDelivery {
   excerptIds: string[];
   excerptTokens: number;
+  shortenedExcerptIds?: string[];
   packetTokens?: number;
   serializedCharacters: number;
   characterLimit: number;
@@ -132,7 +136,9 @@ export interface ContextPacket {
 export interface FileEdit {
   path: string;
   baseHash: Sha;
-  oldText: string;
+  oldText?: string;
+  startLine?: number;
+  endLine?: number;
   newText: string;
 }
 
@@ -161,6 +167,7 @@ export interface Proposal {
 }
 
 export interface AppliedHunk {
+  workspaceUri?: string;
   hunkId: string;
   path: string;
   runId: string;

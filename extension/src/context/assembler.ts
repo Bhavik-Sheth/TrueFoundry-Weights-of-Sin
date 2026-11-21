@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 /**
  * context/assembler.ts - C3 budgeted hybrid retrieval (assemble_context). The core novel file (criterion B1).
  *
@@ -199,13 +200,17 @@ export function extractAnchors(
       category: categoryOf({ path: sel.path }), text: sel.text, score: 1, reasons: [reason],
     });
   }
-  if (index) for (const m of mentions) mandatory.push(...mentionCandidates(m, terms, index, budget));
+  const anchors = mentions.filter(mention => mention.startsWith('@') || looksLikePath(mention));
+  if (index) for (const mention of anchors) mandatory.push(...mentionCandidates(mention, terms, index, budget));
+  // Tool clients may put search words in mentions. Only explicit anchors reserve source.
+  const hints = extractTerms(mentions.filter(mention => !anchors.includes(mention)).join(' '));
+  const query = [...new Set([...terms, ...hints])].slice(0, 30);
   const seen = new Map<string, Candidate>();
   for (const c of mandatory) {
     const cur = seen.get(c.id);
     if (cur) cur.reasons.push(...c.reasons); else seen.set(c.id, c);
   }
-  return { terms, mandatory: [...seen.values()] };
+  return { terms: query, mandatory: [...seen.values()] };
 }
 
 // ------------------------------------------------------------------ 2. candidate lists
@@ -234,6 +239,18 @@ function buildSearchSnapshot(symbols: SymbolEntry[]) {
   const code = symbols.filter(isCode);
   const docs = symbols.filter(symbol => symbol.kind === 'doc');
   const byId = new Map(symbols.map(symbol => [symbol.id, symbol]));
+  const files = new Map<string, SymbolEntry[]>();
+  for (const symbol of symbols) {
+    const items = files.get(symbol.path) ?? [];
+    items.push(symbol);
+    files.set(symbol.path, items);
+  }
+  const pathTerms = new Map<string, string[]>();
+  for (const path of files.keys()) for (const term of new Set(tokenize(path))) {
+    const paths = pathTerms.get(term) ?? [];
+    paths.push(path);
+    pathTerms.set(term, paths);
+  }
   const postings = new Map<string, number[]>();
   for (const [id, { path, qualifiedName, text }] of code.entries()) {
     for (const token of new Set(tokenize(`${path} ${qualifiedName} ${text}`))) {
@@ -254,7 +271,7 @@ function buildSearchSnapshot(symbols: SymbolEntry[]) {
     id: symbol.id,
     text: `${symbol.qualifiedName} ${symbol.qualifiedName} ${symbol.path} ${symbol.decorators.join(' ')} ${symbol.text}`,
   })));
-  return { code, docs, byId, docFrequency, codeRanker: bm25(code), docRanker: bm25(docs) };
+  return { code, docs, byId, files, pathTerms, rankedQueries: new Map<string, RankedList[]>(), docFrequency, codeRanker: bm25(code), docRanker: bm25(docs) };
 }
 
 export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn): Promise<RankedList[]> {
@@ -282,18 +299,28 @@ export async function candidateLists(terms: string[], index: IndexApi, rg?: RgFn
       }),
     };
   };
-  lists.push({ name: 'corpus-vectors', weight: 0.35, items: corpusNeighbors(all, q, LIST_CAP)
-    .map(({ symbol }, i) => fromSymbol(symbol, [{ kind: 'semantic', rank: i + 1 }])) });
-  lists.push(bm('bm25-symbols', codeRanker));
-  if (docs.length) lists.push(bm('bm25-docs', docRanker));
+  const queryKey = JSON.stringify(q);
+  const cached = snapshot.rankedQueries.get(queryKey);
+  if (cached) {
+    snapshot.rankedQueries.delete(queryKey);
+    snapshot.rankedQueries.set(queryKey, cached);
+    lists.push(...cached);
+  } else {
+    lists.push({ name: 'corpus-vectors', weight: 0.35, items: corpusNeighbors(all, q, LIST_CAP)
+      .map(({ symbol }, i) => fromSymbol(symbol, [{ kind: 'semantic', rank: i + 1 }])) });
+    lists.push(bm('bm25-symbols', codeRanker));
+    if (docs.length) lists.push(bm('bm25-docs', docRanker));
 
-  const names = symbolNameMatch(q.flatMap((t) => [t, ...termTokens(t)]), code)
-    .filter((m) => m.score === 3 || (m.score === 2 && m.term.length >= 5))
-    .slice(0, LIST_CAP);
-  lists.push({
-    name: 'symbol-name',
-    items: names.map((m, i) => fromSymbol(m.symbol, [{ kind: 'symbol-name', term: m.term, rank: i + 1 }])),
-  });
+    const names = symbolNameMatch(q.flatMap((t) => [t, ...termTokens(t)]), code)
+      .filter((m) => m.score === 3 || (m.score === 2 && m.term.length >= 5))
+      .slice(0, LIST_CAP);
+    lists.push({
+      name: 'symbol-name',
+      items: names.map((m, i) => fromSymbol(m.symbol, [{ kind: 'symbol-name', term: m.term, rank: i + 1 }])),
+    });
+    if (snapshot.rankedQueries.size >= 48) snapshot.rankedQueries.delete(snapshot.rankedQueries.keys().next().value!);
+    snapshot.rankedQueries.set(queryKey, [...lists]);
+  }
 
   // Ripgrep: only the most specific terms; hits mapped to their enclosing symbol.
   const run = rg ?? defaultRg();
@@ -368,12 +395,92 @@ function cliNames(s: SymbolEntry): string[] {
   return [...out];
 }
 
+function moduleMatches(module: string, source: string, target: string): boolean {
+  const relative = /^\.+/.exec(module)?.[0].length ?? 0;
+  const name = module.slice(relative).replace(/\./g, '/');
+  const folder = target.endsWith('/__init__.py') ? target.slice(0, -12) : target.replace(/\.py$/, '');
+  if (relative) {
+    const parent = posix.join(posix.dirname(source), ...Array<string>(relative - 1).fill('..'));
+    return folder === posix.join(parent, name);
+  }
+  return folder === name || folder.endsWith('/' + name);
+}
+
+function featureCandidates(index: IndexApi, request: string, terms: string[]): Candidate[] {
+  const snapshot = searchSnapshots.get(index.symbols());
+  if (!snapshot) return [];
+  const query = new Set(terms.flatMap(tokenize));
+  const feature = [...query].flatMap(term => {
+    const paths = snapshot.pathTerms.get(term);
+    if (term.length < 4 || !paths || paths.length > Math.max(12, snapshot.files.size * 0.045) ||
+        new Set(paths.map(path => categoryOf({ path }))).size !== 3) return [];
+    const folder = paths.filter(path => posix.dirname(path).split('/').includes(term)).length;
+    // A module name alone is weak evidence for feature scope in a CLI change.
+    if (folder < 2) return [];
+    const guide = paths.some(path => path.startsWith('docs/') && posix.basename(path, posix.extname(path)) === term);
+    return [{ term, score: Math.min(8, folder) * 3 + (guide ? 4 : 0) }];
+  }).sort((a, b) => b.score - a.score)[0]?.term;
+  const cli = /\b(?:cli|subcommands?|command.line)\b/i.test(request);
+  const cliFlags = cli ? [...new Set([...request.matchAll(/--[a-z][\w-]*/gi)].map(match => match[0].toLowerCase())
+    .concat(terms.filter(term => /^[a-z][a-z0-9-]+$/.test(term)).map(term => '--' + term)))] : [];
+  const cliEntry = cliFlags.length ? snapshot.code.find(symbol => symbol.decorators.some(decorator => {
+    const match = /^click\.option\(\s*["'](--[\w-]+)["']/.exec(decorator);
+    return match && cliFlags.includes(match[1].toLowerCase());
+  })) : undefined;
+  if (!feature) {
+    if (!cliEntry) return [];
+    const name = posix.basename(cliEntry.path, '.py').replace(/^_/, '');
+    const test = [...snapshot.files.values()].find(entries => entries[0].path.startsWith('tests/') &&
+      posix.basename(entries[0].path) === `test_${name}.py`)?.[0];
+    const guide = [...snapshot.files.values()].find(entries => {
+      const stem = posix.basename(entries[0].path, posix.extname(entries[0].path));
+      return entries[0].path.startsWith('docs/') && cliFlags.some(flag => flag.slice(2) === stem || flag.slice(2) + 's' === stem);
+    })?.[0];
+    return [fromSymbol(cliEntry, [{ kind: 'symbol-name', term: cliEntry.name, rank: 1 }]),
+      ...(test ? [fromSymbol(test, [{ kind: 'tests', from: cliEntry.qualifiedName }])] : []),
+      ...(guide ? [fromSymbol(guide, [{ kind: 'documents', from: cliEntry.qualifiedName }])] : [])];
+  }
+  const readOnly = /\bread[ -]only\b/i.test(request);
+  const candidates = (snapshot.pathTerms.get(feature) ?? []).map(path => {
+    const symbols = snapshot.files.get(path) ?? [];
+    const ranked = symbols.map(symbol => {
+      const lexical = [...new Set(tokenize(symbol.qualifiedName + ' ' + symbol.text))].filter(term => query.has(term)).length;
+      const read = readOnly && /\bhttp_request\(\s*["']GET["']/.test(symbol.text) ? 6 : 0;
+      return { symbol, score: lexical + read };
+    }).sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (!best) return undefined;
+    const cliPath = cli && /(?:^|[/_])cli(?:[/_.]|$)/.test(path) ? 12 : 0;
+    const writes = readOnly && symbols.some(item => /\bhttp_request\(\s*["'](?:POST|PUT|PATCH|DELETE)["']/.test(item.text));
+    const publicDocs = path.startsWith('docs/') && !path.startsWith('docs/design/') ? 4 : 0;
+    return { symbol: best.symbol, score: best.score + cliPath + publicDocs - (writes ? 16 : 0) };
+  }).filter(item => item !== undefined).sort((a, b) => b.score - a.score || a.symbol.path.localeCompare(b.symbol.path));
+  return (['impl', 'test', 'docs'] as const).flatMap(category => candidates
+    .filter(item => categoryOf(item.symbol) === category).slice(0, category === 'impl' ? 3 : 1))
+    .map(({ symbol }, rank) => fromSymbol(symbol, [{ kind: 'feature-path', term: feature, rank: rank + 1 }]));
+}
+
 export function expandOneHop(top: Candidate[], index: IndexApi, terms: string[] = []): RankedList[] {
   const all = index.symbols();
   const byId = new Map(all.map((s) => [s.id, s]));
   const code = all.filter(isCode);
   const sources = top.map((c) => byId.get(c.id)).filter((s): s is SymbolEntry => !!s && isCode(s) && categoryOf(s) !== 'test').slice(0, 10);
   const termToks = new Set(terms.flatMap(termTokens));
+  const linked = new Map<string, SymbolEntry[]>();
+  const targets = (source: SymbolEntry) => {
+    let edges = linked.get(source.id);
+    if (!edges) {
+      edges = (source.boundCalls ?? []).flatMap(call => {
+        const matches = index.byName(call.name).filter(candidate =>
+          candidate.qualifiedName === call.name && moduleMatches(call.module, source.path, candidate.path));
+        if (matches.length) return matches.length === 1 ? matches : [];
+        const reexport = index.resolveReexport?.(source.path, call.module, call.name);
+        return reexport ? [reexport] : [];
+      });
+      linked.set(source.id, edges);
+    }
+    return edges;
+  };
 
   const lists: Record<'calls' | 'called-by' | 'registers' | 'tests' | 'documents', Candidate[]> = {
     calls: [], 'called-by': [], registers: [], tests: [], documents: [],
@@ -387,11 +494,15 @@ export function expandOneHop(top: Candidate[], index: IndexApi, terms: string[] 
 
   for (const src of sources) {
     // calls / called-by
+    for (const target of targets(src)) push('calls', target, src);
     for (const n of src.calls) {
+      if (src.boundCalls?.some(call => call.spelling === n)) continue;
       const hit = index.byName(n).filter((x) => isCode(x) && categoryOf(x) !== 'test');
       if (hit.length === 1) push('calls', hit[0], src); // ambiguous names (pop, get, ...) would only add noise
     }
-    const callers = code.filter((c) => c.id !== src.id && categoryOf(c) !== 'test' && c.calls.includes(src.name));
+    const callers = code.filter(c => c.id !== src.id && categoryOf(c) !== 'test' &&
+      (targets(c).some(target => target.id === src.id) ||
+       (c.calls.includes(src.name) && !c.boundCalls?.some(call => call.spelling === src.name))));
     if (callers.length <= 5) for (const c of callers) push('called-by', c, src);
 
     // registers: decorator siblings in the file, and symbols whose add_command(...) call site mentions the name
@@ -411,9 +522,9 @@ export function expandOneHop(top: Candidate[], index: IndexApi, terms: string[] 
     const names = [src.name, ...cliNames(src)];
     const testSyms = code.filter((c) => c.kind === 'test');
     let n = 0;
-    for (const t of distinctive ? testSyms : []) {
+    for (const t of testSyms) {
       if (n >= 3) break;
-      if (t.calls.includes(src.name) || wr.test(t.text)) { push('tests', t, src); n++; }
+      if (targets(t).some(target => target.id === src.id) || (distinctive && (t.calls.includes(src.name) || wr.test(t.text)))) { push('tests', t, src); n++; }
     }
     const mod = src.path.replace(/^.*\//, '').replace(/\.py$/, '');
     const inModule = testSyms
@@ -424,13 +535,16 @@ export function expandOneHop(top: Candidate[], index: IndexApi, terms: string[] 
       .slice(0, 3);
     for (const { t } of inModule) push('tests', t, src);
 
-    // documents: doc sections naming the symbol or its CLI name
+    // Prefer a matching module guide when it also overlaps the query or names the command.
+    const commandNames = cliNames(src);
     const docHits = all
-      .filter((d) => d.kind === 'doc' && (distinctive || cliNames(src).length > 0))
-      .map((d) => {
-        let score = distinctive && wr.test(d.text) ? 2 : 0;
-        for (const nm of cliNames(src)) if (wordRe(nm).test(d.text)) score += 1;
-        return { d, score };
+      .filter(d => d.kind === 'doc')
+      .map(d => {
+        const named = distinctive && wr.test(d.text) ? 2 : 0;
+        const aliases = commandNames.filter(name => wordRe(name).test(d.text)).length;
+        const sameModule = d.path.startsWith('docs/') && posix.basename(d.path, posix.extname(d.path)) === mod;
+        const overlap = sameModule ? tokenize(d.name + ' ' + d.text).filter(term => termToks.has(term)).length : 0;
+        return { d, score: named + aliases + (overlap ? 3 + Math.min(3, overlap) : 0) };
       })
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score || a.d.id.localeCompare(b.d.id))
@@ -468,7 +582,8 @@ const overlaps = (a: { path: string; startLine: number; endLine: number }, b: { 
 
 /** Signature (+ decorators) + docstring + term-matching lines, capped at `capTokens`; marked with [trimmed]. */
 function trimText(c: Candidate, terms: string[], capTokens: number): string {
-  const lines = c.text.split('\n');
+  const lineLimit = Math.min(1200, Math.max(120, capTokens * 3));
+  const lines = c.text.split('\n').map(line => line.length > lineLimit ? line.slice(0, lineLimit) + ' [trimmed]' : line);
   const keep = new Set<number>();
   const marker = c.category === 'docs' ? '.. [trimmed]' : '# ... [trimmed]';
   if (c.category === 'docs') {
@@ -524,11 +639,32 @@ function trimText(c: Candidate, terms: string[], capTokens: number): string {
   return text;
 }
 
+// Coordinate suggestions come from the untrimmed indexed excerpt. read_file confirms current text.
+function readRange(candidate: Candidate, terms: string[]) {
+  const lines = candidate.text.split('\n');
+  const vocabulary = new Set(terms.flatMap(tokenize));
+  const width = Math.min(16, lines.length, candidate.endLine - candidate.startLine + 1);
+  const scores = lines.map(line => tokenize(line).filter(term => vocabulary.has(term)).length);
+  let best = 0;
+  let total = scores.slice(0, width).reduce((sum, score) => sum + score, 0);
+  let max = total;
+  for (let i = width; i < lines.length; i++) {
+    total += scores[i] - scores[i - width];
+    if (total > max) {
+      max = total;
+      best = i - width + 1;
+    }
+  }
+  const startLine = Math.min(candidate.endLine, candidate.startLine + best);
+  return { startLine, endLine: Math.min(candidate.endLine, startLine + width - 1) };
+}
+
 export function pack(
   mandatory: Candidate[],
   ranked: Candidate[],
   budget: number,
   terms: string[] = [],
+  scope: Candidate[] = [],
 ): { excerpts: Excerpt[]; omitted: ContextPacket['omitted'] } {
   const excerpts: Excerpt[] = [];
   const omitted: ContextPacket['omitted'] = [];
@@ -544,25 +680,29 @@ export function pack(
     const same = excerpts.find((e) => e.id === c.id);
     if (same) {
       for (const r of c.reasons) if (!same.reasons.some((x) => sameReason(x, r))) same.reasons.push(r);
+      if (why === 'mandatory') same.priority = true;
       return false;
     }
     if (excerpts.some((e) => overlaps(e, c))) { omit(c, 'duplicate'); return false; }
     let text = c.text;
     let tokens = count(text);
-    if (tokens > cap) {
-      text = trimText(c, terms, cap);
+    const scoped = scope.includes(c);
+    const limit = scoped ? Math.min(cap, 220, Math.floor(budget / (scope.length + 1))) : cap;
+    if (tokens > limit) {
+      text = trimText(c, terms, limit);
       tokens = count(text);
     }
     if (used + tokens > budget) { omit(c, 'over-budget', count(c.text)); return false; }
     used += tokens;
     fileCount.set(c.path, (fileCount.get(c.path) ?? 0) + 1);
-    excerpts.push({ id: c.id, path: c.path, startLine: c.startLine, endLine: c.endLine, category: c.category, tokens, score: c.score, reasons: [...c.reasons], text });
-    void why;
+    excerpts.push({ id: c.id, path: c.path, startLine: c.startLine, endLine: c.endLine, category: c.category, tokens, score: c.score, reasons: [...c.reasons], priority: why === 'mandatory' || undefined, readRange: scoped ? readRange(c, terms) : undefined, text });
     return true;
   };
 
   // 1. mandatory
   for (const m of mandatory) tryAdd(m, 'mandatory');
+  const coverage = (['impl', 'test', 'docs'] as const).map(category => scope.find(candidate => candidate.category === category));
+  for (const candidate of new Set([...coverage, ...scope])) if (candidate) tryAdd(candidate, 'mandatory');
 
   // Top 40 by fused score, and nothing scoring under 50% of the best (a weak tail is noise, not context).
   const floor = (ranked[0]?.score ?? 0) * MIN_REL_SCORE;
@@ -577,10 +717,17 @@ export function pack(
     if (preview) { markTaken(preview); tryAdd(preview, 'ranked'); }
   }
 
-  // 2. coverage quota: best test and best docs candidate
+  // 2. coverage quota: link the reserved docs to the leading implementation when evidence exists.
+  const implementation = excerpts.find(e => e.category === 'impl') ?? ranked.find(c => c.category === 'impl');
+  const module = implementation ? posix.basename(implementation.path, posix.extname(implementation.path)) : undefined;
   for (const cat of ['test', 'docs'] as const) {
-    if (excerpts.some((e) => e.category === cat && e.reasons.some((r) => r.kind !== 'mention' && r.kind !== 'selection'))) continue;
-    const best = ranked.find((c) => c.category === cat && !taken.has(c.id)); // from the whole list, not just above the score floor
+    if (excerpts.some(e => e.category === cat && e.reasons.some(r => r.kind !== 'mention' && r.kind !== 'selection'))) continue;
+    const candidates = ranked.filter(c => c.category === cat && !taken.has(c.id));
+    const linked = candidates.find(c => cat === 'docs'
+      ? c.path.startsWith('docs/') && posix.basename(c.path, posix.extname(c.path)) === module &&
+        c.reasons.some(r => r.kind === 'documents')
+      : posix.basename(c.path) === `test_${module}.py` && c.reasons.some(r => r.kind === 'tests'));
+    const best = linked ?? candidates[0];
     if (best) { markTaken(best); tryAdd(best, 'ranked'); }
   }
 
@@ -635,6 +782,9 @@ export function buildGraph(request: string, _terms: string[], excerpts: Excerpt[
     const sid = symId(e);
     for (const r of e.reasons) {
       switch (r.kind) {
+        case 'feature-path':
+          edge('req', sid, `feature: ${r.term}`, true);
+          break;
         case 'source-preview':
           edge('req', sid, 'search preview', false);
           break;
@@ -677,8 +827,21 @@ export async function assembleContext(i: AssembleInput, index: IndexApi): Promis
   const firstPass = rrfFuse(primary);
   const topImpl = firstPass.filter((c) => c.category !== 'docs').slice(0, 10);
   const expanded = expandOneHop(topImpl, index, terms);
+  if (index.languageLinks) {
+    const entries = searchSnapshots.get(index.symbols())?.byId;
+    const leading = topImpl.flatMap(candidate => {
+      const symbol = entries?.get(candidate.id);
+      return symbol ? [symbol] : [];
+    });
+    const links = await index.languageLinks(leading);
+    if (links.length) expanded.push({
+      name: 'language-provider',
+      items: links.map(({ source, target, kind }) => fromSymbol(target, [{ kind, from: source.qualifiedName }])),
+    });
+  }
   const ranked = rrfFuse([...primary, ...expanded]);
-  const { excerpts, omitted } = pack(mandatory, ranked, budget, terms);
+  const scope = i.selection || mandatory.length ? [] : featureCandidates(index, i.request, terms);
+  const { excerpts, omitted } = pack(mandatory, ranked, budget, terms, scope);
   const used = excerpts.reduce((n, e) => n + e.tokens, 0);
   return {
     id: `ctx-${i.runId}-${++seq}`,
@@ -696,6 +859,7 @@ function reasonText(r: Reason): string {
   switch (r.kind) {
     case 'mention': return `mention ${r.token}`;
     case 'selection': return 'selection';
+    case 'feature-path': return `feature path ${r.term} #${r.rank}`;
     case 'semantic': return `semantic match #${r.rank}`;
     case 'source-preview': return `search preview "${r.term}" #${r.rank}; use read_file for exact source`;
     case 'lexical': return `lexical "${r.term}" #${r.rank}`;
@@ -714,6 +878,7 @@ export function prepareContextForModel(packet: ContextPacket) {
     '',
   ];
   const excerptIds: string[] = [];
+  const shortenedExcerptIds: string[] = [];
   let excerptTokens = 0;
   let omittedExcerpts = 0;
   let omittedReasons = 0;
@@ -767,36 +932,65 @@ export function prepareContextForModel(packet: ContextPacket) {
   }
   if (filePaths.length) lines.push('');
   const omittedFiles = (packet.files?.length ?? 0) - filePaths.length;
-  for (const excerpt of packet.excerpts) {
-    const reasons = excerpt.reasons.map(reasonText).join('; ');
-    const block = [
-      `### ${excerpt.path}:${excerpt.startLine}-${excerpt.endLine} · ${excerpt.category} · ${reasons} · ≈${excerpt.tokens} tokens`,
-      '```', excerpt.text, '```', '',
+  const preview = (excerpt: Excerpt, text: string, tokens: number) => {
+    const reasons = excerpt.reasons.slice(0, 5).map(reasonText).join('; ');
+    const range = excerpt.readRange;
+    const next = range ? ` · exact read suggested L${range.startLine}–${range.endLine}` : '';
+    return [
+      `### ${excerpt.path}:${excerpt.startLine}-${excerpt.endLine} · ${excerpt.category} · ${reasons} · ≈${tokens} tokens${next}`,
+      '```', text, '```', '',
     ].join('\n');
+  };
+  const protectedIds = new Set(packet.excerpts.filter(excerpt => excerpt.priority).map(excerpt => excerpt.id));
+  for (const category of ['impl', 'test', 'docs'] as const) {
+    if (!packet.excerpts.some(excerpt => excerpt.priority && excerpt.category === category)) {
+      const candidate = packet.excerpts.find(excerpt => excerpt.category === category);
+      if (candidate) protectedIds.add(candidate.id);
+    }
+  }
+  const protectedExcerpts = packet.excerpts.filter(excerpt => protectedIds.has(excerpt.id));
+  const tail = packet.excerpts.filter(excerpt => !protectedIds.has(excerpt.id));
+  const constrained = !fits(packet.excerpts.map(excerpt => preview(excerpt, excerpt.text, excerpt.tokens)).join('\n'));
+  const previewBudget = Math.max(64, Math.min(260, Math.floor(2200 / Math.max(1, protectedExcerpts.length))));
+  const terms = constrained ? extractTerms(packet.query) : [];
+  for (const excerpt of constrained ? [...protectedExcerpts, ...tail] : packet.excerpts) {
+    let text = excerpt.text;
+    let tokens = excerpt.tokens;
+    if (constrained && protectedIds.has(excerpt.id) && tokens > previewBudget) {
+      text = trimText({ ...excerpt }, terms, previewBudget);
+      tokens = count(text);
+    }
+    const block = preview(excerpt, text, tokens);
     if (fits(block)) {
       lines.push(block);
       excerptIds.push(excerpt.id);
-      excerptTokens += excerpt.tokens;
+      excerptTokens += tokens;
+      if (text !== excerpt.text) shortenedExcerptIds.push(excerpt.id);
     } else {
       omittedExcerpts++;
     }
   }
   lines.push('## Omitted');
   if (!packet.omitted.length && !omittedExcerpts && !omittedFiles) lines.push('(none)');
+  let omissionTokens = 0;
+  const omissionBudget = Math.min(600, Math.floor(packet.budget * 0.12));
   for (const item of packet.omitted) {
     const line = `- ${item.path}:${item.startLine}-${item.endLine} · ${item.reason} · ≈${item.tokens} tokens`;
-    if (fits(line)) lines.push(line);
-    else omittedReasons++;
+    const tokens = count(line);
+    if (omissionTokens + tokens <= omissionBudget && fits(line)) {
+      lines.push(line);
+      omissionTokens += tokens;
+    } else omittedReasons++;
   }
   if (omittedExcerpts || omittedReasons) {
-    lines.push(`Transport limit omitted ${omittedExcerpts} excerpt(s) and ${omittedReasons} omission detail(s). Use read_file for exact source.`);
+    lines.push(`The response cap excluded ${omittedExcerpts} excerpt(s). The omission ledger clipped ${omittedReasons} detail(s). Use read_file for exact source.`);
   }
   if (omittedFiles) lines.push(`File-map budget omitted ${omittedFiles} file(s). Use file_context for specific files.`);
   const text = lines.join('\n');
   return {
     text,
     delivery: {
-      excerptIds, excerptTokens, packetTokens: count(text), serializedCharacters: JSON.stringify(text).length,
+      excerptIds, excerptTokens, shortenedExcerptIds, packetTokens: count(text), serializedCharacters: JSON.stringify(text).length,
       characterLimit: MODEL_CHARACTER_LIMIT, omittedExcerpts, omittedReasons, filePaths, omittedFiles,
     },
   };

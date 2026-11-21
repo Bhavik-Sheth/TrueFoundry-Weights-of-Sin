@@ -1,6 +1,7 @@
 import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import type { BatchPlan } from './batchPlan';
 import { SqliteJournal } from './sqliteJournal';
 import type { ContextDelivery, Excerpt, FileContext, Proposal, Run, RunStateMsg, UiStreamEvent } from '../types';
 
@@ -10,9 +11,10 @@ export type RunEvidence =
   | { kind: 'state'; state: RunStateMsg['state']; detail?: string }
   | { kind: 'agent-event'; event: Exclude<UiStreamEvent, { kind: 'text-delta' }> }
   | { kind: 'tool-output'; toolCallId: string; content: unknown }
-  | { kind: 'proposal'; proposal: Pick<Proposal, 'key' | 'toolCallId' | 'hunks' | 'status' | 'result'>; bases: Array<{ path: string; hash: string }> }
+  | { kind: 'proposal'; proposal: Pick<Proposal, 'key' | 'toolCallId' | 'hunks' | 'status' | 'result'>; bases: Array<{ path: string; hash: string }>; output?: Array<{ path: string; hash: string }> }
+  | { kind: 'batch-plan'; plan: BatchPlan }
   | { kind: 'hunk-history'; operation: 'undo' | 'redo'; hunkId: string; path: string }
-  | { kind: 'check'; source: string; name: string; status: string; proposalKey?: string; hunkIds?: string[]; location?: string; startLine?: number; endLine?: number; side?: 'base' | 'candidate'; revision?: string; baseRevision?: string; externalId?: string; sourceUrl?: string; detail?: string; ruleId?: string; fingerprints?: Record<string, string>; startColumn?: number; endColumn?: number }
+  | { kind: 'check'; source: string; name: string; status: string; proposalKey?: string; hunkIds?: string[]; argv?: string[]; location?: string; startLine?: number; endLine?: number; side?: 'base' | 'candidate'; revision?: string; baseRevision?: string; externalId?: string; sourceUrl?: string; detail?: string; ruleId?: string; fingerprints?: Record<string, string>; startColumn?: number; endColumn?: number }
   | { kind: 'requirement'; requirementId: string; requirementText: string; requirementRevision: number }
   | { kind: 'requirement-link'; requirementId: string; requirementText: string; requirementRevision?: number; proposalKey: string; hunkIds: string[]; checkSequences: number[]; source: 'manual' }
   | { kind: 'impact'; proposalKey: string; hunkIds: string[]; comparison: unknown }
@@ -124,7 +126,7 @@ export class RunJournal {
       if (error.code === 'ENOENT') return '';
       throw error;
     });
-    const limits: Record<string, number> = { context: 1, proposal: 1, check: 6 };
+    const limits: Record<string, number> = { context: 1, proposal: 1, check: 6, 'batch-plan': 1 };
     const selected: RunRecord[] = [];
     for (const line of legacy.trimEnd().split('\n').reverse()) {
       let entry: RunRecord;
@@ -133,7 +135,7 @@ export class RunJournal {
       if (entry?.runId !== runId || !Object.hasOwn(limits, kind) || !limits[kind]) continue;
       limits[kind]--;
       selected.push(entry);
-      if (selected.length === 8) break;
+      if (selected.length === 9) break;
     }
     return selected;
   }

@@ -20,6 +20,7 @@
  * Depends on: zod, @modelcontextprotocol/sdk, context/indexer, review/diffView, run/runManager, dev/fixtures.
  * Depended on by: extension.
  */
+import { workspaceRoot, hasNativeFiles } from '../shell/workspaceRoot';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -28,17 +29,20 @@ import type { ReviewEngine } from '../review/diffView';
 import type { RunManager } from '../run/runManager';
 import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
+import { sourceWindow } from '../context/sourceWindow';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
 import { assembleContext, prepareContextForModel } from '../context/assembler';
 import { contextReceipt, continuation, continuationInput } from '../run/continuation';
+import { batchPlanInput, type BatchPlans } from '../run/batchPlan';
 import type { RunJournal } from '../run/journal';
 import type { RunRoute } from './runRoutes';
-import { assertNativeWorkspacePath, capOutput, resolveInWorkspace } from './server';
+import { assertNativeWorkspacePath, resolveInWorkspace } from './server';
 import { runCommand } from './runCommand';
-import { sha256, proposalKey } from '../review/proposal';
+import { proposalInput } from '../review/editBatch';
+import { proposalKey } from '../review/proposal';
 import { ripgrepSearch, symbolNameMatch, tokenize } from '../context/search';
 
-export interface ToolDeps { index: IndexApi; review: ReviewEngine; runs: RunManager; journal?: RunJournal; post: (m: ToWebview) => void }
+export interface ToolDeps { index: IndexApi; review: ReviewEngine; runs: RunManager; journal?: RunJournal; batchesFor?: (workspace?: string) => BatchPlans | undefined; post: (m: ToWebview) => void }
 
 export interface ExternalAgentTools {
   workspace(): string;
@@ -57,7 +61,7 @@ function openDocText(abs: string): string | undefined {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
   const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
-  const doc = vs.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && norm(d.uri.fsPath) === norm(abs));
+  const doc = vs.workspace.textDocuments.find((d) => hasNativeFiles(d.uri) && norm(d.uri.fsPath) === norm(abs));
   return doc?.getText();
 }
 
@@ -71,14 +75,16 @@ const err = (code: string, message: string): ToolResult => ({
 export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: boolean; route?: RunRoute; external?: ExternalAgentTools } = {}): (s: McpServer) => void {
   const external = options.external;
   const fileContext = () => {
-    const vs = require('vscode') as typeof import('vscode');
-    const folder = vs.workspace.workspaceFolders?.[0];
+    const folder = workspaceRoot();
     const root = external?.workspace() ?? folder?.uri.fsPath;
     return root ? fileContextReader(root, deps.index, openDocText) : undefined;
   };
-  const resolvePath = (relative: string) => external
-    ? assertNativeWorkspacePath(external.workspace(), relative)
-    : Promise.resolve(resolveInWorkspace(relative));
+  const resolvePath = (relative: string) => {
+    const root = workspaceRoot()?.uri;
+    return external ? assertNativeWorkspacePath(external.workspace(), relative)
+      : root && hasNativeFiles(root) ? assertNativeWorkspacePath(root.fsPath, relative)
+        : Promise.resolve(resolveInWorkspace(relative));
+  };
   /** Wraps a handler with the Stop/authorization check. */
   const guarded = <A>(fn: (args: A) => ToolResult | Promise<ToolResult>) => async (args: A): Promise<ToolResult> => {
     const run = deps.runs.active;
@@ -89,14 +95,20 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
     }
     if (!external && !deps.runs.isToolCallAllowed()) return err('RUN_NOT_AUTHORIZED', 'The run was stopped by the user. Do not call more tools.');
     try {
+      const root = workspaceRoot()?.uri;
+      if (!external && (!root || !hasNativeFiles(root))) return err('NO_WORKSPACE', 'Open a native workspace folder.');
       if (route?.run.workspaceUri) {
-        const vs = require('vscode') as typeof import('vscode');
-        if (vs.workspace.workspaceFolders?.[0]?.uri.toString() !== route.run.workspaceUri) {
+        if (workspaceRoot()?.uri.toString() !== route.run.workspaceUri) {
           return err('WORKSPACE_CHANGED', 'This run is bound to its original workspace.');
         }
       }
       external?.workspace();
-      return await fn(args);
+      const result = await fn(args);
+      if (route && (deps.runs.active !== run || route.run.sessionId !== route.sessionId ||
+          route.run.state === 'cancelled' || (route.run.workspaceUri && root?.toString() !== workspaceRoot()?.uri.toString()))) {
+        return err('RUN_NOT_AUTHORIZED', 'This connection lost its workspace or run.');
+      }
+      return result;
     } catch (e) {
       return err('TOOL_ERROR', String((e as Error)?.message ?? e));
     }
@@ -114,6 +126,7 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         limit: z.number().int().min(1).max(30).optional().describe('Max hits (default 20, max 30)'),
       },
     }, guarded(async (a: { query: string; glob?: string; limit?: number }) => {
+      await deps.index.ready;
       const limit = a.limit ?? 20;
       const rg = await ripgrepSearch(a.query, { glob: a.glob, max: limit * 2 });
       const hits: Hit[] = rg.map((h) => ({
@@ -142,9 +155,9 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
 
     server.registerTool('read_file', {
       description:
-        'Read a workspace file (or a line range, 1-based inclusive) and return {path, text, hash, totalLines, truncated}. ' +
+        'Read a workspace file (or a line range, 1-based inclusive) and return current text, hash, line coordinates, truncation, and rangeWritable. ' +
         'The `hash` is the baseHash you MUST pass in propose_write edits for this file. Reads the unsaved editor buffer if the file is open. ' +
-        'Output is capped; request a smaller line range if truncated.',
+        'Specify up to 24 lines; rangeWritable indicates the exact returned coordinates can be used in a proposal.',
       inputSchema: {
         path: z.string().min(1).describe('Workspace-relative path, e.g. "src/flask/cli.py"'),
         startLine: z.number().int().min(1).optional().describe('First line, 1-based'),
@@ -160,13 +173,7 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
           return err('FILE_NOT_FOUND', `Cannot read ${a.path}`);
         }
       }
-      const lines = full.match(/[^\n]*\n|[^\n]+$/g) ?? [''];
-      const totalLines = lines.length;
-      const text = a.startLine !== undefined || a.endLine !== undefined
-        ? lines.slice((a.startLine ?? 1) - 1, a.endLine ?? totalLines).join('')
-        : full;
-      const capped = capOutput(text);
-      return ok({ path: toRel(a.path), text: capped.text, hash: sha256(full), totalLines, truncated: capped.truncated });
+      return ok(sourceWindow(toRel(a.path), full, a.startLine, a.endLine));
     }));
 
     server.registerTool('assemble_context', {
@@ -202,6 +209,18 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
 
     const journal = deps.journal;
     if (!external && journal) {
+      const run = options.route?.run;
+      const batches = deps.batchesFor?.(run?.workspaceUri);
+      if (run && batches) {
+        server.registerTool('batch_plan', {
+          description: 'Create, refresh or complete a dependency-ordered edit plan. Status checks live revisions and can restore a prior run in the same workspace.',
+          inputSchema: batchPlanInput,
+        }, guarded(async (args: Parameters<BatchPlans['act']>[1]) => {
+          const session = run.sessionId;
+          const active = () => deps.runs.active === run && run.sessionId === session && run.state === 'streaming';
+          return ok(await batches.act(run, args, active));
+        }));
+      }
       server.registerTool('resume_context', {
         description: 'Recover the current goal, last delivered source ranges, proposal decisions and check statuses after context compaction. ' +
           'Paginate proposal files using the returned key and offset. Reread exact source before editing.',
@@ -266,27 +285,19 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
     }
 
     server.registerTool('propose_write', {
-      description: external
-        ? 'Stage edits for human review in VS Code and return a review ID. Use read_file for the hash and exact oldText. Use review_status after the user acts. This tool does not apply changes.'
-        : 'Propose edits for the user to review (requires user approval; nothing is written until they accept hunks). ' +
-        'Each edit is {path, baseHash, oldText, newText}: baseHash is the `hash` from read_file for that file; oldText must be copied ' +
-        'EXACTLY from the file and match exactly once (include enough surrounding lines to be unique); use oldText "" with baseHash "new" ' +
-        'to create a file. Batch related edits (code, tests, docs) in one call. Returns {applied, rejected, files}. ' +
-        'On errors STALE_BASE / OLD_TEXT_NOT_FOUND / AMBIGUOUS_MATCH / MISSING_SYMBOL, re-read the file and retry with corrected edits.',
+      description: 'Stage changes for native hunk review. Prefer edit ranges using {path, baseHash, startLine, endLine, newText}. ' +
+        'Read the same range and hash first. Supply only the replacement. Existing exact oldText and file creation forms are supported.',
       inputSchema: {
         ...(external ? { requestId: z.string().min(1).max(120).optional()
           .describe('Client identifier for retrying the same proposal payload') } : {}),
-        summary: z.string().min(1).describe('One-sentence description of the change'),
-        edits: z.array(z.object({
-          path: z.string().min(1).describe('Workspace-relative path'),
-          baseHash: z.string().min(1).describe('hash from read_file for this path, or "new" for a new file'),
-          oldText: z.string().describe('Exact existing text to replace (must match once); "" to create a file'),
-          newText: z.string().describe('Replacement text'),
-        })).min(1).describe('Edits to stage'),
+        ...proposalInput.shape,
       },
     }, guarded(async (args: ProposeArgs & { requestId?: string }) => {
       const { requestId, ...proposal } = args;
-      return ok(external ? await external.stage(proposal, requestId) : deps.review.finalize(proposalKey(args), options.route?.run.id));
+      if (external) return ok(await external.stage(proposal, requestId));
+      const key = proposalKey(args);
+      const result = deps.review.finalize(key, options.route?.run.id);
+      return ok({ ...result, proposalKey: key });
     }));
 
     if (external) return;
@@ -300,7 +311,12 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         timeoutSec: z.number().int().min(1).max(180).optional().describe('Timeout in seconds (default 120, max 180)'),
       },
     }, guarded(async (a: { argv: string[]; timeoutSec?: number }) => {
-      const r = await runCommand(a.argv, a.timeoutSec, options.route?.run.id);
+      const run = options.route?.run;
+      const session = run?.sessionId;
+      const batches = deps.batchesFor?.(run?.workspaceUri);
+      const execute = () => runCommand(a.argv, a.timeoutSec, run?.id);
+      const r = run && batches ? await batches.verify(run, a.argv, execute, () =>
+        deps.runs.active === run && run.sessionId === session && run.state === 'streaming') : await execute();
       if (r.exitCode === 126) return err('COMMAND_REFUSED', r.stderr);
       return ok(r);
     }));

@@ -71,3 +71,113 @@ table.health th { text-align: left; font-weight: normal; padding-right: 12px; }
 .vscode-high-contrast .header,.vscode-high-contrast-light .header { color: var(--vscode-foreground); background: var(--vscode-editor-background); }
 .vscode-high-contrast contexo-glow,.vscode-high-contrast-light contexo-glow { display: none; }
 @media (prefers-reduced-motion: reduce) { .app .btn { transition: none; } }
+
+.chat-feed, .session-explorer { display: grid; gap: 12px; min-width: 0; }
+.chat-session, .session-header, .control-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap;
+}
+.chat-session { color: var(--vscode-descriptionForeground); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.chat-feed > p { margin: 0; }
+.inline-action {
+  cursor: pointer; color: var(--vscode-textLink-foreground); padding: 0; border: 0; background: none;
+  text-align: left; font: inherit; overflow-wrap: anywhere; min-width: 0;
+}
+.inline-action:hover { text-decoration: underline; }
+.message-body { min-width: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.message-body > :first-child { margin-top: 0; }
+.message-body > :last-child { margin-bottom: 0; }
+.message-body p { margin: .65em 0; }
+.message-body h1, .message-body h2, .message-body h3, .message-body h4 { margin: .9em 0 .4em; line-height: 1.25; }
+.message-body h1 { font-size: 1.35em; }
+.message-body h2 { font-size: 1.22em; }
+.message-body h3, .message-body h4 { font-size: 1.08em; }
+.message-body ul, .message-body ol { padding-inline-start: 1.55em; margin-block: .55em; }
+.message-body li + li { margin-top: .25em; }
+.message-body blockquote {
+  margin: .7em 0; padding: .3em .8em; color: var(--vscode-descriptionForeground);
+  border-inline-start: 3px solid var(--vscode-textBlockQuote-border, var(--line));
+}
+.message-body code, .activity-target, .activity-detail pre, .session-metadata code {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.message-body :not(pre) > code { background: var(--vscode-textCodeBlock-background); padding: .1em .28em; border-radius: 3px; }
+.message-body pre, .activity-detail pre {
+  border: 1px solid var(--line); border-radius: 6px; padding: 9px; margin: .45em 0 0;
+  background: var(--vscode-textCodeBlock-background); overflow: auto; max-height: 17rem; line-height: 1.45;
+}
+.message-body pre { white-space: pre; }
+.message-body a { color: var(--vscode-textLink-foreground); }
+.message-table { max-width: 100%; overflow-x: auto; }
+.message-body table { border-collapse: collapse; width: 100%; margin: .55em 0; }
+.message-body th, .message-body td { border: 1px solid var(--line); text-align: start; padding: .35em .55em; }
+.message-body th { background: var(--vscode-editorWidget-background); }
+.message-body .task-list-item { list-style: none; }
+
+.session-toolbar, .session-field { display: grid; gap: 5px; }
+.session-toolbar label, .session-field { color: var(--vscode-descriptionForeground); }
+.session-toolbar select, .session-field select {
+  min-width: 0; max-width: 100%; flex: 1 1 0; min-height: 28px; font: inherit;
+  color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background);
+  padding: 3px 6px; border: 1px solid var(--vscode-dropdown-border, var(--line)); border-radius: 5px;
+}
+.session-header { padding: 5px 0; overflow-wrap: anywhere; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 5px; }
+.filter-bar button {
+  display: inline-flex; gap: 5px; align-items: center; background: transparent; border: 1px solid transparent; padding: 4px 7px;
+  border-radius: 5px; color: var(--vscode-descriptionForeground); cursor: pointer; font: inherit;
+}
+.filter-bar button[aria-pressed="true"] {
+  background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground);
+  border-color: var(--line); font-weight: 600;
+}
+.filter-bar button span { font-variant-numeric: tabular-nums; font-size: .88em; }
+.session-metrics {
+  margin: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(66px,1fr)); gap: 1px;
+  border: 1px solid var(--line); background: var(--line); border-radius: 7px; overflow: hidden;
+}
+.session-metrics div { min-width: 0; padding: 7px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
+.session-usage { grid-template-columns: minmax(85px,1.2fr) repeat(3,minmax(49px,1fr)); }
+@media (max-width: 270px) { .session-usage { grid-template-columns: 1fr 1fr; } }
+.session-metrics dt { color: var(--vscode-descriptionForeground); font-size: .89em; }
+.session-metrics dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.session-timeline { display: grid; gap: 6px; min-width: 0; }
+.session-message { padding: 8px 0; }
+.session-message > strong { display: block; margin-bottom: 4px; }
+.activity-entry, .session-metadata { min-width: 0; border: 1px solid var(--line); border-radius: 7px; }
+.activity-heading, .session-metadata summary { padding: 7px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.activity-heading:hover, .session-metadata summary:hover { background: var(--vscode-list-hoverBackground); }
+.activity-name { font-weight: 600; }
+.activity-meta { color: var(--vscode-descriptionForeground); margin-inline-start: 8px; font-size: .9em; }
+.activity-target { display: block; padding-inline-start: 13px; color: var(--vscode-descriptionForeground); margin-block-start: 3px; }
+.activity-details { display: grid; gap: 8px; padding: 0 8px 8px; }
+.activity-details > p, .session-info { margin: 0; overflow-wrap: anywhere; }
+.activity-detail { padding: 3px 8px 8px; min-width: 0; }
+.activity-details .activity-detail { padding: 0; }
+.activity-detail > span { color: var(--vscode-descriptionForeground); }
+.activity-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border-inline-start: 2px solid var(--line);
+  padding: 4px 8px; overflow-wrap: anywhere;
+}
+.session-metadata > dl { margin: 0; padding: 0 8px 8px; }
+.session-metadata dt { color: var(--vscode-descriptionForeground); margin-block-start: 6px; }
+.session-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.session-metadata .control-row { justify-content: flex-start; padding: 0 8px 8px; }
+.settings-panel { display: grid; gap: 10px; }
+.settings-panel[hidden] { display: none; }
+.settings-panel .step { gap: 7px; }
+.settings-panel .step p { margin: 2px 0; line-height: 1.4; }
+.settings > .inline-action { justify-self: start; align-self: start; }
+.context-explorer, .context-list { display: grid; gap: 10px; min-width: 0; }
+.context-filter {
+  min-width: 0; font: inherit; padding: 5px 7px; border-radius: 5px; border: 1px solid var(--line);
+  color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+}
+.context-list details { border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.context-list summary { padding: 7px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.context-source {
+  text-align: start; min-width: 0; width: 100%; overflow-wrap: anywhere; font: inherit;
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; cursor: pointer;
+  background: transparent; color: var(--vscode-foreground);
+}
+.context-source:hover, .context-list summary:hover { background: var(--vscode-list-hoverBackground); }

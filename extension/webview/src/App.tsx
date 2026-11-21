@@ -115,10 +115,7 @@ export function App() {
       </nav>
       <div className="content">
         {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} />}
-        {tab === 'session' && <><div className="review-tools">
-          <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'replay'})}>Replay run</button>
-          <button className="btn secondary" onClick={() => post({type: 'reviewAction', action: 'import'})}>Import trace</button>
-        </div><SessionTab /></>}
+        {tab === 'session' && <SessionTab onViewContext={() => choose('context')} />}
         {tab === 'context' && <ContextTab />}
         {tab === 'changes' && <>
           <div className="review-tools" aria-label="Change review tools">

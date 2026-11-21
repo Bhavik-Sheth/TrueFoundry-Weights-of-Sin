@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { indexText, loadParser, SymbolIndex, type IndexApi } from '../context/indexer';
+import { loadParser, SymbolIndex, type IndexApi } from '../context/indexer';
 import { workspaceText } from './workspace';
 
 export async function loadWorkspaceIndex(root: string): Promise<IndexApi> {
@@ -10,7 +10,7 @@ export async function loadWorkspaceIndex(root: string): Promise<IndexApi> {
     if (!/\.(py|rst|md)$/i.test(path)) return;
     const text = await workspaceText(root, path);
     if (text === undefined) index.removeFile(path);
-    else index.setFile(path, indexText(parser, path, text));
+    else index.setText(parser, path, text);
   }
   async function reindexAll() {
     const { stdout } = await promisify(execFile)('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.py', '*.rst', '*.md'], { cwd: root, maxBuffer: 16 << 20 });
@@ -21,5 +21,6 @@ export async function loadWorkspaceIndex(root: string): Promise<IndexApi> {
   }
   await reindexAll();
   return { ready: Promise.resolve(), symbols: () => index.symbols(), inFile: p => index.inFile(p),
-    byName: n => index.byName(n), enclosing: (p, l) => index.enclosing(p, l), reindexFile, reindexAll };
+    byName: n => index.byName(n),
+    resolveReexport: (source, module, name) => index.resolveReexport(source, module, name), enclosing: (p, l) => index.enclosing(p, l), reindexFile, reindexAll };
 }

@@ -1,3 +1,4 @@
+import { workspaceRoot } from '../shell/workspaceRoot';
 import * as vscode from 'vscode';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -63,7 +64,7 @@ export function registerWorkbench(ctx: vscode.ExtensionContext, review: ReviewEn
       if (path === '/api/stop') { await runs.stop(); return snapshot(); }
       if (path === '/api/setup') { await vscode.commands.executeCommand('contexo.openSetup'); return true; }
       if (path === '/api/commits') {
-        const root = vscode.workspace.workspaceFolders?.[0];
+        const root = workspaceRoot();
         if (!root) throw new Error('Open a Git workspace first.');
         return readGitHistory(root.uri.fsPath);
       }

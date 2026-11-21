@@ -3,15 +3,13 @@ import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname } from 'node:path';
 import { createTwoFilesPatch } from 'diff';
-import { z } from 'zod';
+import { buildProposalFiles, proposalInput } from '../review/editBatch';
 import { resolveUnder } from '../mcp/server';
-import { applyEditExact, buildHunks, proposalKey, rebuildFile, sha256 } from '../review/proposal';
+import { buildHunks, proposalKey, rebuildFile, sha256 } from '../review/proposal';
 import type { Proposal, Run, ProposeArgs } from '../types';
 
 const exec = promisify(execFile);
-export const edits = z.object({ summary: z.string().min(1), edits: z.array(z.object({
-  path: z.string().min(1), baseHash: z.string(), oldText: z.string(), newText: z.string(),
-})).min(1).max(100) });
+export const edits = proposalInput.extend({ edits: proposalInput.shape.edits.max(100) });
 
 export async function workspaceText(root: string, path: string): Promise<string | undefined> {
   if (/[\x00-\x1f\\]/.test(path) || path.split('/').some(p => !p || p === '.')) throw new Error('Invalid file path');
@@ -46,19 +44,9 @@ export async function search(root: string, terms: string[], limit: number) {
 
 export async function stage(root: string, run: Run, toolCallId: string, threadId: string, args: ProposeArgs): Promise<Proposal> {
   edits.parse(args);
-  const files = new Map<string, Proposal['files'][number]>();
-  for (const edit of args.edits) {
-    let file = files.get(edit.path);
-    if (!file) {
-      const base = await workspaceText(root, edit.path);
-      file = { path: edit.path, base: base ?? '', proposed: base ?? '', baseHash: base === undefined ? 'new' : sha256(base) };
-      files.set(edit.path, file);
-    }
-    if (file.baseHash !== edit.baseHash) throw new Error('STALE_BASE: ' + edit.path);
-    file.proposed = applyEditExact(file.proposed, edit.oldText, edit.newText);
-  }
-  const hunks = [...files.values()].flatMap(f => buildHunks(f.path, f.base, f.proposed, f.baseHash));
-  return { key: proposalKey(args), runId: run.id, threadId, toolCallId, files: [...files.values()], hunks, status: 'reviewing' };
+  const files = await buildProposalFiles(args.edits, path => workspaceText(root, path));
+  const hunks = files.flatMap(f => buildHunks(f.path, f.base, f.proposed, f.baseHash));
+  return { key: proposalKey(args), runId: run.id, threadId, toolCallId, files, hunks, status: 'reviewing' };
 }
 
 export async function applyReviewed(root: string, proposal: Proposal, active: () => boolean) {

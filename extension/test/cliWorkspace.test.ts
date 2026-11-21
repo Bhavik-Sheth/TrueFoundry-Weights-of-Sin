@@ -29,6 +29,28 @@ describe('terminal review', () => {
     expect(await workspaceText(root, 'module.py')).toBe('value = 2\n');
     expect(await workspaceText(root, 'test_module.py')).toBeUndefined();
   });
+  it('stages disjoint line ranges against one revision and preserves CRLF', async () => {
+    const source = 'same\r\nsame\r\nending\r\n';
+    const baseHash = sha256(source);
+    await writeFile(join(root, 'module.py'), source);
+    const p = await stage(root, run, 'call', 'thread', { summary: 'update', edits: [
+      { path: 'module.py', baseHash, startLine: 2, endLine: 2, newText: 'replacement\nextra' },
+      { path: 'module.py', baseHash, startLine: 3, endLine: 3, newText: 'end' },
+    ] });
+    expect(p.files[0].proposed).toBe('same\r\nreplacement\r\nextra\r\nend\r\n');
+    expect(await workspaceText(root, 'module.py')).toBe(source);
+  });
+  it('rejects ambiguous, stale, and ineffective ranges without touching the file', async () => {
+    const edit = { path: 'module.py', baseHash: sha256(base), startLine: 1, endLine: 1, newText: 'value = 2' };
+    const propose = (edits: Parameters<typeof stage>[4]['edits']) =>
+      stage(root, run, 'call', 'thread', { summary: 'update', edits });
+    await expect(propose([edit, edit])).rejects.toThrow('OVERLAPPING_RANGES');
+    await expect(propose([{ ...edit, endLine: 2 }])).rejects.toThrow('INVALID_RANGE');
+    await expect(propose([{ ...edit, oldText: base }])).rejects.toThrow('INVALID_RANGE');
+    await expect(propose([{ ...edit, newText: 'value = 1' }])).rejects.toThrow('NO_CHANGE');
+    await expect(propose([{ ...edit, baseHash: sha256('stale') }])).rejects.toThrow('STALE_BASE');
+    expect(await workspaceText(root, 'module.py')).toBe(base);
+  });
   it('rejects stale files and revoked reviews before writing', async () => {
     const p = await proposal();
     for (const h of p.hunks) h.decision = 'accepted';

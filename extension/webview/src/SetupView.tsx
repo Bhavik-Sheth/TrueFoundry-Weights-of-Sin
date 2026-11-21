@@ -287,6 +287,8 @@ export function SettingsTab({ data }: { data: SetupData }) {
   const status = data.status;
   const s = data.settings;
   const [allow, setAllow] = useState<string | undefined>();
+  const groups = ['Models', 'Runtime', 'Editor', 'Diagnostics'] as const;
+  const [group, setGroup] = useState<(typeof groups)[number]>('Models');
   if (!status || !s) return <p>Loading...</p>;
   const num = (key: 'excerptBudget' | 'firstEventTimeoutMs', label: string) => (
     <>
@@ -311,6 +313,10 @@ export function SettingsTab({ data }: { data: SetupData }) {
   );
   return (
     <div className="settings">
+      <div className="filter-bar" role="group" aria-label="Settings sections">
+        {groups.map(item => <button key={item} type="button" aria-pressed={item === group} onClick={() => setGroup(item)}>{item}</button>)}
+      </div>
+      <div className="settings-panel" hidden={group !== 'Runtime'}>
       <section className="step">
         <h3>Health</h3>
         <table className="health">
@@ -327,18 +333,22 @@ export function SettingsTab({ data }: { data: SetupData }) {
         </div>
       </section>
       <TrueForgeStep status={status} />
-      {status.trueforge === 'running' && (
-        <>
-          <ProviderStep data={data} />
+      {status.trueforge === 'running' && <RegisterStep data={data} />}
+      </div>
+      <div className="settings-panel" hidden={group !== 'Models'}>
+        {status.trueforge === 'running' ? <>
           <ModelStep data={data} />
-          <RegisterStep data={data} />
-        </>
-      )}
+          <ProviderStep data={data} />
+        </> : <div className="step">
+          <p>Start TrueForge to configure models.</p>
+          <button className="btn secondary" type="button" onClick={() => setGroup('Runtime')}>Runtime settings</button>
+        </div>}
+      </div>
+      <div className="settings-panel" hidden={group !== 'Diagnostics'}>
       <section className="step">
         <h3>Test resilience</h3>
         <p>
-          Simulates the primary model failing: the contexo agent is re-registered on a deliberately unreachable model
-          (a custom provider named contexo-broken). Run a task and the fallback agent takes over; if both models fail you get a clear error.
+          Switch the primary to an unreachable endpoint to exercise the configured fallback.
         </p>
         {s.simulatedFailure ? (
           <p className="warn">Primary model is in simulated-failure mode.</p>
@@ -346,20 +356,19 @@ export function SettingsTab({ data }: { data: SetupData }) {
           <p>Primary model is normal.</p>
         )}
         <div className="row">
-          <button className="btn" disabled={status.trueforge !== 'running' || s.simulatedFailure} onClick={() => post({ type: 'simulateFailure', on: true })}>
-            Simulate primary model failure
-          </button>
-          <button className="btn secondary" disabled={status.trueforge !== 'running' || !s.simulatedFailure} onClick={() => post({ type: 'simulateFailure', on: false })}>
-            Restore primary model
-          </button>
+          {s.simulatedFailure
+            ? <button className="btn" disabled={status.trueforge !== 'running'} onClick={() => post({ type: 'simulateFailure', on: false })}>Restore primary model</button>
+            : <button className="btn" disabled={status.trueforge !== 'running'} onClick={() => post({ type: 'simulateFailure', on: true })}>Simulate primary model failure</button>}
         </div>
         <Result data={data} op="simulateFailure" />
       </section>
+      </div>
+      <div className="settings-panel" hidden={group !== 'Editor'}>
       <section className="step">
-        <h3>Settings</h3>
-        <p>First-event timeout applies after a window reload.</p>
+        <h3>Context and commands</h3>
         {num('excerptBudget', 'Excerpt budget (tokens)')}
         {num('firstEventTimeoutMs', 'First event timeout (ms)')}
+        <p className="muted">Timeout changes take effect after a window reload.</p>
         <label htmlFor="s-allow">Command allowlist (comma separated)</label>
         <input
           id="s-allow"
@@ -374,9 +383,10 @@ export function SettingsTab({ data }: { data: SetupData }) {
         {check('devMode', 'Dev mode (show dev commands)')}
         <Result data={data} op="updateSetting" />
       </section>
-      <p className="muted">
-        <a href="#" onClick={(e) => { e.preventDefault(); post({ type: 'openTrueForge' }); }}>Advanced: open TrueForge web UI</a> (never required).
-      </p>
+      </div>
+      {group === 'Runtime' && <button type="button" className="inline-action" onClick={() => post({ type: 'openTrueForge' })}>
+        Open TrueForge
+      </button>}
     </div>
   );
 }

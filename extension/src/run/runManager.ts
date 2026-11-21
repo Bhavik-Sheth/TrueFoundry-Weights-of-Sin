@@ -171,7 +171,8 @@ export class RunManager extends EventEmitter {
 
   async send(text: string): Promise<void> {
     const run = this.active;
-    if (!run || run.state === 'cancelled' || run.state === 'failed') {
+    if (!run || run.state === 'cancelled' || run.state === 'failed' ||
+        (run.state === 'done' && this.workspaceUri && run.workspaceUri !== this.workspaceUri())) {
       return this.start('agent', text);
     }
     if (run.state === 'streaming' || run.state === 'awaiting-review') {

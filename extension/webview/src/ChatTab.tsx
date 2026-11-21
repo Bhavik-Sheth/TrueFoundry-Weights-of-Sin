@@ -4,7 +4,7 @@
  * Exports:
  *  - ChatTab (React component): host-relayed renderer (the S0 spike chose this over TrueForgeUI).
  *    Renders 'stream' and 'session' messages: model text merged per thread (preformatted wrapped
- *    text, never HTML), tool-call chips (name, collapsible args JSON, result summary, "deferred"
+ *    Markdown), tool-call chips (name, collapsible args JSON, result summary, "deferred"
  *    badge), approval chips with status, a turn status line, and a "View session" link (opens the Session tab).
  *    Auto-scrolls to the bottom unless the user scrolled up. A new 'session' clears the history.
  *    The send box lives in App.tsx.
@@ -13,9 +13,9 @@
  * Depends on: bridge.ts, ../../src/types. Depended on by: App.tsx.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import type { UiStreamEvent } from '../../src/types';
 import { subscribe } from './bridge';
+import { MessageBody } from './MessageBody';
 
 type Item =
   | { kind: 'text'; text: string; threadId?: string }
@@ -70,18 +70,6 @@ function argsJson(args: unknown): string {
   try { return JSON.stringify(args, null, 2) ?? ''; } catch { return String(args); }
 }
 
-const s: Record<string, CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', gap: 8, padding: 8, color: 'var(--vscode-foreground)', fontFamily: 'var(--vscode-font-family)', fontSize: 'var(--vscode-font-size)' },
-  text: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, fontFamily: 'inherit' },
-  chip: { display: 'inline-block', padding: '1px 8px', borderRadius: 10, fontSize: 11, background: 'var(--vscode-badge-background)', color: 'var(--vscode-badge-foreground)', marginRight: 6 },
-  badge: { padding: '0 6px', borderRadius: 8, fontSize: 10, border: '1px solid var(--vscode-focusBorder)', marginLeft: 6 },
-  muted: { color: 'var(--vscode-descriptionForeground)', fontSize: 12 },
-  link: { color: 'var(--vscode-textLink-foreground)', cursor: 'pointer' },
-  args: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '4px 0 0', fontSize: 11, background: 'var(--vscode-textCodeBlock-background)', padding: 6 },
-};
-
-const approvalColor = { pending: 'var(--vscode-editorWarning-foreground)', allowed: 'var(--vscode-testing-iconPassed)', denied: 'var(--vscode-errorForeground)' };
-
 export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
   const [st, setSt] = useState(state);
   const endRef = useRef<HTMLDivElement>(null);
@@ -108,44 +96,37 @@ export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
   }, [st]);
 
   return (
-    <div style={s.root}>
-      {st.session && (
-        <div style={s.muted}>
-          Session {st.session.sessionId.slice(0, 8)} · {st.session.agent} ·{' '}
-          <a style={s.link} role="button" tabIndex={0} onClick={onViewSession} onKeyDown={(e) => { if (e.key === 'Enter') onViewSession?.(); }}>View session</a>
-        </div>
-      )}
-      {st.items.length === 0 && <div style={s.muted}>No messages yet. Send a request below.</div>}
+    <section className="chat-feed" aria-label="Conversation">
+      {st.session && <div className="chat-session">
+        <span>{st.session.agent}</span>
+        <button className="inline-action" type="button" onClick={onViewSession}>Session activity</button>
+      </div>}
+      {st.items.length === 0 && <p className="muted">Ask about your workspace or describe a change to review.</p>}
       {st.items.map((it, i) => {
         switch (it.kind) {
-          case 'text': return <pre key={i} style={s.text}>{it.text}</pre>;
-          case 'tool': {
-            const json = it.args === undefined ? '' : argsJson(it.args);
-            return (
-              <div key={i} className="tool-event">
-                <span style={s.chip}>tool: {it.name}</span>
-                {it.deferred && <span style={s.badge}>deferred</span>}
-                {it.result !== undefined && <details><summary style={s.muted}>Tool result</summary><pre style={s.args}>{it.result}</pre></details>}
-                {json && (
-                  <details>
-                    <summary style={s.muted}>Tool arguments</summary>
-                    <pre style={s.args}>{json}</pre>
-                  </details>
-                )}
-              </div>
-            );
-          }
-          case 'approval': return (
-            <div key={i}>
-              <span style={{ ...s.chip, background: approvalColor[it.status] }}>approval: {it.name} · {it.status}</span>
-              {it.reason && <span style={s.muted}> {it.reason}</span>}
-            </div>
-          );
-          case 'done': return <div key={i} style={it.error ? { color: 'var(--vscode-errorForeground)' } : s.muted}>Turn {it.status}{it.error ? `: ${it.error}` : ''}</div>;
-          case 'info': return <div key={i} style={s.muted}>{it.text}</div>;
+          case 'text': return <MessageBody key={i} text={it.text} />;
+          case 'tool': return <details className="activity-entry" key={it.toolCallId}>
+            <summary className="activity-heading">
+              <span className="activity-name">{it.name}</span>
+              <span className="activity-meta">{it.result !== undefined ? 'Result' : 'Running'}{it.deferred && ' · on demand'}</span>
+            </summary>
+            {it.args !== undefined && <div className="activity-detail"><span>Input</span><pre>{argsJson(it.args)}</pre></div>}
+            {it.result !== undefined && <div className="activity-detail"><span>Result</span><pre>{it.result}</pre></div>}
+          </details>;
+          case 'approval': return <div className="activity-notice" key={i}>
+            <span className="activity-name">{it.name}</span>
+            <span className={it.status === 'denied' ? 'err' : it.status === 'allowed' ? 'ok' : 'warn'}>
+              {it.status === 'pending' ? 'Approval requested' : it.status}
+            </span>
+            {it.reason && <span className="muted">{it.reason}</span>}
+          </div>;
+          case 'done': return it.error
+            ? <p key={i} className="err" role="alert">{it.error}</p>
+            : <p key={i} className="muted">Turn {it.status}</p>;
+          case 'info': return <p key={i} className="muted">{it.text}</p>;
         }
       })}
       <div ref={endRef} />
-    </div>
+    </section>
   );
 }

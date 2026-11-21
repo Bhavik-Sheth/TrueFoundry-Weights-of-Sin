@@ -4,6 +4,7 @@ import { stdin, stderr, stdout } from 'node:process';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { z } from 'zod';
+import { sourceWindow } from '../context/sourceWindow';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
 import { assembleContext, prepareContextForModel } from '../context/assembler';
 import { loadWorkspaceIndex } from './index';
@@ -13,8 +14,9 @@ import { runCommandIn } from '../mcp/runCommand';
 import { RunManager, type RunReview } from '../run/runManager';
 import { createTfClient } from '../run/tfClient';
 import { contextReceipt, continuation, continuationInput } from '../run/continuation';
+import { BatchPlans, batchPlanInput, proposalOutput } from '../run/batchPlan';
 import { RunJournal } from '../run/journal';
-import { computeResult, proposalKey, sha256 } from '../review/proposal';
+import { computeResult, proposalKey } from '../review/proposal';
 import type { ContexoConfig } from '../config';
 import type { Proposal, Selection, UiStreamEvent } from '../types';
 import { applyReviewed, edits, search, stage, workspaceText } from './workspace';
@@ -27,6 +29,7 @@ export async function assist(root: string, text: string, url: string, selection?
   const routes = new RunRoutes();
   const index = await loadWorkspaceIndex(root);
   const journal = new RunJournal(resolve(process.env.CONTEXO_RUNS_DIR || join(homedir(), '.contexo', 'runs')), error => console.error('Run journal:', error));
+  const batches = new BatchPlans(journal, root, path => workspaceText(root, path));
   const terminal = createInterface({ input: stdin, output: stderr });
   const answer = async (question: string) => Boolean(stdin.isTTY && (await terminal.question(question + ' [y/N] ')).trim().toLowerCase() === 'y');
   let pending: Proposal | undefined;
@@ -35,6 +38,7 @@ export async function assist(root: string, text: string, url: string, selection?
   const review: RunReview = {
     get pending() { return pending; },
     async beginProposal(run, call, thread, args) {
+      await batches.assertScope(run, args.edits);
       pending = await stage(root, run, call, thread, args);
       if (!pending.hunks.length) { pending = undefined; return { deny: 'NO_CHANGE: the edit leaves the file unchanged.' }; }
       journal.record(run.id, { kind: 'proposal', proposal: structuredClone(pending), bases: pending.files.map(f => ({ path: f.path, hash: f.baseHash })) });
@@ -55,11 +59,10 @@ export async function assist(root: string, text: string, url: string, selection?
           return { content: [{ type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value) }] };
         });
       }
-      tool('read_file', 'Read workspace text and its baseHash. Line numbers are one-based.', { path: z.string(), startLine: z.number().int().positive().optional(), endLine: z.number().int().positive().optional() }, async a => {
+      tool('read_file', 'Read current text and hash. Line coordinates are one-based and inclusive. Use rangeWritable to confirm an exact edit range.', { path: z.string(), startLine: z.number().int().positive().optional(), endLine: z.number().int().positive().optional() }, async a => {
         const content = await workspaceText(root, a.path);
         if (content === undefined) throw new Error('File does not exist');
-        const lines = content.split('\n');
-        return { path: a.path, hash: sha256(content), totalLines: lines.length, text: lines.slice((a.startLine ?? 1) - 1, a.endLine).join('\n').slice(0, 16000) };
+        return sourceWindow(a.path, content, a.startLine, a.endLine);
       });
       tool('search_workspace', 'Search source files for literal text.', { query: z.string().min(1), limit: z.number().int().min(1).max(30).default(20) }, a => search(root, [a.query], a.limit));
       tool('assemble_context', 'Rank context excerpts and explicit @file or @symbol mentions under a token budget.', {
@@ -81,6 +84,8 @@ export async function assist(root: string, text: string, url: string, selection?
           if (!active()) throw new Error('Inactive run route');
           return continuation(route!.run, records, args, pending);
         });
+      tool('batch_plan', 'Create, refresh or complete a dependency-ordered edit plan. Status checks live revisions and restores a plan by run ID. The completed batch must match an approved proposal.',
+        batchPlanInput, args => batches.act(route!.run, args, active));
       tool('file_context', 'Inspect current and previous versions of a relevant workspace file. With version, read an exact historical range.',
         fileContextInput, async args => fileContextReader(root, index).inspect(args));
       tool('list_symbols', 'List indexed functions, classes, methods and documentation.', {
@@ -88,7 +93,7 @@ export async function assist(root: string, text: string, url: string, selection?
       }, async a => (a.path ? index.inFile(a.path) : index.symbols()).filter(s => !a.query ||
         s.qualifiedName.toLowerCase().includes(a.query.toLowerCase())).slice(0, 200)
         .map(s => ({ path: s.path, name: s.qualifiedName, startLine: s.startLine, endLine: s.endLine })));
-      tool('propose_write', 'Stage exact edits for human hunk review. Supply the read_file hash as baseHash, or new for a new file.', edits.shape, async args => {
+      tool('propose_write', 'Stage edits for hunk review. Prefer a read_file range with startLine, endLine and baseHash. Send newText only. Legacy oldText and file creation remain supported.', edits.shape, async args => {
         const p = pending;
         if (!p || p.key !== proposalKey(args) || !p.hunks.some(h => h.decision === 'accepted')) throw new Error('No matching reviewed edits.');
         pending = undefined;
@@ -106,14 +111,14 @@ export async function assist(root: string, text: string, url: string, selection?
         await applyReviewed(root, p, active);
         p.status = 'applied';
         p.result = computeResult(p.hunks);
-        journal.record(p.runId, { kind: 'proposal', proposal: p, bases: p.files.map(f => ({ path: f.path, hash: f.baseHash })) });
+        journal.record(p.runId, { kind: 'proposal', proposal: p, bases: p.files.map(f => ({ path: f.path, hash: f.baseHash })), output: proposalOutput(p) });
         for (const file of p.files) await index.reindexFile(file.path);
-        return p.result;
+        return { ...p.result, proposalKey: p.key };
       });
       tool('run_command', 'Run an approved pytest, flask, or python command.', { argv: z.array(z.string()).min(1), timeoutSec: z.number().int().positive().max(180).optional() }, async a => {
         if (command !== JSON.stringify(a.argv)) throw new Error('No matching command approval.');
         command = undefined;
-        return runCommandIn(root, cfg.commandAllowlist, a.argv, a.timeoutSec);
+        return batches.verify(route!.run, a.argv, () => runCommandIn(root, cfg.commandAllowlist, a.argv, a.timeoutSec), active);
       });
     } });
   const tf = createTfClient(cfg, { routes, port: server.port });

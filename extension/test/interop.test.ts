@@ -20,9 +20,10 @@ describe('external editor interoperability regressions', () => {
     const packet = structuredClone(samplePacket);
     packet.excerpts[0].text = '\\'.repeat(14_000);
     const { text, delivery } = prepareContextForModel(packet);
-    expect(delivery.excerptIds).not.toContain(packet.excerpts[0].id);
+    expect(delivery.excerptIds).toContain(packet.excerpts[0].id);
+    expect(delivery.shortenedExcerptIds).toContain(packet.excerpts[0].id);
     expect(delivery.excerptIds).toContain(packet.excerpts[1].id);
-    expect(delivery.omittedExcerpts).toBe(1);
+    expect(text).not.toContain(packet.excerpts[0].text);
     expect(delivery.serializedCharacters).toBe(JSON.stringify(text).length);
     expect(delivery.serializedCharacters).toBeLessThanOrEqual(delivery.characterLimit);
   });
