@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { bm25Rank, symbolNameMatch, tokenize } from '../src/context/search';
 import { assembleContext, buildGraph, expandOneHop, extractAnchors, formatForModel, pack, rrfFuse } from '../src/context/assembler';
 import type { Candidate } from '../src/context/assembler';
-import { count } from '../src/context/tokens';
+import { count, previewSelection } from '../src/context/tokens';
 import { samplePacket } from '../src/dev/fixtures';
 import type { IndexApi } from '../src/context/indexer';
 import type { SymbolEntry } from '../src/types';
@@ -62,6 +62,15 @@ describe('formatForModel + count', () => {
     expect(out).toContain('lower-rank');
     expect(out).toContain('over-budget');
     expect(out).toContain('duplicate');
+  });
+  it('bounds a large selection while preserving small, exact editor text', () => {
+    const source = 'line with exact source and <|endoftext|>\n'.repeat(5_000);
+    const preview = previewSelection(source);
+    expect(preview.truncated).toBe(true);
+    expect(source.startsWith(preview.text)).toBe(true);
+    expect(count(preview.text)).toBeLessThanOrEqual(1600);
+    expect(previewSelection('def example():\n    return 1')).toEqual({ text: 'def example():\n    return 1', truncated: false });
+    expect(count('<|endoftext|>')).toBeGreaterThan(1);
   });
   it('count returns a positive integer that grows with text length', () => {
     const n = count('abcdefgh');
@@ -127,7 +136,8 @@ describe('extractAnchors', () => {
     const sel = { path: 'tests/test_cli.py', startLine: 5, endLine: 6, docVersion: 1, hash: 'h', text: 't' };
     const a = extractAnchors('x', ['@src/app/cli.py', '@unrelated'], sel, idx);
     expect(a.mandatory[0].reasons[0].kind).toBe('selection');
-    expect(a.mandatory[0].id).toBe('tests/test_cli.py#test_routes_command'); // 0-based 5 -> line 6
+    expect(a.mandatory[0].id).toBe('tests/test_cli.py#sel@6');
+    expect(a.mandatory[0].text).toBe('t'); // exact editor buffer, not the indexed enclosing function
     expect(a.mandatory.some((c) => c.path === 'src/app/cli.py' && c.reasons.some((r) => r.kind === 'mention'))).toBe(true);
     expect(a.mandatory.some((c) => c.id === 'src/app/other.py#unrelated')).toBe(true);
   });

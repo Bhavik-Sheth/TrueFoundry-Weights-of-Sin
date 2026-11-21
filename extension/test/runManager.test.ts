@@ -61,6 +61,24 @@ describe('RunManager', () => {
     expect(states.map((s) => s.state)).toEqual(['streaming', 'done']);
   });
 
+  it('reattaches to an existing turn and displays each tool call and text suffix once', async () => {
+    const firstCall = call('m1', 'read_file', { path: 'sample.py' });
+    const { rm, tf, events } = setup([created, firstCall, delta('m2', 'Hel')]);
+    const subscribe = vi.fn(async function* () {
+      yield firstCall;
+      yield { type: 'model.message', id: 'm2', threadId: 'main', content: 'Hello', toolCalls: [] } as TfEvent;
+      yield done;
+    });
+    Object.assign(tf, { readTurnState: async () => ({ status: 'running' }), subscribeExisting: subscribe });
+    await rm.start('agent', 'Continue');
+    expect(subscribe).toHaveBeenCalledWith('sess_1', 'turn_1', 'm1', expect.any(AbortSignal));
+    expect(text(events)).toBe('Hello');
+    expect(events.filter(event => event.kind === 'tool-call')).toHaveLength(1);
+    expect(tf.streamCalls).toHaveLength(1);
+    expect(tf.approveCalls).toHaveLength(0);
+    expect(rm.active?.state).toBe('done');
+  });
+
   it('ignores events after stop()', async () => {
     let release!: () => void;
     const { rm, tf, events } = setup([created, delta('m1', 'one')]);
