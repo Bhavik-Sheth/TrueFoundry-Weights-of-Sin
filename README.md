@@ -1,6 +1,6 @@
 # Contexo
 
-[![VSIX 0.0.2](https://img.shields.io/badge/VSIX-0.0.2-23699a)](#open-the-extension) [![Extension suite](https://img.shields.io/badge/Vitest-210_passed_·_1_TODO-286d80)](docs/verification/2026-11-20/local-editor/vitest.txt) [![Flask CLI](https://img.shields.io/badge/Flask_CLI-60_passed-25785c)](docs/verification/2026-11-20/local-editor/B-mercury-pytest.txt)
+[![VSIX 0.0.2](https://img.shields.io/badge/VSIX-0.0.2-23699a)](#open-the-extension) [![Extension suite](https://img.shields.io/badge/Vitest-233_passed_·_1_TODO-286d80)](docs/verification/2026-11-21/AGENT_BRIDGE.md#current-candidate-summary) [![Flask CLI](https://img.shields.io/badge/Flask_CLI-60_passed-25785c)](docs/verification/2026-11-20/local-editor/B-mercury-pytest.txt)
 
 **Competition evidence** · [Three-page A4 write-up](docs/Contexo-writeup.pdf) · [34-second evidence reel](docs/verification/2026-11-20/local-editor/evidence-reel.mp4) · [Run counters and tool calls](docs/verification/2026-11-20/local-editor/sessions.json) · [Run the checks yourself](#reproduce-the-checks) · [Architecture and context management](#architecture)
 
@@ -10,9 +10,35 @@ Contexo is a VS Code extension that adds a context-aware coding agent to the edi
 - **Agent mode**: a panel in the Contexo sidebar (Chat / Session / Context / Changes / Settings tabs) where one request drives a multi-file change. The agent finds the files itself.
 - **Context assembly**: `@file` / `@symbol` mentions plus automatic budgeted retrieval, with reasons and omissions visible in the Context tab.
 - **Safe review**: nothing is written until you accept; every hunk has Accept/Reject CodeLens; applied hunks can be undone.
-- **Streaming, Stop, fallback**: tokens stream in; Stop is immediate and leaves the workspace untouched; if the primary model fails, a second configured model takes over.
+- **Streaming, Stop, fallback**: follow the turn as it runs, stop pending work, and switch to a configured fallback on eligible model failures before approval.
 
 The extension never calls a model provider. It is a client of a TrueForge agent and exposes the editor to that agent as MCP tools. Models and keys live only in TrueForge. TrueForge is a backend-only harness here: **Contexo provides the editor UI** (setup, models, session inspection and the resilience test all happen in the panel; you never need to open TrueForge's web UI).
+
+## Implemented features
+
+| Area | What Contexo ships |
+| --- | --- |
+| Entry points | VS Code inline edit, sidebar assistant, Chat Participant, command palette, and terminal assistant. The workspace MCP bridge and bundled review skill support Copilot and Claude Code. |
+| Agent lifecycle | TrueForge sessions and turns, streamed events, deferred tool discovery, separate write and command approvals, Stop, explicit failure classification, and a configured fallback on eligible failures. Wizard and CLI registration reconcile the same runtime configuration. |
+| Initial context | Selected source, path, line range and buffer hash for inline edits. Goal-first discovery for agent mode. Explicit file and symbol anchors reserve evidence. Bare mention keywords contribute search hints. |
+| Retrieval | Incremental Tree-sitter index for Python code and heading-based docs, weighted query terms, separate BM25 ranks for code and docs, local sparse TF-IDF vectors with inverted postings, symbol matching, live ripgrep, and Go/Rust source previews. |
+| Relationships and ranking | One-hop expansion of Python calls, callers, chained re-exports, CLI registration, tests and docs. VS Code language providers can add bounded Go, Rust, Java and JS/TS call edges. Weighted reciprocal rank fusion and feature/CLI coverage bring related file roles into the packet. |
+| Packet assembly | Score-per-token packing, per-file penalties, overlap removal, and syntax-aware trimming. The default is 8,000 estimated source tokens. The independent 22,000-character escaped response cap protects priority excerpts and counts shortened and omitted material. |
+| File understanding | Up to eight versioned file summaries. Each can show contents, inclusion reason, differences against HEAD and the latest file-changing commit subject. Exact reads expose historical source, rename history, or current editor text with a revision hash. |
+| Caching and freshness | Lexical postings, rankings and sparse-vector data are reused by symbol snapshot. Git blobs and history are reused by immutable revision. Live search, working-tree reads and unsaved buffers provide fresh evidence. Provider cache counters are recorded separately. |
+| Long tasks | TrueForge transcript compaction and on-demand tool schemas. Contexo’s journal can reconstruct the goal, source pointers, review decisions and checks. Decisions page 12 files at a time. The durable batch plan orders prerequisites, enforces active scope, validates reviewed output and required checks, and reopens affected batches if completed files change. |
+| Native editing | Exact line ranges with replacement-only output, legacy unique-text replacement, and new-file staging. Hash, overlap, bounds and no-op validation precede review. Inline scope and Python symbol checks surface issues in the proposal. |
+| Native review | CodeLens and diff views, mixed hunk decisions, apply to source files, undo and redo, revision recheck during apply, and saved review checkpoints. |
+| Verification | Approved argv commands with scoped environment, time/output limits and cancellation. Optional candidate pytest checks run on a temporary copy. |
+| UI and traceability | Markdown chat, source links, filterable session timeline, expandable tool inputs/results and approvals, context graph, versioned file map, and packet delivery details. Traces record observed actions and checks. |
+| Persistence and replay | SQLite events and review projections, JSONL export and fallback, content fingerprints, dropped-stream reconciliation, and replay of native, ACP and OTLP records. |
+| Review evidence | Requirement revisions, revision- and side-aware hunk matching, SARIF, Jenkins test reports, GitHub review comments and commit check runs, and BuildKit import with digest checks. Standalone review supports saved decisions and replay. |
+| Code intelligence | Definitions, references, implementations, bounded caller/callee navigation, and a Python before/after impact graph. |
+| Workspace and provider boundaries | Authenticated loopback MCP, scoped run connectors, workspace-relative path checks, symlink guards, and a packaged-bundle check for direct provider calls. |
+
+### Readiness and remaining implementation
+
+The evidence supports a **Mercury-first supervised workflow**. An HTTPX repair turn completed through the approved command tool. Bonsai remains experimental. The current build adds durable batches, an opt-in loopback model adapter, broader graph resolution, selected-root routing, stronger interrupted-write recovery, and GitHub check-run evidence. Live small-model writes, SSH/Codespaces verification, concurrent runs, provisioned sandbox Skills and Code Mode, and deeper recovery testing remain open. Separate acceptance work covers forced provider compaction across a large migration, actual Copilot and Claude Code edits, restart faults, and a continuous release rehearsal. [Current work and acceptance gates](docs/REMAINING_WORK_PLAN.md#current-implementation-and-release-gates)
 
 ## Open the extension
 
@@ -47,6 +73,8 @@ Set `TRUEFORGE_URL`, `CONTEXO_AGENT` and `CONTEXO_FALLBACK_AGENT` to override th
 
 ## Verification results
 
+The [submission audit and detailed Flask A/B/C checks](docs/verification/2026-11-22/SUBMISSION.md) include the fresh replay, actual CLI results and the distinction between contest evidence and product readiness.
+
 Live compatibility runs used Inception Mercury 3 and local Qwen3 1.7B through TrueForge. Both models read the same colour function, requested a write, waited for approval, and applied the same hunk. The fixed Flask tasks have the following evidence on commit `22d924701a6ae2e4cd01e9a15bbaf3946094af65`.
 
 | Case | Recorded result | Evidence |
@@ -55,7 +83,19 @@ Live compatibility runs used Inception Mercury 3 and local Qwen3 1.7B through Tr
 | B, agent | Mercury independently selected implementation, tests and docs. The initial full CLI suite returned 59 passed and one failure serializing a timedelta. Mercury proposed a correction and the reviewer applied it. An independent post-fix run passed all 60 tests. The command appeared in help and masked synthetic values for SECRET, PASSWORD, TOKEN and KEY, while PUBLIC_VALUE stayed visible. A separate installed-editor run applied 73 lines across three files. Its harness stopped at command approval. Independent verification on that checkout passed 60 tests and checked four masked keys. [Editor patch](docs/verification/2026-11-20/local-editor/B-mercury.patch). | [Task B replay](docs/verification/2026-11-20/flask-B-cli.jsonl) · [passing pytest output](docs/verification/2026-11-20/flask-B-pytest.txt) · [masked JSON](docs/verification/2026-11-20/flask-B-config.json) · [final patch](docs/verification/2026-11-20/flask-B.patch) |
 | C, resilience | The isolated VS Code host reported an unreachable endpoint, processed nine timer ticks and left Git clean. [Editor evidence](docs/verification/2026-11-20/local-editor/C-first.json). | [Three-task runbook](docs/DEMO_SCRIPT.md) |
 
-[Mercury edit replay](docs/verification/2026-11-20/mercury-edit.jsonl) · [Qwen edit replay](docs/verification/2026-11-20/qwen-edit.jsonl) · [Extension suite, 210 passed and one TODO](docs/verification/2026-11-20/vitest.txt). Replays contain task code and tool arguments. Review exported files before sharing. The roadmap tracks additional production work including concurrent editor runs, remote workspaces and live CI or sandbox validation. [Remaining work plan](docs/REMAINING_WORK_PLAN.md)
+### Live HTTPX model comparison
+
+Mercury delivered and read all three required files on the first attempt and passed **15/15** independent behavior checks. Feedback repaired its test and documentation edits. Its follow-up completed **13/13** CLI tests through Contexo and independent upstream verification passed **1,418** tests. The clean baseline passed **1,416** with the same one skip and one pre-existing Trio test excluded. Native Bonsai made zero tool calls and scored the baseline’s **6/15**. The adapter follow-up and bare-mention fix delivered **3/3** required files, and Bonsai identified them in its reply. It reached its 512-token output limit before a read or write. [Benchmark, exact patches and per-run metrics](docs/verification/2026-11-21/model-comparison/README.md)
+
+![HTTPX independent behavior checks for Mercury after repair and native Bonsai at baseline](docs/architecture/httpx-model-results.svg)
+
+### Context delivery and local cache
+
+Pinned, filename-free LMCache and HTTPX prompts delivered **5/5** and **3/3** required files in both excerpts and the file map. In the LMCache microbenchmark, 12 forced misses and 12 warm lookups had median in-memory assembly times of **3,736 ms** and **118 ms** with identical excerpt order. That measurement excludes file parsing, live search, Git, MCP and inference. [Retrieval measurements](docs/verification/2026-11-21/AGENT_BRIDGE.md#retrieval-and-range-edit-follow-up)
+
+![Median LMCache context assembly latency for cold snapshot rebuild and warm reuse](docs/architecture/context-cache-results.svg)
+
+[Mercury edit replay](docs/verification/2026-11-20/mercury-edit.jsonl) · [Qwen edit replay](docs/verification/2026-11-20/qwen-edit.jsonl) · [Current candidate summary](docs/verification/2026-11-21/AGENT_BRIDGE.md#current-candidate-summary)
 
 ## Reproduce the checks
 
@@ -110,7 +150,7 @@ The model sees context in four tiers. Each tier has its own owner and limit. Con
 | --- | --- | --- | --- |
 | Prompt | Contexo, then TrueForge | Shared agent instructions, then the first message. An inline edit carries the selected code, line range and whole-file `baseHash`. An agent request carries the text and a hint to call `assemble_context` first. | Instructions are fixed. An inline edit adds only the selection. |
 | Packet | `assemble_context` | Ranked code, test and documentation excerpts. Each one carries reasons. A bounded ledger records omissions and counts any entries dropped during serialization. | 8,000 estimated tokens by default (the agent may request 500–32,000). The response stays under 22,000 characters. |
-| On demand | `read_file`, `search_workspace`, `list_symbols` | Exact file text with its hash, search hits and symbol lists, fetched when the packet is not enough. | 16,000 characters per read. 30 hits. 200 symbols. |
+| On demand | `read_file`, `search_workspace`, `list_symbols` | Exact file text with its hash, search hits and symbol lists, fetched when the packet is not enough. | Up to 16,000 source characters per read, with an escaped response cap. 30 hits. 200 symbols. |
 | Session | TrueForge | Model turns and tool results across iterations. | Compaction is on. 40 iterations. Deferred tool schemas load only when needed. |
 
 ![Figure 2. Context packet pipeline](docs/architecture/context-pipeline.svg)
@@ -140,9 +180,9 @@ The agent then read and changed exactly the three files the task needed: `cli.py
 | Corpus vectors | TF-IDF centroid neighbours computed locally, at weight 0.35. | Finds related code that uses different words, without sending code to an embedding service. |
 | BM25 code and docs | k1 1.2, b 0.75. Code and docs are ranked in separate lists. | Lexical relevance. Prose does not compete with code for rank. |
 | Symbol names and ripgrep | Exact or prefix name matches. A grep for rare terms, mapped back to the enclosing symbol. | Catches identifiers, strings and comments, and returns whole symbols instead of line fragments. |
-| One-hop graph | Calls, callers, CLI registration, tests and docs reached from the top 10 implementation symbols. | Brings in what the request implies but does not name, such as registration sites, the matching tests and the right docs page. |
+| One-hop graph | Calls, callers, CLI registration, tests and docs reached from the top 10 implementation symbols. Static Python imports and aliases help disambiguate same-named functions. | Brings in what the request implies but does not name, such as registration sites, the matching tests and the right docs page. |
 | Reciprocal rank fusion | k = 60, with per-list weights. | Agreement between independent signals beats one inflated score. |
-| Coverage quota | The best test and best doc candidate are reserved first. | The packer prioritizes test and documentation candidates when available. |
+| Coverage quota | The best test and best doc candidate are reserved first. | The packer prioritizes tests and a relevant matching module guide when available. |
 | Density packing | Score ÷ tokens, a 400-token floor, a cutoff at 50% of the best score, the top 40, and half score after three excerpts from one file. | Spreads the budget across files instead of spending it on one large module. |
 | Trimming | Oversized symbols keep their decorators, signature, docstring and term-matching lines. | Large symbols stay represented at a fraction of their size. |
 | Omission ledger | Each omission is listed as duplicate, over-budget or lower-rank, with its size, plus a notice when the list itself overflows. | The agent knows what it did not see. It reads that file instead of guessing. |
@@ -186,7 +226,7 @@ If the fallback fails too, the run reports "Both models failed … No files were
 | Code | Raised when | The agent's next step |
 | --- | --- | --- |
 | `ANOTHER_PROPOSAL_UNDER_REVIEW` | A proposal is already open. | End the turn and wait for the review. |
-| `STALE_BASE ‹path›` | The live hash differs from `baseHash`, or two edits to one file disagree on the base. | Re-read the file and rebuild `oldText`. |
+| `STALE_BASE ‹path›` | The live hash differs from `baseHash`, or two edits to one file disagree on the base. | Re-read the file and refresh the exact coordinates and hash, or rebuild the legacy `oldText`. |
 | `FILE_EXISTS` / `FILE_NOT_FOUND` | `"new"` was used for an existing file, or a hash was given for a missing file. | Use the `read_file` hash or `"new"`. |
 | `OLD_TEXT_NOT_FOUND` / `AMBIGUOUS_MATCH` | `oldText` matches zero times, or more than once. | Copy the text exactly, or add surrounding lines. |
 | `NO_CHANGE` | The edits leave every file identical. | Propose a real change, or say none is needed. |
@@ -335,6 +375,14 @@ flask --app <some app> config      # masked JSON; e.g. copy scripts/demo-app.py 
 
 See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) for the recording plan.
 
+## Advanced runtime and workspaces
+
+- Use **Contexo: Select Workspace Folder** in a multi-root window. Contexo binds the agent, journal evidence, review and undo to the selected folder. One run is active at a time. In a remote VS Code window, install the extension in the workspace host and run TrueForge next to it. The external editor bridge remains single-root.
+- An agent can create a durable plan through `batch_plan`, refresh it after compaction, and restore a prior plan with its run ID in the original workspace. Completion requires applied output hashes and successful approved commands listed in that batch.
+- For a local OpenAI-compatible model that emits textual tool envelopes, launch `node extension/trueforge/local-model-adapter.mjs`. Set `CONTEXO_LOCAL_MODEL_URL` to its loopback `/v1` endpoint, set a long `CONTEXO_LOCAL_ADAPTER_TOKEN`, and use that token when registering the adapter as a custom provider in TrueForge. The adapter listens on loopback port 8793 by default. `CONTEXO_LOCAL_MAX_OUTPUT_TOKENS` caps the adapter budget. `CONTEXO_MODEL_MAX_OUTPUT_TOKENS` sets the TrueForge agent budget when using manual registration.
+- For Skills and Code Mode, configure a ready sandbox environment in TrueForge and provide `CONTEXO_SANDBOX` and `CONTEXO_SKILLS` at manual registration. `CONTEXO_REVIEW_SKILL_SHA` can register the bundled skill from a published, pinned repository commit. Registration verifies environment readiness and reads the skills back. [TrueForge Skills](https://github.com/truefoundry/trueforge/blob/main/docs/skills.mdx) · [TrueForge Code Mode](https://github.com/truefoundry/trueforge/blob/main/docs/key-features/code-mode.mdx)
+- **Contexo: Sync Review Evidence** can import GitHub check runs from a full commit URL. The importer confirms that returned check runs belong to the selected commit before recording them.
+
 ## Switching models
 
 Open the **Settings** (gear) tab in the Contexo panel and pick a different primary or fallback model. Contexo updates the `contexo` / `contexo-fallback` agents in TrueForge right away. To use a new provider, add its key in the same tab first. No extension change or rebuild is needed.
@@ -358,6 +406,12 @@ The file map adds a repository overview before the selected excerpts. It starts 
 
 Call `file_context` with a workspace path to inspect the file's before-and-after hunks, commit message and previous path when Git recorded a rename. Set `version` to `head` or `previous` and pass a line range for the exact historical source. `previous` reads the first parent of the latest commit that touched that file. The map uses a separate metadata budget of up to 1,300 estimated tokens within the shared 22,000-character serialized response limit. Diff inspection reads text files up to 256 KiB. Git and the workspace index supply the evidence locally.
 
+On pinned Flask 3.1.3, a filename-free Task B request with a 1,800-token source budget returned the CLI implementation, tests and command documentation. The packer reserves a related module guide when its name and terms connect it to the leading implementation. It also budgets omission details separately so diagnostic metadata stays proportional to the source. Exact reads preserve line endings and account for JSON escaping before returning a slice and its full-file hash. [Flask retrieval and tool trace](docs/verification/2026-11-21/AGENT_BRIDGE.md#bonsai-on-upstream-flask).
+
+For a multi-file request, the assembler preserves likely implementation, test and documentation roles through the serialized tool response. Priority excerpts include suggested exact-read coordinates and can be shortened to fit. Ask for up to 24 exact lines and use the returned coordinates and base hash to submit only replacement text. The extension checks the file revision and opens the proposal in native review.
+
+Repeated requests reuse the lexical ranking data for the same symbol snapshot, and Git history reads reuse immutable data for the same repository revision. Live search, the active buffer and working tree supply current evidence. [Context engineering design and published research](docs/CONTEXT_ENGINEERING.md)
+
 ### Long edits, compaction, and traceability
 
 TrueForge performs conversation compaction. Contexo's `resume_context` tool restores selected facts from the current run journal on demand. It returns the goal, original selection reference, last delivered snippet locations, proposal decisions and recent check statuses. The context receipt records a SHA-256 of the exact MCP text, plus the run, session, turn, inclusion reasons and delivery counts. Proposal decisions are paged by file, 12 at a time. A cursor for a superseded proposal is rejected. The tool returns source pointers and review counts. Read exact current lines before constructing another edit.
@@ -372,6 +426,10 @@ TrueForge performs conversation compaction. Contexo's `resume_context` tool rest
 Anthropic describes compacting older messages, preserving structured notes and reopening exact sources when needed. Cursor describes lazy tool discovery and storing lengthy results for selective rereads. Contexo applies these ideas through deferred MCP tools, bounded context, source pointers and a run-scoped checkpoint. The checkpoint is a structured record of observations. Provider-supplied thinking summaries, where available, are separate from verifiable execution evidence. [Anthropic context engineering](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents) · [Anthropic thinking summaries](https://platform.claude.com/docs/en/build-with-claude/extended-thinking) · [Cursor dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
 
 Run `scripts/verify-oss.sh` after building the extension to check retrieval, stale-base rejection and exact hunk application in pinned Flask, Go x/sync and ripgrep checkouts. The script needs Python with Flask's runtime dependencies, Go, Git and ripgrep. Set `CONTEXO_TEST_RUST=1` with Cargo installed to also run globset's tests. The edits and checkouts stay in disposable directories. [Release evidence](docs/verification/2026-11-21/AGENT_BRIDGE.md).
+
+### Inspect an agent run
+
+Chat renders Markdown, code blocks, tables and workspace source links. Open **Session activity** to select a run and a turn, then filter tools, messages or approvals. Expand a tool row for its inputs and result. **View context** opens the current packet and its file map. Filter by path, open source or expand the graph and transport details when needed. Settings groups model setup, runtime, editor controls and diagnostics.
 
 ### Review history
 
@@ -437,11 +495,12 @@ UPSTREAMS.md              provenance and licences
 
 ## Docs
 
-- [docs/PRD_Lite.md](docs/PRD_Lite.md): scope and design
-- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md): slices and manual scripts
-- [docs/spike-notes.md](docs/spike-notes.md): TrueForge findings and open questions
-- [docs/writeup.md](docs/writeup.md): submission write-up
-- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): demo recording plan
+- [Competition PDF](docs/Contexo-writeup.pdf) and [editable source](docs/writeup.md)
+- [Context engineering design and research](docs/CONTEXT_ENGINEERING.md)
+- [Remaining engineering and release checks](docs/REMAINING_WORK_PLAN.md#current-implementation-and-release-gates)
+- [Release verification](docs/verification/2026-11-21/AGENT_BRIDGE.md#current-candidate-summary) and [live Mercury/Bonsai benchmark](docs/verification/2026-11-21/model-comparison/README.md)
+- [Demo recording plan](docs/DEMO_SCRIPT.md)
+- [Original scope](docs/PRD_Lite.md), [build slices](docs/IMPLEMENTATION_PLAN.md), and [early spike notes](docs/spike-notes.md)
 
 ## Licence
 

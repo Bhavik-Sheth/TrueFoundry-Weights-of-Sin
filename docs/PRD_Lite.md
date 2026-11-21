@@ -1,5 +1,7 @@
 # PRD Lite · Contexo (Round 1 build)
 
+> This document records the original build plan. See the [implemented features](../README.md#implemented-features) and [current engineering and release gates](REMAINING_WORK_PLAN.md#current-implementation-and-release-gates) for the release candidate.
+
 > The one-day version of [PRD.md](PRD.md). It is built to be finished by **20 Nov 2026, 23:59 IST** by **2–3 people in ~12 hours**, scoring full anchors on the fixed Flask tasks.
 > Rule for this build: **reuse everything that already exists; hand-write only the novel parts** (context assembly, staged per-hunk review, guards, fallback).
 

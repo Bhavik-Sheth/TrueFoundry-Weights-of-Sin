@@ -6,6 +6,34 @@ Baseline: commit `8a3e469`. The eight workstreams below are proposed work. Exist
 
 Start with the competition contract below. Use the delivery tracker for dependencies, the implementation contracts for architecture, and the engineering work packages for exact edit points and failure handling. The final test catalogue specifies fixtures, actions, observations and release evidence. All acceptance cases below are **planned**, unless explicitly identified as a prior observation. This document is an engineering plan. The contest write-up is a separate, much shorter deliverable.
 
+## Current implementation and release gates
+
+Status as of 22 November 2026. The packaged host has exercised native review, exact source reads, checkpoint input, an automatic fallback fixture and an approved write. Live Mercury completed the pinned HTTPX task with feedback and approved execution. Bonsai’s native run made zero tool calls. The adapter and bare-mention fix delivered the three required HTTPX files in the comparison. A later live local-adapter trial completed assembly and a source read on a shorter task. Malformed provider tool output blocked the write. [Live model comparison](verification/2026-11-21/model-comparison/README.md)
+
+### Engineering still to implement
+
+| Area | What exists | Remaining implementation |
+| --- | --- | --- |
+| Long multi-file agent work | Durable plan with dependency order, approved revision evidence, required command receipts and invalidation of dependents. A prior run can be restored by ID in the same workspace. | Prove an actual 100-file workflow across compaction and restart. Extend planning to changes that intentionally span the same file in multiple batches. |
+| Model and serving compatibility | Mercury default, configurable fallback, authenticated loopback compatibility adapter and output caps. | Prove live Bonsai reviewed writes. Evaluate constrained generation or a bounded retry for malformed calls. |
+| Large-repo index and source selection | Hybrid retrieval with Python re-export traversal and optional bounded VS Code language-provider call edges. Selecting another workspace root replaces the index snapshot. | Exercise Go and Rust language servers in the acceptance matrix. Compare base and candidate graphs across packages. |
+| Interrupted and concurrent work | Root-scoped local runs, revision rechecks, workspace-host routing, disk/buffer recovery checks and durable apply evidence. | Validate SSH/Codespaces. Add independent concurrent sessions, remote cursors and a full crash/recovery effect ledger. |
+| Evidence and integrations | Requirement revisions, SARIF, GitHub comments, Jenkins status/test reports, commit-pinned GitHub check runs and BuildKit file imports. | Persist provider polling cursors, resolve review threads and outdated findings, add OCI retrieval, and connect candidate diagnostics to revision-pinned evidence. |
+| TrueForge execution capabilities | Runtime inspection, ready-environment preflight, pinned Git skill registration and agent read-back. | Provision and exercise runtime Skills and Code Mode with attributable tool results and versioned evidence. |
+| Replay and diagnostics | SQLite/JSONL journal, digest-verified review snapshots, multiple import formats. | Add cross-archive deduplication, playback controls, content-addressed export and a tested retention/redaction workflow. |
+
+### Validation and release work
+
+- Run the exact Flask tasks back-to-back in a clean packaged editor and record continuous evidence. Keep the unreachable-endpoint result and the separate automatic-fallback fixture attributable.
+- Run a signed-in Copilot edit and a Claude Code edit through the installed bridge. Check scoped discovery, exact reads, staging, mixed decisions and the resulting files.
+- Run a real 100-file dependency migration with forced provider compaction between batches. Verify the goal, constraints, previous decisions, revisions and tests after each restore. The existing 120-file case covers checkpoint pagination.
+- Test crashes and disconnects at apply, approval and command boundaries. Verify idempotence, stop/revocation, restart recovery, and absence of duplicate writes against the actual runtime.
+- Extend the validated local multi-root case to remote hosts, Rust compilation and full verification, live configured CI checks, provider artifact retention checks, and network destination tracing.
+- Complete the requested Judgment review setup and capture a review run for the candidate. The current checkout has no Judgment configuration or review result.
+- Confirm the release artifacts identify the tested build, include the correct evidence, and are available from the intended distribution branch.
+
+The original sequencing, design contracts and acceptance catalogue below remain the engineering reference. The status above and the dated evidence describe what has been implemented and exercised.
+
 ## Original brief and the first correction to the build
 
 Source: user-supplied *Techfest 2026–27, TrueFoundry Forge-a-thon*, sections “What You Must Build,” “The Three Fixed Tasks,” “Submission Guidelines,” and “Evaluation Criteria.” The contest judges the five mandatory capabilities on Flask 3.1.3 at commit prefix `22d92470`. The additional interoperability, BYOK and concurrency work comes from the product roadmap. A CI dashboard cannot earn the points allocated to demonstrating the editor workflow.

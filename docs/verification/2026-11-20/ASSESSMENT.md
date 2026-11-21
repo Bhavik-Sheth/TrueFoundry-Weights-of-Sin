@@ -1,5 +1,7 @@
 # Contexo readiness · 20 November 2026
 
+This is the 20 November assessment. The [current candidate summary](../2026-11-21/AGENT_BRIDGE.md#current-candidate-summary) and [release tracker](../../REMAINING_WORK_PLAN.md#current-implementation-and-release-gates) incorporate the later packaged checks and live model comparison.
+
 The strongest competition evidence is the real three-file Flask change. The main remaining risk is reproducing and recording the full editor workflow in the required order. All Flask results below refer to tag 3.1.3, commit 22d924701a6ae2e4cd01e9a15bbaf3946094af65. The Desktop demo checkout was prepared separately from the rehearsals.
 
 | Judging item | Implementation and observed result | Remaining proof |

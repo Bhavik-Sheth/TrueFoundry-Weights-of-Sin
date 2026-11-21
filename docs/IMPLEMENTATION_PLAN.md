@@ -1,5 +1,7 @@
 # Implementation Plan · Contexo (vertical slices)
 
+> This document records the original build plan. See the [implemented features](../README.md#implemented-features) and [current engineering and release gates](REMAINING_WORK_PLAN.md#current-implementation-and-release-gates) for the release candidate.
+
 > Builds [PRD_Lite.md](PRD_Lite.md) on top of the scaffold in `extension/`. The order is **Slice 0 (Base)**, then **Slices 1–8 (features)**, then **Slice 9 (release)**.
 > Every slice ends with the same loop: **build → install locally → run the slice's manual script → run the base smoke test → merge**.
 

@@ -1,69 +1,67 @@
 ## 1. Team
 
-**Weights of Sin** · Team TM-AFBECD9C838. Atharva Deo (lead, @atharvavdeo), Bhavik Sheth (@Bhavik-Sheth), Parvati R Iyer and Akshat Bhalani (@ByteMeHarder-404).
+**Weights of Sin** · Team TM-AFBECD9C838. Atharva Deo (lead, @atharvavdeo, D. J. Sanghvi College of Engineering), Bhavik Sheth (@Bhavik-Sheth), Parvati R Iyer and Akshat Bhalani (@ByteMeHarder-404).
 
 ## 2. Starting point
 
-A selected Flask helper asks for precision. A request for a new CLI command starts with intent alone and spans registration, implementation, tests and documentation. Both end in the same editor review. The developer can inspect each hunk, trace its source and decide what to apply.
+A developer wants an agent to make two different kinds of changes. First, they select a Flask helper and ask for a precise behavior change inside the function. The selection gives the agent a starting point and gives the reviewer a boundary to check. Then they ask for a CLI command that displays configuration and masks sensitive values. The agent has to find where commands are registered, how they are tested, and where users learn to use them.
 
-We started with Microsoft’s MIT-licensed VS Code webview sample at commit 65c1c44800eeac6fb065a54823ee5ae62c79540a. It provided the sidebar, content security policy and asset loading. We extended it with TrueForge sessions, repository context and a hunk review workflow. [Upstream record](../UPSTREAMS.md)
+Both tasks end in the source editor. The developer inspects the proposed hunks, chooses what to apply, and verifies what landed. We built this workflow on Microsoft’s MIT-licensed VS Code webview sample. It supplied the sidebar, content security policy and asset loading. Contexo adds a TrueForge-backed agent, repository context and native review. [Upstream record](../UPSTREAMS.md)
 
 ## 3. Architecture on TrueForge
 
-![Contexo architecture. VS Code and the CLI start scoped sessions with TrueForge. TrueForge calls the configured model and routes approvals and tools over authenticated loopback MCP. Contexo owns the repository index, hunk review, working tree, candidate checks and evidence.](contexo-architecture.svg)
+![Contexo architecture. VS Code and the CLI start scoped TrueForge sessions. TrueForge calls the configured model and dispatches tools over authenticated loopback MCP. Contexo owns repository context, hunk review, the working tree, candidate checks and evidence.](contexo-architecture.svg)
 
-TrueForge owns inference, tool dispatch and streamed approvals. Authenticated loopback MCP connects it to the editor, which stages edits so the reviewer controls what reaches disk. Search, exact reads, context assembly, checkpoints, proposals and allowlisted commands are exposed over MCP. Commands get a separate approval. An eligible model failure can start one fallback session before approval. Stop cancels the turn and discards pending review. [Agent definitions](../extension/trueforge/) · [Recorded sessions](verification/2026-11-20/local-editor/sessions.json)
+TrueForge owns inference, conversation state and tool approvals. Contexo supplies workspace-scoped reads and proposals over authenticated MCP. The editor verifies the file revision before staging a diff and again before saving accepted hunks. Command execution has its own approval. An eligible primary-model failure can start a fresh fallback session before approval. The journal records the context delivered, review decisions and checks. [Architecture and runtime details](../README.md#architecture)
 
 ## 4. How context is selected
 
-For the Flask CLI task, the user names the behavior and no paths. Contexo finds the command implementation, tests and docs, then sends bounded source and reasons. The model requests exact current text before proposing a patch. Inline requests start with the selected range and its file hash.
+**First turn.** An inline edit starts with the selected code, its path and line range, and the full-buffer hash. A repository-wide turn starts with the goal. Contexo indexes Python symbols, imports and calls with Tree-sitter, then maps documentation by heading. For Go and Rust, live search supplies source previews and coordinates for exact reads.
 
-| Context step | What it gives the model |
-| --- | --- |
-| **Anchor and retrieve.** Prioritize the selection and mentions. Combine names, BM25, ripgrep and TF-IDF. | The user’s target plus exact and related matches. Python uses parsed symbols. Rust and Go can contribute labelled source previews. |
-| **Expand and pack.** Follow one hop to calls, callers, registration, tests and docs. Fuse ranks and reserve space for tests and docs. | Complementary evidence under 8,000 estimated excerpt tokens by default and a 22,000-character serialized cap. |
-| **Explain each file.** Include up to eight file summaries and prepare before-and-after samples for up to three. | Why a file matters, its contents, working changes, Git history and optional historical reads. |
-| **Continue across turns.** TrueForge compacts the conversation. Contexo’s checkpoint restores goal, source pointers, paged decisions and check statuses. | Stable evidence for the next small edit batch. Exact rereads and hash checks bind each edit to current source. |
-| **Trace the result.** Record delivered ranges, reasons and packet digest beside tools, approvals and checks. | A reviewer can follow the evidence from model input to reviewed diff and checks. |
+**What enters the model.** Explicit selections, paths and symbol anchors take priority. Plain keywords inform ranking. Contexo fuses BM25, symbol matching, live search and local sparse TF-IDF vectors. One-hop expansion links a leading implementation to registration sites, callers, tests and docs. The packer protects these roles, removes overlapping excerpts, and trims long symbols around signatures or matching lines. It budgets 8,000 estimated source tokens by default and separately caps the escaped response at 22,000 characters. The delivered packet records ranges, reasons and omissions.
 
-[Anthropic context engineering](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents) · [Cursor dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
+**What a file contributes.** The file map explains why a file matters and what it contains. It shows the current buffer or checkout against Git HEAD, the latest file-changing commit subject and short before-and-after samples. The agent can request exact historical lines or read the current range. A range proposal then sends the path, coordinates, hash and replacement. Contexo reconstructs the diff against the live file.
+
+**What carries across steps.** TrueForge compacts the conversation and loads deferred tools on demand. Contexo’s journal preserves the goal, delivered source pointers, review decisions and observed checks. A checkpoint pages decisions in groups of 12. The agent can reopen the affected source at its current revision. Ranking data is reused per index snapshot. Git history is cached by immutable revision.
+
+**From intent to evidence.** In the HTTPX run, the goal was to reject invalid command-line timeouts and preserve Python API behavior. The packet brought together the flag declaration, CLI tests and timeout guide. Mercury received 19 excerpts in 21,777 serialized characters, read all three target files, and scoped six replacements to source it had read. After review and feedback, it reopened the test and guide on their new revisions and issued the verification command.
+
+**Budget across the run.** The packet budget governs repository evidence. The model also receives instructions, tool schemas, prior turns and tool results. Leaving room for output matters because a line-range proposal needs to return the replacement plus the source coordinates. Keeping earlier decisions in the checkpoint lets the agent recover them without copying prior diffs back into the next packet.
+
+![LMCache in-memory context assembly. Median latency was 3,736 ms for a rebuilt ranking snapshot and 118 ms for warm reuse.](architecture/context-cache-results.svg)
+
+On pinned LMCache and HTTPX, filename-free probes delivered **5/5** and **3/3** required files, respectively. The chart compares 12 cold and 12 warm runs over 24,952 LMCache symbols. Excerpt order matched. Timing covers in-memory assembly. [Delivery and cache evidence](verification/2026-11-21/AGENT_BRIDGE.md#retrieval-and-range-edit-follow-up)
 
 ## 5. Model setup
 
-In Setup, choose Inception and save a provider key in TrueForge for Mercury 3, the default. Settings lets developers switch the primary and fallback agents.
-
-| Editor session | Input tokens | Cached input | Output tokens | Est. USD |
-| --- | --- | --- | --- | --- |
-| Inline edit · Mercury 3 | 10,400 | 4,179 | 1,101 | $0.00105 |
-| Multi-file edit · Mercury 3 | 324,845 | 294,811 | 8,999 | $0.00910 |
-| C · Resilience check | 0 | 0 | 0 | $0 |
-
-The two Mercury 3 sessions total about one US cent at Inception’s launch rates of $0.10 for uncached input, $0.01 for cached input and $0.35 for output per million tokens. The estimates cover hosted inference for these runs. [Provider rates](https://www.inceptionlabs.ai/blog/introducing-mercury-3) · [Session counters](verification/2026-11-20/local-editor/sessions.json)
-
-Compatibility checks also used Qwen3 1.7B via TrueForge and Bonsai 4B on Apple MLX. The bounded Bonsai experiment produced an exact four-file patch among 1,004 fixture files and exact single-line edits on upstream Flask and ripgrep. [Compatibility evidence](verification/2026-11-21/AGENT_BRIDGE.md)
+Mercury 3 is the hosted default. Switch the primary and fallback in Contexo Settings. TrueForge holds the provider credentials. The Flask editor A/B sessions cost an estimated **$0.0102 combined** at Inception’s launch rates. The two Mercury HTTPX turns cost about **$0.0102** on the same basis. Qwen3 1.7B ran locally through Ollama, and Bonsai 4B ran locally through MLX. Local runs had no hosted API charge. [Pricing basis](https://www.inceptionlabs.ai/blog/introducing-mercury-3) · [Session counters](verification/2026-11-20/local-editor/sessions.json)
 
 ## 6. Scorecard
 
-The evidence reel follows the three competition tasks in order. It shows an inline edit, an agent-led change across three files and an endpoint resilience check with a clean checkout. The table pairs the footage with the run logs and editor checks. [Evidence reel](verification/2026-11-20/local-editor/evidence-reel.mp4)
-
-| Judging criterion | Reel | Evidence |
+| Criterion | Reel or record | Evidence |
 | --- | --- | --- |
-| A1 · Inline edit | 00:00–00:12 | The reviewer accepts the proposed hunk in VS Code. The check prints `False` for `FLASK_DEBUG=off`. |
-| A2 · Agent mode | 00:12–00:21 | A single prompt produces a 73-line patch across three files. Independent checks pass 60 CLI tests and verify four masked values and one visible public value. |
-| A3 · Streaming / Stop | Run log | The editor streams session events. A CLI run confirmed cancellation during command approval. |
-| B1 · Context assembly | Run log | Source ranges and selection reasons precede the proposal. The journal links their receipt to the turn. |
-| B2 · Diff safety | 00:00–00:07 | The reel shows hunk review. An extension-host fixture exercised apply and undo. |
-| B3 · Resilience | 00:27–00:34 | The editor stays responsive and preserves a clean Flask checkout during the endpoint resilience check. |
-| B4 · Harness integration | 00:21–00:27 | A live TrueForge session query shows the turn and tool events. The journal records tool discovery and write approval. |
-| C1 · Video | 00:00–00:34 | The reel covers Tasks A, B and C in order. |
-| C2 · Write-up | This document | The write-up covers the starting point, architecture, model usage, verification and limitations. |
+| A1 · Inline edit | 00:07–00:12, A record | Reviewed inline patch. FLASK_DEBUG=off prints False. |
+| A2 · Agent mode | 00:12–00:21, B record | Three files discovered. All 60 CLI tests passed. |
+| A3 · Streaming / Stop | Editor and CLI logs | Streamed events and cancelled command approval. |
+| B1 · Context selection | B record | Source, tests, guide and selection reasons recorded. |
+| B2 · Diff safety | Packaged host test | Mixed review, undo, redo and stale-base checks passed. |
+| B3 · Resilience | 00:27–00:34, C record | Clear endpoint error and clean Git. Fallback fixture passed. |
+| B4 · TrueForge | 00:21–00:27, B record | MCP tools, deferred discovery and write approval recorded. |
+| C1 · Video | 00:00–00:34 | Evidence reel follows A, B and C in order. |
+| C2 · Write-up | This PDF | Three pages with the eight required headings. |
+
+[Flask verification and evidence reel](verification/2026-11-22/SUBMISSION.md)
+
+![Independent HTTPX behavior checks passed. Mercury 3 scored 15 of 15 after repair. Native Bonsai and the clean baseline each scored 6 of 15.](architecture/httpx-model-results.svg)
+
+Mercury’s repaired HTTPX patch passed **13 CLI tests** and **1,418 upstream tests** under the matched comparison protocol. The independent oracle checked invalid values, the default, valid fractions and Python API behavior. [Benchmark method and patches](verification/2026-11-21/model-comparison/README.md)
 
 ## 7. Tools used
 
-Claude Code (Opus and Sonnet) and OpenAI Codex assisted development. Contexo uses the TrueForge TypeScript SDK, MCP SDK, React, Tree-sitter, ripgrep, js-tiktoken and jsdiff. Verification used VS Code 1.147, Vitest and pytest. We assembled the evidence reel with FFmpeg. [Dependency provenance](../UPSTREAMS.md)
+Claude Code and OpenAI Codex assisted development. The implementation uses the TrueForge and MCP TypeScript SDKs, React, Tree-sitter, ripgrep, js-tiktoken, jsdiff and SQLite. Verification used VS Code, Vitest and pytest. FFmpeg produced the reel. [Dependency provenance](../UPSTREAMS.md)
 
 ## 8. Known limitations
 
-Task B’s editor run stopped at command approval after applying the patch. Independent checks on that checkout produced the passing results. The native Bonsai editor run emitted a tool request as text. The successful per-file run used an experimental driver. Its Go probe rejected two incomplete Bonsai edits. The 120-file test verifies review-state pagination. An actual 100-file model edit and forced provider compaction remain release checks.
+Mercury’s first HTTPX patch needed feedback to repair the test file and Markdown fence. Native Bonsai emitted a tool request as text and made no source changes. An experimental adapter delivered all three relevant files after the retrieval fix, but the model exhausted its 512-token output allowance before a read or write. The upstream suite excluded one pre-existing Trio failure on both revisions.
 
-With another month, we would add revision-pinned dependency batches and multilingual graph expansion, then test restart, compaction and candidate checks on large repositories. Reviewer evidence comes from source, tools and diffs. Model explanations are summaries and do not establish the model’s internal reasoning. [Verification](verification/2026-11-21/AGENT_BRIDGE.md)
+The evidence reel uses excerpts. The full submission requires continuous prompt-to-diff footage and public links. With another month, we would validate an actual 100-file migration through forced compaction, run interrupted-apply and remote-host tests, and rehearse on a second model. Local two-root routing is covered by the packaged fixture. [Remaining implementation and verification](REMAINING_WORK_PLAN.md)

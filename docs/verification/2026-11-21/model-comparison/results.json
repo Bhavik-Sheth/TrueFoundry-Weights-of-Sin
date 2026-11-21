@@ -1,0 +1,427 @@
+{
+  "revision": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+  "runs": {
+    "mercury": {
+      "reported_model": "inception/mercury-3",
+      "final_runtime_status": "cancelled",
+      "wall_seconds": 213,
+      "seconds_to_first_approval": 19.72,
+      "seconds_to_last_model_message": 89.66,
+      "seconds_with_completed_approvals_pending": 66.77,
+      "model_calls": 11,
+      "input_tokens": 178239,
+      "output_tokens": 7805,
+      "cached_input_tokens": 153002,
+      "tool_calls": {
+        "assemble_context": 1,
+        "search_workspace": 2,
+        "read_file": 8,
+        "propose_write": 1,
+        "list_tools": 1,
+        "get_tool_info": 1,
+        "run_command": 1
+      },
+      "required_files_read": [
+        "docs/advanced/timeouts.md",
+        "httpx/_main.py",
+        "tests/test_main.py"
+      ],
+      "edits_whose_ranges_were_read": 6,
+      "edits_proposed": 6,
+      "proposed_paths": [
+        "docs/advanced/timeouts.md",
+        "httpx/_main.py",
+        "tests/test_main.py"
+      ],
+      "context_delivery": [
+        {
+          "required_roles": [
+            "docs/advanced/timeouts.md",
+            "httpx/_main.py",
+            "tests/test_main.py"
+          ],
+          "source_tokens": 3742,
+          "packet_tokens": 5539,
+          "characters": 21777,
+          "excerpt_count": 19
+        }
+      ],
+      "applied_proposals": 1,
+      "behavior_oracle": {
+        "passed": 15,
+        "total": 15,
+        "cases": {
+          "reject 0": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -0": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -1": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject NaN": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject inf": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -inf": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject +Infinity": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject 1e999": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject 1e-999": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject oops": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "default": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "fraction": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "integer": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "scientific": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "Python Client still accepts zero timeout": {
+            "passed": true
+          }
+        }
+      }
+    },
+    "bonsai": {
+      "reported_model": "local-bonsai/bonsai-4b",
+      "final_runtime_status": "done",
+      "wall_seconds": 20,
+      "seconds_to_first_approval": null,
+      "seconds_to_last_model_message": 20.33,
+      "seconds_with_completed_approvals_pending": 0,
+      "model_calls": 1,
+      "input_tokens": 4399,
+      "output_tokens": 137,
+      "cached_input_tokens": 0,
+      "tool_calls": {},
+      "required_files_read": [],
+      "edits_whose_ranges_were_read": 0,
+      "edits_proposed": 0,
+      "proposed_paths": [],
+      "context_delivery": [],
+      "applied_proposals": 0,
+      "behavior_oracle": {
+        "passed": 6,
+        "total": 15,
+        "cases": {
+          "reject 0": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject -0": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject -1": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject NaN": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject inf": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject -inf": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject +Infinity": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject 1e999": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject 1e-999": {
+            "passed": false,
+            "exit": 0,
+            "client_started": true
+          },
+          "reject oops": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "default": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "fraction": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "integer": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "scientific": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "Python Client still accepts zero timeout": {
+            "passed": true
+          }
+        }
+      }
+    },
+    "mercury-repair": {
+      "reported_model": "inception/mercury-3",
+      "final_runtime_status": "done",
+      "wall_seconds": 125,
+      "seconds_to_first_approval": 23.2,
+      "seconds_to_last_model_message": 124.48,
+      "seconds_with_completed_approvals_pending": 96.73,
+      "model_calls": 6,
+      "input_tokens": 67684,
+      "output_tokens": 3945,
+      "cached_input_tokens": 52314,
+      "tool_calls": {
+        "assemble_context": 1,
+        "list_tools": 1,
+        "read_file": 3,
+        "propose_write": 1,
+        "run_command": 1
+      },
+      "required_files_read": [
+        "docs/advanced/timeouts.md",
+        "tests/test_main.py"
+      ],
+      "edits_whose_ranges_were_read": 2,
+      "edits_proposed": 2,
+      "proposed_paths": [
+        "docs/advanced/timeouts.md",
+        "tests/test_main.py"
+      ],
+      "context_delivery": [
+        {
+          "required_roles": [
+            "docs/advanced/timeouts.md",
+            "httpx/_main.py",
+            "tests/test_main.py"
+          ],
+          "source_tokens": 3135,
+          "packet_tokens": 5164,
+          "characters": 19813,
+          "excerpt_count": 14
+        }
+      ],
+      "applied_proposals": 1,
+      "behavior_oracle": {
+        "passed": 15,
+        "total": 15,
+        "cases": {
+          "reject 0": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -0": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -1": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject NaN": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject inf": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject -inf": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject +Infinity": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject 1e999": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject 1e-999": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "reject oops": {
+            "passed": true,
+            "exit": 2,
+            "client_started": false
+          },
+          "default": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "fraction": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "integer": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "scientific": {
+            "passed": true,
+            "exit": 0,
+            "client_started": true
+          },
+          "Python Client still accepts zero timeout": {
+            "passed": true
+          }
+        }
+      }
+    },
+    "bonsai-adapter": {
+      "reported_model": "local-bonsai-wrapper/bonsai-4b",
+      "final_runtime_status": "error",
+      "wall_seconds": 77,
+      "seconds_to_first_approval": null,
+      "seconds_to_last_model_message": 76.8,
+      "seconds_with_completed_approvals_pending": 0,
+      "model_calls": 2,
+      "input_tokens": 14711,
+      "output_tokens": 649,
+      "cached_input_tokens": 4515,
+      "tool_calls": {
+        "assemble_context": 1
+      },
+      "required_files_read": [],
+      "edits_whose_ranges_were_read": 0,
+      "edits_proposed": 0,
+      "proposed_paths": [],
+      "context_delivery": [
+        {
+          "required_roles": [],
+          "source_tokens": 3750,
+          "packet_tokens": 5395,
+          "characters": 21806,
+          "excerpt_count": 20
+        }
+      ],
+      "applied_proposals": 0
+    },
+    "bonsai-fixed": {
+      "reported_model": "local-bonsai-wrapper/bonsai-4b",
+      "final_runtime_status": "error",
+      "wall_seconds": 94,
+      "seconds_to_first_approval": null,
+      "seconds_to_last_model_message": 93.71,
+      "seconds_with_completed_approvals_pending": 0,
+      "model_calls": 2,
+      "input_tokens": 14842,
+      "output_tokens": 649,
+      "cached_input_tokens": 4542,
+      "tool_calls": {
+        "assemble_context": 1
+      },
+      "required_files_read": [],
+      "edits_whose_ranges_were_read": 0,
+      "edits_proposed": 0,
+      "proposed_paths": [],
+      "context_delivery": [
+        {
+          "required_roles": [
+            "docs/advanced/timeouts.md",
+            "httpx/_main.py",
+            "tests/test_main.py"
+          ],
+          "source_tokens": 3636,
+          "packet_tokens": 5441,
+          "characters": 21758,
+          "excerpt_count": 18
+        }
+      ],
+      "applied_proposals": 0
+    }
+  },
+  "upstream_tests": {
+    "baseline": {
+      "passed": 1416,
+      "skipped": 1,
+      "deselected": 1
+    },
+    "mercury_repair": {
+      "passed": 1418,
+      "skipped": 1,
+      "deselected": 1
+    },
+    "deselected": "tests/test_timeouts.py::test_write_timeout[trio]",
+    "reason": "Reproduced on pristine baseline as an unraisable async generator ResourceWarning."
+  }
+}

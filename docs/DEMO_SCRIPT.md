@@ -2,11 +2,13 @@
 
 Order is fixed by the rules: Task A, verify, Task B, verify, Task C, verify. Cut model waiting time, but never cut between giving an instruction and the diff appearing. Show the TrueForge session briefly during Task B, in Contexo's Session tab (no TrueForge UI is used anywhere in the demo).
 
+The [evidence reel](verification/2026-11-20/local-editor/evidence-reel.mp4) and [live HTTPX benchmark](verification/2026-11-21/model-comparison/README.md) document previous runs. The current release rehearsal uses Mercury as primary and a verified tool-capable model for fallback.
+
 ## Checklist before recording
 
 - [ ] Fresh Flask checkout at tag `3.1.3` (`scripts/setup-flask.*`), `git status` clean (venv excluded), the Flask folder is the open VS Code workspace.
 - [ ] Venv active in the integrated terminal (`python`, `pytest`, `flask` resolve to it).
-- [ ] TrueForge running (`npx @truefoundry/trueforge@latest`); connector `contexo-editor` and agents `contexo`, `contexo-fallback` registered; both models configured and working.
+- [ ] TrueForge running (`npx @truefoundry/trueforge@0.185.1`); connector `contexo-editor` and agents `contexo`, `contexo-fallback` registered; both models configured and working.
 - [ ] Latest VSIX installed (`npm run install:local` in `extension/`), window reloaded, `contexo.devMode` OFF.
 - [ ] Contexo panel open in the secondary sidebar, Context tab reachable; status bar visible.
 - [ ] Contexo's Session tab reachable (it shows the TrueForge session for Task B); no TrueForge browser tab needed.

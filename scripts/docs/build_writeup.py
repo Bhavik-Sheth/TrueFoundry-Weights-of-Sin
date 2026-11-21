@@ -14,12 +14,13 @@ import tempfile
 from pathlib import Path
 
 import markdown
+from result_charts import main as build_result_charts
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / 'docs' / 'Contexo-writeup.pdf'
-REPO_BLOB = 'https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/blob/codex/run-recovery-and-review/'
+REPO_BLOB = 'https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/blob/foldr/'
 BROWSERS = [
     r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
     r'C:\Program Files\Google\Chrome\Application\chrome.exe',
@@ -61,11 +62,21 @@ td:first-child { font-weight: bold; color: #15344e; }
 img { display: block; margin: 4pt auto 3pt; max-width: 100%; }
 .submission h2 { font-size: 21pt; margin-top: 12pt; }
 .submission p { font-size: 10.5pt; line-height: 1.43; margin-bottom: 8pt; }
-.submission table { font-size: 9pt; line-height: 1.38; }
-.submission td, .submission th { padding: 4pt 5pt; }
-.fig1 img { max-height: 342pt; }
+.submission table { font-size: 8.6pt; line-height: 1.27; }
+.submission td, .submission th { padding: 2.5pt 5pt; }
+.submission th:first-child { width: 22%; }
+.submission th:nth-child(2) { width: 22%; }
+.score-page p { font-size: 10pt; line-height: 1.37; margin-bottom: 7pt; }
+.submission .context-page { top: 53pt; }
+.context-page h2 { font-size: 20pt; margin-top: 8pt; }
+.context-page p { font-size: 9.9pt; line-height: 1.35; margin-bottom: 6pt; }
+.context-page table { font-size: 8.65pt; line-height: 1.25; }
+.context-page td, .context-page th { padding: 2.5pt 5pt; }
+.context-page table:first-of-type th:first-child { width: 22%; }
+.fig1 img { max-height: 285pt; }
 .appendix .fig1 img { max-height: 615pt; }
 .fig2 img { max-height: 300pt; }
+.submission .result-chart img { width: 100%; max-height: 100pt; margin: 8pt auto 5pt; }
 """
 
 
@@ -87,11 +98,15 @@ def pages_from_readme() -> list[tuple[str, str]]:
 def submission_pages() -> list[tuple[str, str]]:
     text = (ROOT / 'docs/writeup.md').read_text(encoding='utf-8')
     sections = re.split(r'(?m)(?=^## )', text)[1:]
-    if len(sections) != 8 or any(not section.startswith(f'## {i}. ') for i, section in enumerate(sections, 1)):
+    titles = ('Team', 'Starting point', 'Architecture on TrueForge', 'How context is selected',
+              'Model setup', 'Scorecard', 'Tools used', 'Known limitations')
+    if [section.splitlines()[0] for section in sections] != [
+        f'## {i}. {title}' for i, title in enumerate(titles, 1)
+    ]:
         raise SystemExit('Expected all eight numbered competition headings in order.')
     return [
         ('Contexo', '\n'.join(sections[:3])),
-        ('Retrieval & inference', '\n'.join(sections[3:5])),
+        ('Context and inference', '\n'.join(sections[3:5])),
         ('Competition evidence', '\n'.join(sections[5:])),
     ]
 
@@ -102,24 +117,25 @@ def to_html(md: str, directory: Path) -> str:
         attr, value = match.groups()
         if ':' in value or value.startswith('#'):
             return match[0]
-        target = (directory / value).resolve()
+        path, separator, fragment = value.partition('#')
+        target = (directory / path).resolve()
         if attr == 'src':
             return f'src="{target.as_uri()}"'
         base = REPO_BLOB.replace('/blob/', '/tree/') if target.is_dir() else REPO_BLOB
-        return f'href="{base}{target.relative_to(ROOT).as_posix()}"'
+        return f'href="{base}{target.relative_to(ROOT).as_posix()}{separator}{fragment}"'
 
     body = re.sub(r'(src|href)="([^"]+)"', resolve, body)
     if 'contexo-architecture.svg' in body:
         body = body.replace('<p><img', '<p class="fig1"><img', 1)
     elif 'context-pipeline.svg' in body:
         body = body.replace('<p><img', '<p class="fig2"><img', 1)
-    return body
+    return re.sub(r'(<p>)(<img[^>]+-results\.svg"[^>]*>)', r'<p class="result-chart">\2', body)
 
 
 def build_html(pages: list[tuple[str, str]], appendix: bool) -> str:
     out = []
     layout = 'page appendix' if appendix else 'page submission'
-    footer = 'Architecture notes' if appendix else '21 November 2026'
+    footer = 'Architecture notes' if appendix else '22 November 2026'
     for n, (title, md) in enumerate(pages, 1):
         heading = '' if appendix and n > 1 and pages[n - 2][0] == title else f'<h1>{title}</h1>'
         html_body = to_html(md, ROOT if appendix else ROOT / 'docs')
@@ -127,9 +143,10 @@ def build_html(pages: list[tuple[str, str]], appendix: bool) -> str:
             html_body = re.sub(r'^\s*<h2>[^<]*</h2>', '', html_body)
         if not appendix and n == 1:
             heading += '<p style="font-size: 11pt">A reviewable coding agent inside VS Code</p>'
+        section_class = {2: "body context-page", 3: "body score-page"}.get(n, "body") if not appendix else "body"
         out.append(f'''<section class="{layout}"><div class="frame f1"></div><div class="frame f2"></div>
 <div class="head"><span>TRUEFORGE&nbsp;&nbsp;/&nbsp;&nbsp;FORGE-A-THON</span><span>WEIGHTS OF SIN</span></div>
-<div class="body">{heading}{html_body}</div>
+<div class="{section_class}">{heading}{html_body}</div>
 <div class="foot"><span>Contexo&nbsp;&nbsp;/&nbsp;&nbsp;{footer}</span><span>{n:02}&nbsp;&nbsp;/&nbsp;&nbsp;{len(pages):02}</span></div>
 </section>''')
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{CSS}</style></head><body>{"".join(out)}</body></html>'
@@ -156,6 +173,8 @@ def main() -> None:
     if appendix:
         import diagrams
         diagrams.main()
+    else:
+        build_result_charts()
     pages = pages_from_readme() if appendix else submission_pages()
     output = PDF.with_name('Contexo-architecture-appendix.pdf') if appendix else PDF
     browser = find_browser()

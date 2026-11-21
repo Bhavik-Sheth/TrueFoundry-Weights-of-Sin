@@ -1,0 +1,100 @@
+diff --git a/docs/advanced/timeouts.md b/docs/advanced/timeouts.md
+index aedcfb6..e38be7b 100644
+--- a/docs/advanced/timeouts.md
++++ b/docs/advanced/timeouts.md
+@@ -68,4 +68,16 @@ timeout = httpx.Timeout(10.0, connect=60.0)
+ client = httpx.Client(timeout=timeout)
+ 
+ response = client.get('http://example.com/')
++```
++
++## Timeouts on the command line
++
++The `httpx` command-line client accepts a `--timeout FLOAT` option controlling
++the timeout used for network operations. The value must be a finite, strictly
++positive number of seconds. Zero, negative values, infinities, and NaN are
++rejected with an error before any network call is made. Fractional seconds are
++allowed; the default remains 5.0 seconds.
++
++```console
++$ httpx --timeout 0.5 https://example.com
+ ```
+\ No newline at end of file
+diff --git a/httpx/_main.py b/httpx/_main.py
+index cffa4bb..8b5c163 100644
+--- a/httpx/_main.py
++++ b/httpx/_main.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import functools
+ import json
++import math
+ import sys
+ import typing
+ 
+@@ -81,7 +82,8 @@ def print_help() -> None:
+     table.add_row(
+         "--timeout [cyan]FLOAT",
+         "Timeout value to use for network operations, such as establishing the"
+-        " connection, reading some data, etc... [Default: 5.0]",
++        " connection, reading some data, etc... Must be a finite, positive"
++        " number of seconds. [Default: 5.0]"
+     )
+ 
+     table.add_row("--follow-redirects", "Automatically follow redirects.")
+@@ -298,6 +300,16 @@ def validate_auth(
+     return (username, password)
+ 
+ 
++def validate_timeout(
++    ctx: click.Context,
++    param: click.Option | click.Parameter,
++    value: float,
++) -> float:
++    if not math.isfinite(value) or value <= 0:
++        raise click.BadParameter("must be a finite, positive number of seconds")
++    return value
++
++
+ def handle_help(
+     ctx: click.Context,
+     param: click.Option | click.Parameter,
+@@ -401,9 +413,11 @@ def handle_help(
+     "timeout",
+     type=float,
+     default=5.0,
++    callback=validate_timeout,
+     help=(
+         "Timeout value to use for network operations, such as establishing the "
+-        "connection, reading some data, etc... [Default: 5.0]"
++        "connection, reading some data, etc... Must be a finite, positive "
++        "number of seconds. [Default: 5.0]"
+     ),
+ )
+ @click.option(
+diff --git a/tests/test_main.py b/tests/test_main.py
+index b1a77d4..4bbf5b1 100644
+--- a/tests/test_main.py
++++ b/tests/test_main.py
+@@ -185,3 +185,21 @@ def test_errors():
+     assert splitlines(result.output) == [
+         "UnsupportedProtocol: Request URL has an unsupported protocol 'invalid://'.",
+     ]
++
++
++def test_timeout_rejects_invalid_values(server):
++    runner = CliRunner()
++    url = str(server.url)
++    for value in ["0", "-5", "inf", "-inf", "nan"]:
++        result = runner.invoke(httpx.main, [url, "--timeout", value])
++        assert result.exit_code == 2
++        assert (
++            "must be a finite, positive number of seconds" in result.output
++        )
++
++
++def test_timeout_accepts_fractional_seconds(server):
++    runner = CliRunner()
++    url = str(server.url)
++    result = runner.invoke(httpx.main, [url, "--timeout", "0.5"])
++    assert result.exit_code == 0
