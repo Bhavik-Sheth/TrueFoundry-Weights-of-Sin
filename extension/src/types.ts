@@ -195,7 +195,8 @@ export type UiStreamEvent =
   | { kind: 'tool-result'; toolCallId: string; name?: string; summary: string }
   | { kind: 'approval'; toolCallId: string; name: string; status: 'pending' | 'allowed' | 'denied'; reason?: string }
   | { kind: 'turn-done'; status: string; error?: string }
-  | { kind: 'info'; text: string };
+  | { kind: 'info'; text: string }
+  | { kind: 'action'; action: 'regenerate'; path: string; label: string };
 
 export interface RunStateMsg {
   state: Run['state'] | 'idle';
@@ -209,6 +210,7 @@ export type ToHost =
   | { type: 'reviewAction'; action: 'workbench' | 'check' | 'restore' | 'sync' | 'replay' | 'import' }
   | { type: 'stop' }
   | { type: 'send'; text: string }
+  | { type: 'regenerate'; path: string }
   | { type: 'openSource'; path: string; line: number }
   | { type: 'undo'; hunkId: string }
   | { type: 'redo'; hunkId: string }

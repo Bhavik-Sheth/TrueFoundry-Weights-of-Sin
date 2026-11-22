@@ -103,6 +103,8 @@ export class ReviewEngine {
   readonly undo: UndoStack;
   readonly codeLensChanged = new vscode.EventEmitter<void>();
   onResolve?: (allow: boolean, reason?: string) => void;
+  /** Called after a proposal is refused with STALE_BASE during review (Regenerate button). */
+  onStale?: (path: string, summary?: string) => void;
   /** Set by extension.ts (integration) so symbolCheck can see the workspace index. */
   index?: IndexApi;
 
@@ -415,6 +417,7 @@ export class ReviewEngine {
         if (!ok) {
           this.finish(p, 'stale', { applied: [], rejected: p.hunks.map((h) => h.id) });
           resolve(false, `STALE_BASE during review: ${f.path} changed`);
+          this.onStale?.(f.path, p.summary);
           return;
         }
       }

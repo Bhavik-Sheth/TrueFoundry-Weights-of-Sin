@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { UiStreamEvent } from '../../src/types';
-import { subscribe } from './bridge';
+import { post, subscribe } from './bridge';
 import { MessageBody } from './MessageBody';
 
 type Item =
@@ -22,7 +22,8 @@ type Item =
   | { kind: 'tool'; toolCallId: string; name: string; args?: unknown; deferred?: boolean; result?: string }
   | { kind: 'approval'; toolCallId: string; name: string; status: 'pending' | 'allowed' | 'denied'; reason?: string }
   | { kind: 'done'; status: string; error?: string }
-  | { kind: 'info'; text: string };
+  | { kind: 'info'; text: string }
+  | { kind: 'action'; action: 'regenerate'; path: string; label: string };
 
 interface ChatState { items: Item[]; session?: { sessionId: string; agent: string; url: string } }
 
@@ -56,6 +57,7 @@ function applyEvents(items: Item[], events: UiStreamEvent[]): Item[] {
       }
       case 'turn-done': out.push({ kind: 'done', status: e.status, error: e.error }); break;
       case 'info': out.push({ kind: 'info', text: e.text }); break;
+      case 'action': out.push({ kind: 'action', action: e.action, path: e.path, label: e.label }); break;
     }
   }
   return out;
@@ -70,7 +72,7 @@ function argsJson(args: unknown): string {
   try { return JSON.stringify(args, null, 2) ?? ''; } catch { return String(args); }
 }
 
-export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
+export function ChatTab({ onViewSession, streaming }: { onViewSession?: () => void; streaming?: boolean }) {
   const [st, setSt] = useState(state);
   const endRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -124,6 +126,8 @@ export function ChatTab({ onViewSession }: { onViewSession?: () => void }) {
             ? <p key={i} className="err" role="alert">{it.error}</p>
             : <p key={i} className="muted">Turn {it.status}</p>;
           case 'info': return <p key={i} className="muted">{it.text}</p>;
+          case 'action': return <button key={i} className="inline-action" type="button" disabled={streaming}
+            onClick={() => post({ type: 'regenerate', path: it.path })}>{it.label}</button>;
         }
       })}
       <div ref={endRef} />

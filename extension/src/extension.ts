@@ -48,6 +48,7 @@ import { matchingHunks, reviewCoordinates } from './review/matching';
 import { rebuildFile, sha256 } from './review/proposal';
 import { compareProposalImpact } from './review/impactGraph';
 import { parseSarif } from './review/sarif';
+import { regeneratePrompt } from './review/regenerate';
 
 let journalRef: RunJournal | undefined;
 let mcpHandle: McpHandle | undefined;
@@ -332,6 +333,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     }
   });
   runs.on('stream', (events) => post({ type: 'stream', events }));
+  let lastStale: { path: string; summary?: string } | undefined;
+  review.onStale = (path, summary) => {
+    lastStale = { path, summary };
+    runs.emit('stream', [{ kind: 'action', action: 'regenerate', path, label: 'Regenerate' }]);
+  };
   runs.on('session', (s) => {
     post({ type: 'session', ...s });
     void sessions.refreshCurrent().catch((e) => log('session refresh failed', String(e)));
@@ -352,6 +358,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         }
         case 'send':
           void ask(m.text).catch(error => log('Assistant request failed', error));
+          break;
+        case 'regenerate':
+          void ask(regeneratePrompt(m.path, lastStale?.path === m.path ? lastStale.summary : undefined))
+            .catch(error => log('Assistant request failed', error));
           break;
         case 'stop':
           void runs.stop();

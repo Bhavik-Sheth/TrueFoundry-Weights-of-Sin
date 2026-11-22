@@ -114,7 +114,7 @@ export function App() {
         ))}
       </nav>
       <div className="content">
-        {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} />}
+        {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} streaming={run.state === 'streaming'} />}
         {tab === 'session' && <SessionTab onViewContext={() => choose('context')} />}
         {tab === 'context' && <ContextTab />}
         {tab === 'changes' && <>
