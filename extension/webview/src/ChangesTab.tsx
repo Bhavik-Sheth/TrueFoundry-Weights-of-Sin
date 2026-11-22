@@ -20,6 +20,7 @@ const listeners = new Set<() => void>();
 subscribe((m) => {
   if (m.type === 'changes') { hunks = m.hunks; listeners.forEach((l) => l()); }
   if (m.type === 'review') { review = { key: m.key, wiring: m.wiring }; listeners.forEach((l) => l()); }
+  if (m.type === 'reviewClosed' && review?.key === m.key) { review = undefined; listeners.forEach((l) => l()); }
 });
 
 const s: Record<string, CSSProperties> = {

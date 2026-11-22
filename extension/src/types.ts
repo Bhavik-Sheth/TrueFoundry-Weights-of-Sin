@@ -243,6 +243,7 @@ export type ToWebview =
   | { type: 'setupResult'; op: string; ok: boolean; message: string; steps?: SetupStep[] }
   | { type: 'showSetup' }
   | { type: 'review'; key: string; wiring: WiringGraph; summary: SummaryFact[] }
+  | { type: 'reviewClosed'; key: string }
   | { type: 'sessionView'; sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string };
 
 export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';

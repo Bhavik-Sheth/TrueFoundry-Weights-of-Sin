@@ -127,11 +127,12 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   }));
   if (journalDirectory && journal) registerReplay(ctx, journalDirectory, journal);
   if (journal) registerEvidence(ctx, journal, () => review.pending);
+  review.onFinish = p => post({ type: 'reviewClosed', key: p.key });
   review.onProposal = p => {
     agentBridge?.finish(p);
     if (p.status === 'reviewing') {
       wiringFor(p, index.symbols()).then(
-        wiring => post({ type: 'review', key: p.key, wiring, summary: [] }),
+        wiring => { if (p.status === 'reviewing') post({ type: 'review', key: p.key, wiring, summary: [] }); },
         error => log('Could not build wiring map', String(error)));
     }
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);

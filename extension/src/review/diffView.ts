@@ -113,6 +113,8 @@ export class ReviewEngine {
   flushEvidence?: () => PromiseLike<void>;
   validateApply?: (proposal: Proposal) => PromiseLike<void>;
   onProposal?: (p: Proposal) => void;
+  /** Called once a proposal leaves 'reviewing' (applied, rejected, stale, interrupted or discarded). */
+  onFinish?: (p: Proposal) => void;
   private proposals = new Map<Sha, Proposal>();
   private runs = new Map<Sha, Run>();
   private resolvers = new Map<Sha, (allow: boolean, reason?: string) => void>();
@@ -496,6 +498,7 @@ export class ReviewEngine {
     if (!p) return;
     p.status = 'discarded';
     this.onProposal?.(p);
+    this.onFinish?.(p);
     this.pendingKey = undefined;
     void this.closeDiffs(p.key);
     this.dropDocs(p);
@@ -508,6 +511,7 @@ export class ReviewEngine {
     p.status = status;
     p.result = result;
     this.onProposal?.(p);
+    this.onFinish?.(p);
     if (result) this.latest = result;
     if (this.pendingKey === p.key) this.pendingKey = undefined;
     void this.closeDiffs(p.key);

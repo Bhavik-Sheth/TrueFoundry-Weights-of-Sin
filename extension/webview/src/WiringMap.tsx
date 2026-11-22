@@ -7,7 +7,7 @@
  * Exports:
  *  - WiringMap({ graph, onOpenHunk }): React component.
  *
- * Depends on: @xyflow/react (+ CSS), ../../src/review/wiring (type only). Depended on by: ChangesTab.tsx.
+ * Depends on: @xyflow/react (+ CSS), ../../src/types (type only). Depended on by: ChangesTab.tsx.
  */
 import { useMemo } from 'react';
 import { ReactFlow, Background, MarkerType } from '@xyflow/react';
