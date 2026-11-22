@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { RunJournal } from '../run/journal';
 import { readReplay } from '../replay/records';
 import type { Proposal } from '../types';
-
-type Requirement = { id: string; text: string; revision: number };
+import { requirementsFromRecords } from './requirements';
 
 export function registerEvidence(
   context: vscode.ExtensionContext,
@@ -16,15 +15,7 @@ export function registerEvidence(
     if (!proposal) throw new Error('Open a proposal before linking a requirement.');
     await journal.flush();
     const { records } = readReplay(await journal.read(proposal.runId));
-    const requirements = new Map<string, Requirement>();
-    for (const { evidence } of records) {
-      const id = evidence.requirementId;
-      const text = evidence.requirementText;
-      if (['requirement', 'requirement-link'].includes(evidence.kind) && typeof id === 'string' && typeof text === 'string') {
-        const revision = typeof evidence.requirementRevision === 'number' ? evidence.requirementRevision : 1;
-        if (revision >= (requirements.get(id)?.revision ?? 0)) requirements.set(id, { id, text, revision });
-      }
-    }
+    const requirements = new Map(requirementsFromRecords(records).map(requirement => [requirement.id, requirement]));
     const choice = await vscode.window.showQuickPick([
       { label: 'Create a requirement', requirement: undefined },
       ...[...requirements.values()].map(requirement => ({ label: requirement.text, requirement })),

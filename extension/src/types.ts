@@ -14,6 +14,7 @@
  */
 
 import type { SummaryFact } from './review/summary';
+import type { RequirementView } from './review/requirements';
 
 export type Sha = string; // sha256 hex
 
@@ -183,6 +184,7 @@ export interface ProposeArgs {
   summary: string;
   edits: FileEdit[];
   acknowledgedHistory?: Array<{ commit: string; reason: string }>;
+  requirements?: string[];
 }
 
 export interface TfEvent {
@@ -214,6 +216,7 @@ export type ToHost =
   | { type: 'send'; text: string }
   | { type: 'regenerate'; path: string }
   | { type: 'openSource'; path: string; line: number }
+  | { type: 'linkRequirement'; requirementId: string; hunkId: string; linked: boolean }
   | { type: 'undo'; hunkId: string }
   | { type: 'redo'; hunkId: string }
   | { type: 'setupRefresh' }
@@ -244,6 +247,7 @@ export type ToWebview =
   | { type: 'showSetup' }
   | { type: 'review'; key: string; wiring: WiringGraph; summary: SummaryFact[] }
   | { type: 'reviewClosed'; key: string }
+  | { type: 'requirements'; runId: string; items: RequirementView[] }
   | { type: 'sessionView'; sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string };
 
 export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';

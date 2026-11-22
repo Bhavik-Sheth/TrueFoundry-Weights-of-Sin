@@ -2,7 +2,7 @@
  * App.tsx - webview shell (C1).
  *
  * Exports:
- *  - App (React component): tabs Chat / Session / Context / Changes / Settings (selected tab persisted with
+ *  - App (React component): tabs Chat / Task / Session / Context / Changes / Settings (selected tab persisted with
  *    vscode.setState); run header with state pill, agent name and Stop button; banner from
  *    runState.banner; an agent input box that posts {type:'send'}; sends {type:'ready'} on mount.
  *    ChatTab / ContextTab / ChangesTab subscribe to the bridge themselves.
@@ -16,12 +16,13 @@ import { ChatTab } from './ChatTab';
 import { SessionTab } from './SessionTab';
 import { ContextTab } from './ContextTab';
 import { ChangesTab } from './ChangesTab';
+import { TaskTab } from './TaskTab';
 import { SettingsTab, Wizard } from './SetupView';
 import type { SetupData } from './SetupView';
 import type { ToWebview } from '../../src/types';
 
-type Tab = 'chat' | 'session' | 'context' | 'changes' | 'settings';
-const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['session', 'Session'], ['context', 'Context'], ['changes', 'Changes'], ['settings', 'Settings']];
+type Tab = 'chat' | 'task' | 'session' | 'context' | 'changes' | 'settings';
+const TABS: Array<[Tab, string]> = [['chat', 'Chat'], ['task', 'Task'], ['session', 'Session'], ['context', 'Context'], ['changes', 'Changes'], ['settings', 'Settings']];
 
 export function App() {
   const [tab, setTab] = useState<Tab>(() => getState<{ tab?: Tab }>().tab ?? 'chat');
@@ -115,6 +116,7 @@ export function App() {
       </nav>
       <div className="content">
         {tab === 'chat' && <ChatTab onViewSession={() => choose('session')} streaming={run.state === 'streaming'} />}
+        {tab === 'task' && <TaskTab />}
         {tab === 'session' && <SessionTab onViewContext={() => choose('context')} />}
         {tab === 'context' && <ContextTab />}
         {tab === 'changes' && <>

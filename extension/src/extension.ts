@@ -49,6 +49,8 @@ import { rebuildFile, sha256 } from './review/proposal';
 import { compareProposalImpact } from './review/impactGraph';
 import { wiringWithSymbols } from './review/wiring';
 import { checksFromJournal, summarizeProposal } from './review/summary';
+import { reduceRequirements, requirementsFromRecords } from './review/requirements';
+import { readReplay } from './replay/records';
 import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
 
@@ -96,6 +98,22 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     ? new RunJournal(journalDirectory, error => console.error('Contexo run recording failed', error))
     : undefined;
   journalRef = journal;
+  const requirementKinds = new Set(['requirement', 'requirement-link', 'proposal', 'tool-output']);
+  const requirementTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const readRequirements = async (runId: string) => {
+    if (!journal) return [];
+    return reduceRequirements(readReplay(await journal.read(runId)).records);
+  };
+  const pushRequirements = (runId: string) => {
+    void readRequirements(runId).then(items => post({ type: 'requirements', runId, items }), error => log('Could not read requirements', String(error)));
+  };
+  if (journal) {
+    journal.onRecord = (runId, evidence) => {
+      if (!requirementKinds.has(evidence.kind)) return;
+      clearTimeout(requirementTimers.get(runId));
+      requirementTimers.set(runId, setTimeout(() => { requirementTimers.delete(runId); pushRequirements(runId); }, 200));
+    };
+  }
   review.flushEvidence = journal ? () => journal.flush() : undefined;
   const batchPlans = new Map<string, BatchPlans>();
   const batchesFor = (workspace?: string) => {
@@ -377,6 +395,19 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         case 'stop':
           void runs.stop();
           break;
+        case 'linkRequirement': {
+          const proposal = review.pending;
+          if (!journal || !proposal || !proposal.hunks.some(hunk => hunk.id === m.hunkId)) break;
+          void (async () => {
+            const requirement = requirementsFromRecords(readReplay(await journal.read(proposal.runId)).records).find(r => r.id === m.requirementId);
+            if (!requirement) return;
+            journal.record(proposal.runId, {
+              kind: 'requirement-link', requirementId: requirement.id, requirementText: requirement.text, requirementRevision: requirement.revision,
+              proposalKey: proposal.key, hunkIds: [m.hunkId], checkSequences: [], source: 'human', linked: m.linked === true,
+            });
+          })().catch(error => log('Could not link requirement', String(error)));
+          break;
+        }
         case 'openSource': {
           const folder = workspaceRoot();
           if (!folder) break;
@@ -403,6 +434,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
           break;
         case 'ready':
           if (runs.active) post({ type: 'runState', state: runs.active.state, agent: runs.active.agent });
+          if (runs.active) pushRequirements(runs.active.id);
           post({ type: 'changes', hunks: review.undo.list() });
           setup.onReady();
           break;

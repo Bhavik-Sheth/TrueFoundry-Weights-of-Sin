@@ -6,6 +6,7 @@
  *    path/line locate its first hunk so the webview can open it.
  *  - SummaryCheck: a recorded run_command result (argv, exit code, parsed pytest counts).
  *  - summarizeProposal(p, wiring, checks, symbolsBefore, symbolsAfter): up to 8 facts, derived deterministically.
+ *  - checksFromRecords(records): checks plus the sequence of each tool-output record (run_command pairing).
  *  - checksFromJournal(jsonl): SummaryCheck[] from a run's journal text (run_command tool-call + tool-output records).
  *
  * Must not import 'vscode'. Depended on by: src/types.ts, extension.ts.
@@ -93,13 +94,10 @@ function resultOf(content: unknown): { exitCode: number; text: string } | undefi
   return { exitCode: v.exitCode, text: String(v.stdout ?? '') + '\n' + String(v.stderr ?? '') };
 }
 
-export function checksFromJournal(jsonl: string): SummaryCheck[] {
+export function checksFromRecords(records: Array<{ sequence?: number; evidence: any }>): Array<SummaryCheck & { sequence: number }> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const calls = new Map<string, string[]>();
-  const checks: SummaryCheck[] = [];
-  for (const line of jsonl.split('\n')) {
-    if (!line.trim()) continue;
-    let evidence: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    try { evidence = JSON.parse(line)?.evidence; } catch { continue; }
+  const checks: Array<SummaryCheck & { sequence: number }> = [];
+  for (const { sequence, evidence } of records) {
     if (evidence?.kind === 'agent-event' && evidence.event?.kind === 'tool-call') {
       const argv = argvOf(evidence.event.args);
       if (argv && typeof evidence.event.toolCallId === 'string') calls.set(evidence.event.toolCallId, argv);
@@ -109,10 +107,19 @@ export function checksFromJournal(jsonl: string): SummaryCheck[] {
       const passed = /(\d+) passed/.exec(result.text);
       const failed = /(\d+) failed/.exec(result.text);
       checks.push({
-        id: evidence.toolCallId, argv: calls.get(evidence.toolCallId)!, exitCode: result.exitCode,
+        id: evidence.toolCallId, argv: calls.get(evidence.toolCallId)!, exitCode: result.exitCode, sequence: sequence ?? 0,
         ...(passed || failed ? { passed: passed ? Number(passed[1]) : 0, failed: failed ? Number(failed[1]) : 0 } : {}),
       });
     }
   }
   return checks;
+}
+
+export function checksFromJournal(jsonl: string): SummaryCheck[] {
+  const records: Array<{ sequence?: number; evidence: any }> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  for (const line of jsonl.split('\n')) {
+    if (!line.trim()) continue;
+    try { records.push(JSON.parse(line)); } catch { continue; }
+  }
+  return checksFromRecords(records).map(({ sequence: _sequence, ...check }) => check);
 }

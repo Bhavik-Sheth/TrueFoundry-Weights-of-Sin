@@ -41,6 +41,7 @@ import { ApprovalDeliveryUnknown, type TfClient } from './tfClient';
 import { killAll } from '../mcp/runCommand';
 import { classifyDetailed, takeOver, type Classification } from './fallback';
 import { log } from '../log';
+import { resolveRequirementRefs, splitRequirements } from '../review/requirements';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ev = { type: string; id?: string; [k: string]: any };
@@ -66,6 +67,7 @@ export class RunManager extends EventEmitter {
   private receivedEvents = new Set<string>();
   private approvalIds = new Set<string>();
   private streamedText = new Map<string, string>();
+  private runRequirements: Array<{ id: string; text: string }> = []; // agent-mode requirement parts of the active run, in R1.. order
   private firstMessage = '';                       // original first message, replayed on fallback
   private fallbackUsed = false;
   private primaryReason = '';
@@ -156,6 +158,10 @@ export class RunManager extends EventEmitter {
     this.clearTimer();
     this.firstMessage = buildFirstMessage(mode, text, selection);
     this.capture(run, { kind: 'request', mode, text });
+    this.runRequirements = mode === 'agent' ? splitRequirements(text).map(part => ({ id: randomUUID(), text: part })) : [];
+    for (const part of this.runRequirements) {
+      this.capture(run, { kind: 'requirement', requirementId: part.id, requirementText: part.text, requirementRevision: 1 });
+    }
     this.setState('streaming');
     try {
       run.sessionId = await this.tf.createSession(agent, run);
@@ -442,6 +448,16 @@ export class RunManager extends EventEmitter {
       this.review.onResolve = undefined;
       await this.resolveApproval(false, res.deny);
       return;
+    }
+    const staged = this.review.pending;
+    if (staged && args.requirements?.length) {
+      for (const id of resolveRequirementRefs(args.requirements, this.runRequirements)) {
+        const part = this.runRequirements.find(r => r.id === id)!;
+        this.capture(run, {
+          kind: 'requirement-link', requirementId: id, requirementText: part.text, requirementRevision: 1,
+          proposalKey: staged.key, hunkIds: staged.hunks.map(h => h.id), checkSequences: [], source: 'agent',
+        });
+      }
     }
     if (run.state === 'streaming') {
       run.state = 'awaiting-review';

@@ -17,7 +17,7 @@ export type RunEvidence =
   | { kind: 'hunk-history'; operation: 'undo' | 'redo'; hunkId: string; path: string }
   | { kind: 'check'; source: string; name: string; status: string; proposalKey?: string; hunkIds?: string[]; argv?: string[]; location?: string; startLine?: number; endLine?: number; side?: 'base' | 'candidate'; revision?: string; baseRevision?: string; externalId?: string; sourceUrl?: string; detail?: string; ruleId?: string; fingerprints?: Record<string, string>; startColumn?: number; endColumn?: number }
   | { kind: 'requirement'; requirementId: string; requirementText: string; requirementRevision: number }
-  | { kind: 'requirement-link'; requirementId: string; requirementText: string; requirementRevision?: number; proposalKey: string; hunkIds: string[]; checkSequences: number[]; source: 'manual' }
+  | { kind: 'requirement-link'; requirementId: string; requirementText: string; requirementRevision?: number; proposalKey: string; hunkIds: string[]; checkSequences: number[]; source: 'manual' | 'agent' | 'human'; linked?: boolean }
   | { kind: 'impact'; proposalKey: string; hunkIds: string[]; comparison: unknown }
   | { kind: 'imported'; format: 'native' | 'acp' | 'otlp'; name: string; payload: unknown }
   | { kind: 'context'; packetId: string; contentHash?: string; budget: number; packed: number; delivery: ContextDelivery;
@@ -49,7 +49,11 @@ export class RunJournal {
     this.database = SqliteJournal.supported(directory, onError);
   }
 
+  /** Called synchronously for every evidence record, before it is queued for disk. */
+  onRecord?: (runId: string, evidence: RunEvidence) => void;
+
   readonly record: RecordEvidence = (runId, evidence, source) => {
+    this.onRecord?.(runId, evidence);
     const observed = { version: 1 as const, runId, recordedAt: new Date().toISOString(), ...source, evidence };
     // Freeze mutable review objects before waiting on the disk queue.
     const snapshot = JSON.stringify(observed);
