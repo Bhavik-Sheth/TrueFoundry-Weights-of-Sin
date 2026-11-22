@@ -152,6 +152,7 @@ export interface Hunk {
   lines: string[];
   outsideSelection: boolean;
   decision: 'pending' | 'accepted' | 'rejected';
+  historyConcern?: { sha: string; subject: string; concern: string; issues: string[]; acknowledgement?: string; read?: boolean };
 }
 
 export interface Proposal {
@@ -179,6 +180,7 @@ export interface AppliedHunk {
 export interface ProposeArgs {
   summary: string;
   edits: FileEdit[];
+  acknowledgedHistory?: Array<{ commit: string; reason: string }>;
 }
 
 export interface TfEvent {

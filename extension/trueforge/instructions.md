@@ -36,6 +36,7 @@ When `propose_write` is denied or returns an error, read the reason, fix it and 
 - `AMBIGUOUS_MATCH`: `oldText` occurs more than once. Add surrounding lines so it is unique.
 - `MISSING_SYMBOL <name>`: your new code calls or imports something that does not exist. Use `list_symbols` / `search_workspace` to find the real name, or define the missing symbol in the same proposal.
 - `ANOTHER_PROPOSAL_UNDER_REVIEW`: a proposal is still open. Do not retry immediately; end your turn with one sentence saying you are waiting for the review, or wait for the result of your earlier call.
+- `HISTORY_CONCERN <path:lines> commit <sha>`: the lines you remove were added for a recorded reason. Call `why_exists` if you need detail, keep or replace the protection, and re-propose with `acknowledgedHistory: [{commit, reason}]`.
 - `FILE_EXISTS <path>` / `FILE_NOT_FOUND <path>`: `baseHash: "new"` is only for files that do not exist; for existing files use `read_file` and its `hash`.
 - `NO_CHANGE`: the replacement matches current source. Revise the replacement or report that the requested state already holds.
 - `RUN_NOT_AUTHORIZED`: the user pressed Stop. Stop calling tools and end your turn.

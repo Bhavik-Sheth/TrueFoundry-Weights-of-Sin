@@ -25,7 +25,7 @@ export async function assist(root: string, text: string, url: string, selection?
   const cfg: ContexoConfig = { trueforgeUrl: url, primaryAgent: process.env.CONTEXO_AGENT || 'contexo',
     fallbackAgent: process.env.CONTEXO_FALLBACK_AGENT || 'contexo-fallback', excerptBudget: 8000,
     firstEventTimeoutMs: 120000, commandAllowlist: ['python', 'pytest', 'flask'], mcpPort: 0,
-    devMode: false, autoStartTrueForge: false, autoRegisterTrueForge: false, stopTrueForgeOnExit: 'never', primaryModel: '', fallbackModel: '' };
+    devMode: false, autoStartTrueForge: false, autoRegisterTrueForge: false, stopTrueForgeOnExit: 'never', primaryModel: '', fallbackModel: '', historyMinLines: 3 };
   const routes = new RunRoutes();
   const index = await loadWorkspaceIndex(root);
   const journal = new RunJournal(resolve(process.env.CONTEXO_RUNS_DIR || join(homedir(), '.contexo', 'runs')), error => console.error('Run journal:', error));

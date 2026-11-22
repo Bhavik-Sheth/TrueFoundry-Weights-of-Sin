@@ -36,6 +36,9 @@ import { log } from '../log';
 import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 import { UndoStack, pickHunk } from './applyUndo';
 import { addedLines, scopeGuard, symbolCheck } from './guards';
+import { getConfig } from '../config';
+import { explainRange, historyGate, needsHistoryCheck } from '../history/historyGuard';
+import type { WhyExists } from '../history/historyGuard';
 import {
   acceptedCount, buildHunks, computeResult, once, proposalKey, rebuildFile, setAllDecisions,
   setHunkDecision, sha256,
@@ -118,6 +121,8 @@ export class ReviewEngine {
   private attaching = false;
   private decisionUpdates = Promise.resolve();
   private failedDecision?: Sha;
+  private historyDenied = new Set<string>();
+  private whyByHunk = new Map<string, WhyExists>();
 
   constructor(post: (m: ToWebview) => void = () => {}, private readonly storage?: vscode.Memento) {
     this.undo = new UndoStack(post, storage);
@@ -159,6 +164,29 @@ export class ReviewEngine {
       if (run.mode === 'inline' && run.selection) scopeGuard(hunks, run.selection);
     } catch (err) {
       log('guards failed (ignored):', errText(err));
+    }
+
+    try {
+      const root = workspaceRoot()?.uri.fsPath;
+      if (root) {
+        const minLines = getConfig().historyMinLines;
+        const explains = new Map<string, WhyExists>();
+        for (const h of hunks) {
+          if (!needsHistoryCheck(h, minLines)) continue;
+          explains.set(h.id, await explainRange(root, h.path, h.oldStart, h.oldStart + h.oldLines - 1, this.index));
+        }
+        const gate = historyGate({ runId: run.id, hunks, explains, acknowledged: args.acknowledgedHistory, denied: this.historyDenied });
+        if (gate.deny) return { deny: gate.deny };
+        for (const h of hunks) {
+          const flag = gate.flags.get(h.id);
+          if (!flag) continue;
+          h.historyConcern = flag;
+          const w = explains.get(h.id);
+          if (w) this.whyByHunk.set(h.id, w);
+        }
+      }
+    } catch (err) {
+      log('history gate failed (ignored):', errText(err));
     }
 
     const proposal: Proposal = { summary: args.summary, key, runId: run.id, toolCallId, threadId, files, hunks, status: 'reviewing' };
@@ -263,7 +291,42 @@ export class ReviewEngine {
 
   async setDecision(hunkId: string, d: 'accepted' | 'rejected'): Promise<void> {
     const proposal = this.pending;
-    if (proposal) await this.updateDecisions(proposal, hunks => setHunkDecision(hunks, hunkId, d));
+    if (!proposal) return;
+    const hunk = proposal.hunks.find(h => h.id === hunkId);
+    if (d === 'accepted' && hunk?.historyConcern && !hunk.historyConcern.read) {
+      const choice = await vscode.window.showWarningMessage(
+        'This hunk removes code with recorded history. Open "Why does this exist?" first?',
+        { modal: true }, 'Open history', 'Accept anyway');
+      if (choice === 'Open history') { await this.showWhyExists(proposal.key, hunkId); return; }
+      if (choice !== 'Accept anyway') return;
+    }
+    await this.updateDecisions(proposal, hunks => setHunkDecision(hunks, hunkId, d));
+  }
+
+  /** Opens a read-only markdown view of the history behind a flagged hunk and marks it as read. */
+  async showWhyExists(key: Sha, hunkId: string): Promise<void> {
+    const proposal = this.pending;
+    const hunk = proposal?.key === key ? proposal.hunks.find(h => h.id === hunkId) : undefined;
+    const flag = hunk?.historyConcern;
+    if (!hunk || !flag) return;
+    const w = this.whyByHunk.get(hunkId);
+    const NL = '\n';
+    const out = [`# Why does this exist? ${hunk.path}:${hunk.oldStart}-${hunk.oldStart + hunk.oldLines - 1}`, ''];
+    out.push(`Flagged: ${flag.concern} (${flag.sha.slice(0, 7)} ${flag.subject})`, '');
+    out.push('## Commits', '');
+    for (const c of w?.commits ?? []) {
+      out.push(`- ${c.sha.slice(0, 7)} ${c.date} ${c.author}: ${c.subject} (lines ${c.lines[0]}-${c.lines[1]})`);
+      if (c.bodyExcerpt) out.push(`  > ${c.bodyExcerpt.replace(/\r?\n/g, NL + '  > ')}`);
+    }
+    if (!w?.commits.length) out.push(`- ${flag.sha.slice(0, 7)} ${flag.subject}`);
+    const issues = w?.issues.length ? w.issues : flag.issues;
+    out.push('', '## Issues', '', issues.length ? issues.join(', ') : 'none');
+    out.push('', '## PRs', '', w?.prs.length ? w.prs.map(n => `#${n}`).join(', ') : 'none');
+    out.push('', '## Tests', '', w?.tests.length ? w.tests.map(t => `- ${t}`).join(NL) : 'none');
+    out.push('', '## Agent acknowledgement', '', flag.acknowledgement ?? 'none');
+    flag.read = true;
+    const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: out.join(NL) });
+    await vscode.window.showTextDocument(doc, { preview: true });
   }
 
   async acceptAll(key: Sha): Promise<void> {
@@ -557,6 +620,13 @@ export class ReviewEngine {
         const [a, b] = hunkSpan(h);
         lenses.push(new vscode.CodeLens(r, { title: `⚠ outside selection (L${a}-${b})`, command: '' }));
       }
+      if (h.historyConcern) {
+        lenses.push(new vscode.CodeLens(r, {
+          title: `⚠ Why does this exist? (${h.historyConcern.sha.slice(0, 7)} ${h.historyConcern.subject})`,
+          command: 'contexo.whyExists',
+          arguments: [p.key, h.id],
+        }));
+      }
     }
     return lenses;
   }
@@ -605,6 +675,9 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
     }),
     vscode.commands.registerCommand('contexo.hunk.decide', (key?: string, hunkId?: string, d?: 'accepted' | 'rejected') => {
       if (key && hunkId && d && review.pending?.key === key) return review.setDecision(hunkId, d);
+    }),
+    vscode.commands.registerCommand('contexo.whyExists', (key?: string, hunkId?: string) => {
+      if (key && hunkId) return review.showWhyExists(key, hunkId);
     }),
     vscode.commands.registerCommand('contexo.proposal.apply', async (key?: string) => {
       if (key) await review.applyAccepted(key);

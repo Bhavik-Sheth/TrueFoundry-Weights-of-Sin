@@ -27,6 +27,7 @@ export interface ContexoConfig {
   /** 'provider/model' names chosen in the setup wizard (strings only, never keys). */
   primaryModel: string;
   fallbackModel: string;
+  historyMinLines: number;
 }
 
 export function getConfig(): ContexoConfig {
@@ -45,5 +46,6 @@ export function getConfig(): ContexoConfig {
     stopTrueForgeOnExit: c.get<'startedByContexo' | 'always' | 'never'>('stopTrueForgeOnExit', 'startedByContexo'),
     primaryModel: c.get<string>('primaryModel', inceptionModel),
     fallbackModel: c.get<string>('fallbackModel', ''),
+    historyMinLines: c.get<number>('history.minLines', 3),
   };
 }

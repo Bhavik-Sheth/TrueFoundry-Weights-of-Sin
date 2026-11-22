@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { capWhyExists, detectConcern, explainRange, needsHistoryCheck, parseBlamePorcelain } from '../src/history/historyGuard';
+import { capWhyExists, detectConcern, explainRange, historyGate, needsHistoryCheck, parseBlamePorcelain } from '../src/history/historyGuard';
 import type { Hunk } from '../src/types';
 import type { WhyExists } from '../src/history/historyGuard';
 
@@ -91,5 +91,37 @@ describe('capWhyExists', () => {
     expect(JSON.stringify(capWhyExists(w)).length).toBeLessThanOrEqual(4000);
     expect(JSON.stringify(capWhyExists({ ...w, issues: ['#1'] })).length).toBeLessThanOrEqual(4000);
     expect(capWhyExists({ ...w, issues: ['#1'] }).commits).toHaveLength(1);
+  });
+});
+
+describe('historyGate', () => {
+  const h1: Hunk = { id: 'h1', path: 'a.py', oldStart: 10, oldLines: 3, newStart: 10, newLines: 0, lines: ['-a', '-b', '-c'], outsideSelection: false, decision: 'pending' };
+  const w = (concern: boolean): WhyExists => ({
+    commits: [{ sha: 'a'.repeat(40), author: 'x', date: '2020-01-01', subject: concern ? 'Fix race in loader (#9)' : 'Add loader', bodyExcerpt: concern ? 'See #412' : '', lines: [10, 12] }],
+    issues: [], prs: [], tests: [], concern: null,
+  });
+  const ex = new Map([['h1', w(true)]]);
+
+  it('denies once, then flags', () => {
+    const denied = new Set<string>();
+    const first = historyGate({ runId: 'r', hunks: [h1], explains: ex, acknowledged: undefined, denied });
+    expect(first.deny).toMatch(/^HISTORY_CONCERN a\.py:10-12 commit aaaaaaa "Fix race in loader \(#9\)" \(#412\)\./);
+    const second = historyGate({ runId: 'r', hunks: [h1], explains: ex, acknowledged: undefined, denied });
+    expect(second.deny).toBeUndefined();
+    expect(second.flags.get(h1.id)).toMatchObject({ sha: 'a'.repeat(40), concern: 'race' });
+  });
+  it('acknowledged commit stages with acknowledgement text', () => {
+    const r = historyGate({ runId: 'r', hunks: [h1], explains: ex, acknowledged: [{ commit: 'aaaaaaa', reason: 'lock kept in caller' }], denied: new Set() });
+    expect(r.deny).toBeUndefined();
+    expect(r.flags.get(h1.id)?.acknowledgement).toBe('lock kept in caller');
+  });
+  it('short commit prefix does not acknowledge', () => {
+    const r = historyGate({ runId: 'r', hunks: [h1], explains: ex, acknowledged: [{ commit: 'aaa', reason: 'x' }], denied: new Set() });
+    expect(r.deny).toBeDefined();
+  });
+  it('no concern -> no deny, no flags', () => {
+    const r = historyGate({ runId: 'r', hunks: [h1], explains: new Map([['h1', w(false)]]), acknowledged: undefined, denied: new Set() });
+    expect(r.deny).toBeUndefined();
+    expect(r.flags.size).toBe(0);
   });
 });

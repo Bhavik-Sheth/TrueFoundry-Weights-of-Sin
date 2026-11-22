@@ -135,6 +135,10 @@
         "title": "Contexo: Accept All Hunks"
       },
       {
+        "command": "contexo.whyExists",
+        "title": "Contexo: Why Does This Exist?"
+      },
+      {
         "command": "contexo.dev.pingTrueForge",
         "title": "Contexo Dev: Ping TrueForge"
       },
@@ -209,6 +213,10 @@
           "when": "false"
         },
         {
+          "command": "contexo.whyExists",
+          "when": "false"
+        },
+        {
           "command": "contexo.undoHunk",
           "when": "false"
         },
@@ -266,6 +274,11 @@
           "type": "number",
           "default": 8000,
           "description": "Token budget for assembled excerpts."
+        },
+        "contexo.history.minLines": {
+          "type": "number",
+          "default": 3,
+          "description": "Minimum removed lines in a hunk that trigger the git-history (HISTORY_CONCERN) check."
         },
         "contexo.firstEventTimeoutMs": {
           "type": "number",

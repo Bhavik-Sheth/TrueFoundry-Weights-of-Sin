@@ -15,6 +15,8 @@ export const proposalInput = z.object({
     oldText: z.string().optional().describe('Exact old text for legacy edits. Omit when supplying line numbers.'),
     newText: z.string().describe('Replacement only. Keep a range replacement within 4,000 characters.'),
   })).min(1),
+  acknowledgedHistory: z.array(z.object({ commit: z.string().min(7), reason: z.string().min(1) })).optional()
+    .describe('Commits from HISTORY_CONCERN you checked, with how your change preserves their intent'),
 });
 
 export const splitSourceLines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];

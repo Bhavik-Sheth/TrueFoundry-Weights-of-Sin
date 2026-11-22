@@ -11,7 +11,7 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Hunk } from '../types';
+import type { Hunk, ProposeArgs } from '../types';
 import type { IndexApi } from '../context/indexer';
 
 /** A removed line that starts like a guard/error-handling construct, or carries a warning marker. */
@@ -137,4 +137,48 @@ export function capWhyExists(w: WhyExists, max = 4000): WhyExists {
     while (!fits() && out[key].length > 0) out[key].pop();
   }
   return out;
+}
+
+type HistoryConcern = NonNullable<Hunk['historyConcern']>;
+
+/**
+ * Chesterton's Fence gate: denies once per (runId, path, sha) when a hunk removes code whose history records a concern
+ * and the agent has not acknowledged that commit; otherwise returns the per-hunk flags for review.
+ */
+export function historyGate(input: {
+  runId: string;
+  hunks: Hunk[];
+  explains: Map<string, WhyExists>;
+  acknowledged: ProposeArgs['acknowledgedHistory'];
+  denied: Set<string>;
+}): { deny?: string; flags: Map<string, HistoryConcern> } {
+  const flags = new Map<string, HistoryConcern>();
+  const acks = input.acknowledged ?? [];
+  const found: Array<{ hunk: Hunk; flag: HistoryConcern; ack?: string }> = [];
+  for (const hunk of input.hunks) {
+    const w = input.explains.get(hunk.id);
+    if (!w) continue;
+    for (const c of w.commits) {
+      const d = detectConcern(c.subject, c.bodyExcerpt);
+      if (!d.concern) continue;
+      const ack = acks.find((a) => a.commit.length >= 7 && c.sha.startsWith(a.commit));
+      found.push({ hunk, flag: { sha: c.sha, subject: c.subject, concern: d.concern, issues: d.issues, ...(ack ? { acknowledgement: ack.reason } : {}) }, ack: ack?.reason });
+      break;
+    }
+  }
+  for (const { hunk, flag, ack } of found) {
+    const key = `${input.runId}:${hunk.path}:${flag.sha}`;
+    if (ack === undefined && !input.denied.has(key)) {
+      input.denied.add(key);
+      const start = hunk.oldStart;
+      const end = hunk.oldStart + hunk.oldLines - 1;
+      const issues = flag.issues.length ? ` (${flag.issues.join(', ')})` : '';
+      return {
+        deny: `HISTORY_CONCERN ${hunk.path}:${start}-${end} commit ${flag.sha.slice(0, 7)} "${flag.subject}"${issues}. Explain how your change preserves this, then re-propose with acknowledgedHistory.`,
+        flags,
+      };
+    }
+  }
+  for (const { hunk, flag } of found) flags.set(hunk.id, flag);
+  return { flags };
 }
