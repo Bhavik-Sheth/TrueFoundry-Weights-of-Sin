@@ -5,7 +5,7 @@
  *  - tokenize(text): identifier tokenizer with snake_case/camelCase splitting and stopword removal.
  *  - class Bm25 / bm25Rank(query, docs): small BM25 (k1=1.2, b=0.75) over {id,text} docs; query is text or terms[].
  *  - symbolNameMatch(terms, symbols): ranked symbol-name matches (exact 3, prefix 2, contains 1).
- *  - resolveRgPath(appRoot?): VS Code's bundled rg (node_modules[.asar.unpacked]/@vscode/ripgrep/bin), else `rg` on PATH.
+ *  - resolveRgPath(appRoot?): VS Code's bundled rg (node_modules[.asar.unpacked]/@vscode/ripgrep/bin or ripgrep-universal/bin/<platform>-<arch>), else `rg` on PATH.
  *  - ripgrepSearch(term, opts): runs rg --json -n -i -F --max-count 50 and returns {path, line, preview}.
  *
  * Rules: no top-level vscode import (vscode is required lazily, only when cwd/rgPath are not passed in opts),
@@ -114,8 +114,10 @@ export function resolveRgPath(appRoot?: string): string {
   if (appRoot) {
     const exe = process.platform === 'win32' ? 'rg.exe' : 'rg';
     for (const mod of ['node_modules', 'node_modules.asar.unpacked']) {
-      const p = path.join(appRoot, mod, '@vscode', 'ripgrep', 'bin', exe);
-      if (fs.existsSync(p)) return p;
+      for (const bin of [path.join('ripgrep', 'bin'), path.join('ripgrep-universal', 'bin', `${process.platform}-${process.arch}`)]) {
+        const p = path.join(appRoot, mod, '@vscode', bin, exe);
+        if (fs.existsSync(p)) return p;
+      }
     }
   }
   return 'rg';

@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Bm25, resolveRgPath, symbolNameMatch, tokenize } from '../src/context/search';
 import type { SymbolEntry } from '../src/types';
@@ -40,5 +43,17 @@ describe('resolveRgPath', () => {
   it('falls back to rg on PATH without a bundled binary', () => {
     expect(resolveRgPath('/nonexistent')).toBe('rg');
     expect(resolveRgPath()).toBe('rg');
+  });
+  it('finds the ripgrep-universal layout of newer VS Code builds', () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rg-'));
+    const exe = process.platform === 'win32' ? 'rg.exe' : 'rg';
+    const bin = path.join(appRoot, 'node_modules.asar.unpacked', '@vscode', 'ripgrep-universal', 'bin', `${process.platform}-${process.arch}`);
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, exe), '');
+    try {
+      expect(resolveRgPath(appRoot)).toBe(path.join(bin, exe));
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
