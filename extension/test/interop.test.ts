@@ -66,6 +66,8 @@ describe('external editor interoperability regressions', () => {
     restarted.record('fixture', { ...check, status: 'SUCCESS' });
     const { records } = readReplay(await restarted.read('fixture'));
     expect(records.map(record => [record.sequence, record.evidence.status])).toEqual([[1, 'running'], [2, 'SUCCESS']]);
+    await log.close();
+    await restarted.close();
   });
 
   it('migrates readable legacy rows and preserves the original bytes', async () => {
