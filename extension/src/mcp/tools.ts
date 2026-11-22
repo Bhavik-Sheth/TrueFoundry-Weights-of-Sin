@@ -8,7 +8,7 @@
  *    read_file {path,startLine?,endLine?}; assemble_context {request,mentions?,budget?} (also pushes
  *    the packet to the panel); list_symbols {path?,query?} (deferred in the agent def);
  *    propose_write {summary,edits[]} (approval-gated); run_command {argv,timeoutSec<=180}
- *    (deferred, approval).
+ *    (deferred, approval); why_exists {path,startLine,endLine} (deferred; blame/commit rationale, <=4000 chars).
  *
  * STATE (Slice 2): search_workspace, read_file, list_symbols, propose_write are real; assemble_context is
  * still fixture-based (Slice 5) but awaits index.ready; run_command is real (Slice 7).
@@ -31,7 +31,8 @@ import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
 import { sourceWindow } from '../context/sourceWindow';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
-import { assembleContext, prepareContextForModel } from '../context/assembler';
+import { explainRange } from '../history/historyGuard';
+import { assembleContext,prepareContextForModel } from '../context/assembler';
 import { contextReceipt, continuation, continuationInput } from '../run/continuation';
 import { batchPlanInput, type BatchPlans } from '../run/batchPlan';
 import type { RunJournal } from '../run/journal';
@@ -245,6 +246,27 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
     }, guarded(async (args: Parameters<ReturnType<typeof fileContextReader>['inspect']>[0]) => {
       const reader = fileContext();
       return reader ? ok(await reader.inspect(args)) : err('NO_WORKSPACE', 'Open a workspace folder.');
+    }));
+
+    server.registerTool('why_exists', {
+      description: 'Explain why existing lines exist: blame commits, messages, linked issues/PRs and related tests. ' +
+        'Call before deleting or rewriting code you did not write.',
+      inputSchema: {
+        path: z.string().describe('Workspace-relative file path'),
+        startLine: z.number().int().min(1),
+        endLine: z.number().int().min(1),
+      },
+    }, guarded(async (a: { path: string; startLine: number; endLine: number }) => {
+      await resolvePath(a.path);
+      const root = external?.workspace() ?? workspaceRoot()!.uri.fsPath;
+      const why = await explainRange(root, toRel(a.path), a.startLine, a.endLine, deps.index);
+      const commits = [...why.commits].sort((x, y) => y.date.localeCompare(x.date));
+      let json = JSON.stringify({ ...why, commits });
+      while (json.length > 4000 && commits.length > 0) {
+        commits.pop();
+        json = JSON.stringify({ ...why, commits });
+      }
+      return ok(JSON.parse(json));
     }));
 
     server.registerTool('list_symbols', {

@@ -1,14 +1,18 @@
 /**
  * historyGuard.ts - pure helpers for the Chesterton's Fence history check.
  *
- * Exports: GUARD_LINE, needsHistoryCheck, parseBlamePorcelain, detectConcern.
- * Notes: no git or vscode access here; callers feed in diff hunks and `git blame --porcelain` /
+ * Exports: GUARD_LINE, needsHistoryCheck, parseBlamePorcelain, detectConcern, WhyExists, explainRange
+ * (explainRange shells out to git via execFile; cached by path + HEAD sha).
+ * Notes: the pure helpers do no git or vscode access; callers feed in diff hunks and `git blame --porcelain` /
  * commit-message text. Hunk lines carry a '+', '-' or ' ' prefix.
  * Must not import 'vscode'.
  * Depends on: types.ts (type only).
  * Depended on by: history git access and staging gate (later tasks).
  */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Hunk } from '../types';
+import type { IndexApi } from '../context/indexer';
 
 /** A removed line that starts like a guard/error-handling construct, or carries a warning marker. */
 export const GUARD_LINE =
@@ -34,7 +38,7 @@ export function parseBlamePorcelain(out: string): Array<{ sha: string; lines: nu
 }
 
 const SPECIFIC_CONCERN =
-  /fix|bug|regression|race|deadlock|security|CVE-|vuln|workaround|compat|revert|hotfix|leak|crash|edge case/gi;
+  /\b(?:fix|bug|regression|race|deadlock|security|CVE-|vuln|workaround|compat|revert|hotfix|leak|crash|edge case)/gi;
 const GENERIC_CONCERN = new Set(['fix', 'bug']);
 
 export function detectConcern(subject: string, body: string): { concern: string | null; issues: string[]; prs: number[] } {
@@ -61,4 +65,65 @@ export function detectConcern(subject: string, body: string): { concern: string 
     if (!issues.includes(tag)) issues.push(tag);
   }
   return { concern, issues, prs };
+}
+
+export interface WhyExists {
+  commits: Array<{ sha: string; author: string; date: string; subject: string; bodyExcerpt: string; lines: [number, number] }>;
+  issues: string[];
+  prs: number[];
+  tests: string[];
+  concern: string | null;
+  note?: 'shallow' | 'uncommitted' | 'no-git';
+}
+
+const execFileAsync = promisify(execFile);
+const cache = new Map<string, WhyExists>();
+
+async function git(root: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd: root, timeout: 10_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+  return stdout;
+}
+
+/** Why do lines startLine..endLine of `path` exist? Blame commits, messages, linked issues/PRs and related tests. */
+export async function explainRange(root: string, path: string, startLine: number, endLine: number, index?: IndexApi): Promise<WhyExists> {
+  const empty = (note?: WhyExists['note']): WhyExists => ({ commits: [], issues: [], prs: [], tests: [], concern: null, ...(note ? { note } : {}) });
+  let head: string;
+  try {
+    head = (await git(root, ['rev-parse', 'HEAD'])).trim();
+  } catch {
+    return empty('no-git');
+  }
+  const key = `${path}:${head}:${startLine}-${endLine}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  let result: WhyExists;
+  try {
+    if ((await git(root, ['rev-parse', '--is-shallow-repository'])).trim() === 'true') return empty('shallow');
+    try {
+      await git(root, ['cat-file', '-e', `HEAD:${path}`]);
+    } catch {
+      return empty('uncommitted');
+    }
+    const blame = parseBlamePorcelain(await git(root, ['blame', '--porcelain', '-w', '-M', '-C', '-L', `${startLine},${endLine}`, 'HEAD', '--', path]));
+    result = empty();
+    for (const b of blame) {
+      const [sha, author, date, subject, ...rest] = (await git(root, ['show', '-s', '--format=%H%x00%an%x00%aI%x00%s%x00%b', b.sha])).replace(/\n$/, '').split('\0');
+      const body = rest.join('\0').trim();
+      result.commits.push({ sha, author, date, subject, bodyExcerpt: body.slice(0, 300), lines: [Math.min(...b.lines), Math.max(...b.lines)] });
+      const d = detectConcern(subject, body);
+      result.concern ??= d.concern;
+      for (const i of d.issues) if (!result.issues.includes(i)) result.issues.push(i);
+      for (const p of d.prs) if (!result.prs.includes(p)) result.prs.push(p);
+    }
+  } catch {
+    return empty('no-git');
+  }
+
+  const enclosing = index?.enclosing(path, startLine);
+  if (index && enclosing) {
+    result.tests = index.symbols().filter((s) => s.kind === 'test' && s.calls.includes(enclosing.name)).map((s) => s.id);
+  }
+  cache.set(key, result);
+  return result;
 }
