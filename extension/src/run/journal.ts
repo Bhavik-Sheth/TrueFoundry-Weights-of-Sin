@@ -160,7 +160,7 @@ export class RunJournal {
     const runs: RunRecord[][] = [];
     for (const id of await this.list()) {
       const records: RunRecord[] = [];
-      for (const line of (await this.read(id).catch(() => '')).split(String.fromCharCode(10))) {
+      for (const line of (await this.read(id).catch(() => '')).split('\n')) {
         try { const entry = JSON.parse(line) as RunRecord; if (entry?.runId === id) records.push(entry); } catch { /* skip unreadable line */ }
       }
       if (records.length) runs.push(records);

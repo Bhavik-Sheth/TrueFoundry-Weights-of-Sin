@@ -506,13 +506,17 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     const prompt = startupPrompt({ applyPending, reviewPending, unfinished });
     if (!prompt) return;
     const choice = await vscode.window.showInformationMessage(prompt.message, ...prompt.actions.filter(a => a !== 'Dismiss'));
-    if (choice === 'Recover') {
-      await review.recoverApply();
-      post({ type: 'changes', hunks: review.undo.list() });
-    } else if (choice === 'Restore Review') {
-      await vscode.commands.executeCommand('contexo.restorePendingReview');
-    } else if (choice === 'Resume' && unfinished) {
-      await runs.start('agent', `Continue the unfinished task from run ${unfinished.runId}: "${unfinished.request}". Call batch_plan with action "status" and fromRunId "${unfinished.runId}" if a plan exists, otherwise call resume_context, then re-read files before editing.`);
+    try {
+      if (choice === 'Recover') await review.recoverApply();
+      else if (choice === 'Restore Review') await vscode.commands.executeCommand('contexo.restorePendingReview');
+      else if (choice === 'Resume' && unfinished) {
+        await runs.start('agent', `Continue the unfinished task from run ${unfinished.runId}: "${unfinished.request}". Call batch_plan with action "status" and fromRunId "${unfinished.runId}" if a plan exists, otherwise call resume_context, then re-read files before editing.`);
+      }
+    } catch (error) {
+      log('Contexo startup action failed', String(error));
+      void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (choice === 'Recover') post({ type: 'changes', hunks: review.undo.list() });
     }
   }).catch((error: unknown) => log('Contexo activation follow-up failed', String(error)));
 }
