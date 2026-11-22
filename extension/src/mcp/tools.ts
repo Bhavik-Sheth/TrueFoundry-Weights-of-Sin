@@ -32,6 +32,7 @@ import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
 import { sourceWindow } from '../context/sourceWindow';
 import { resolveSymbol } from '../context/readSymbol';
+import { contextMentions } from '../context/mentions';
 import { cachedPacks } from '../context/instructionPacks';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
 import { capWhyExists, explainRange } from '../history/historyGuard';
@@ -221,14 +222,15 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
       await deps.index.ready;
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const cfg = (require('../config') as typeof import('../config')).getConfig();
+      const mentions = contextMentions(options.route?.run.request ?? a.request, a.mentions);
       const packet = await assembleContext({
         request: a.request,
-        mentions: a.mentions,
+        mentions,
         selection: external && a.useEditorSelection ? external.selection() : options.route?.run.selection,
         budget: a.budget ?? cfg.excerptBudget,
         runId: external ? 'editor-agent' : options.route?.run.id ?? deps.runs.active?.id ?? 'adhoc',
       }, deps.index);
-      await fileContext()?.addToPacket(packet, a.mentions);
+      await fileContext()?.addToPacket(packet, mentions);
       const result = prepareContextForModel(packet);
       const { text, delivery } = result;
       packet.delivery = delivery;

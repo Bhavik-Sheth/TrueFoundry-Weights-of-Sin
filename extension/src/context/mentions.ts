@@ -45,3 +45,12 @@ export function rankMentions(q: string, symbols: SymbolEntry[], paths: string[],
   scored.sort((a, b) => b.score - a.score || a.item.label.length - b.item.label.length);
   return scored.slice(0, limit).map(x => x.item);
 }
+
+/** Preserve explicit user anchors even when a tool caller omits the @ prefix. */
+export function contextMentions(request: string, supplied: string[] = []): string[] {
+  const explicit = [...request.matchAll(/(?:^|\s)(@[^\s]+)/g)]
+    .map(match => match[1].replace(/[.,;:!?]+$/, ''))
+    .filter(token => token.length > 1);
+  const anchored = new Set(explicit);
+  return [...new Set([...explicit, ...supplied.filter(token => !anchored.has(`@${token}`))])];
+}

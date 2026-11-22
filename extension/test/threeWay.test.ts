@@ -10,6 +10,17 @@ describe('threeWay', () => {
     const base = 'a\nB\nc\nd\ne\n', current = 'a\nB\nc\nd\nE-user\n', other = 'a\nb\nc\nd\ne\n';
     expect(await threeWay(current, base, other)).toEqual({ clean: true, text: 'a\nb\nc\nd\nE-user\n' });
   });
+  it('merges when the editor strips an inherited Git config value', async () => {
+    vi.stubEnv('GIT_CONFIG_COUNT', '1');
+    vi.stubEnv('GIT_CONFIG_KEY_0', 'core.editor');
+    vi.stubEnv('GIT_CONFIG_VALUE_0', undefined);
+    try {
+      expect(await threeWay('applied\n', 'applied\n', 'original\n'))
+        .toEqual({ clean: true, text: 'original\n' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('overlap yields conflict markers', async () => {
     const r = await threeWay('a\nX\n', 'a\nB\n', 'a\nb\n');
     expect(r.clean).toBe(false);

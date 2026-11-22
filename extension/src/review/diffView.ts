@@ -652,11 +652,6 @@ export function registerReview(ctx: vscode.ExtensionContext, post: (m: ToWebview
   const review = new ReviewEngine(post, ctx.workspaceState);
 
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.recoverApply', () => review.recoverApply()));
-  if (ctx.workspaceState.get('review.apply.v1')) {
-    void vscode.window.showWarningMessage('Contexo found an interrupted apply.', 'Recover').then(choice => {
-      if (choice) void vscode.commands.executeCommand('contexo.recoverApply');
-    });
-  }
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: (uri) => review.docs.get(uri.toString()) ?? '',
   };

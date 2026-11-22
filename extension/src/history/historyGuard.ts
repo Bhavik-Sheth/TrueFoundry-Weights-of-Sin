@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Hunk, ProposeArgs } from '../types';
 import type { IndexApi } from '../context/indexer';
+import { workspaceGitEnv } from '../shell/workspaceGitEnv';
 
 /** A removed line that starts like a guard/error-handling construct, or carries a warning marker. */
 export const GUARD_LINE =
@@ -80,7 +81,7 @@ const execFileAsync = promisify(execFile);
 const cache = new Map<string, WhyExists>();
 
 async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd: root, timeout: 10_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+  const { stdout } = await execFileAsync('git', args, { cwd: root, env: workspaceGitEnv(), timeout: 10_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
   return stdout;
 }
 

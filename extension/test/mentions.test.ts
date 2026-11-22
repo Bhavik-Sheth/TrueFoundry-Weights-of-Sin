@@ -2,7 +2,7 @@
  * mentions.test.ts - tests for src/context/mentions.ts (@ mention ranking).
  */
 import { describe, expect, it } from 'vitest';
-import { rankMentions } from '../src/context/mentions';
+import { contextMentions, rankMentions } from '../src/context/mentions';
 import type { SymbolEntry } from '../src/types';
 
 const sym = (qualifiedName: string, kind: SymbolEntry['kind'] = 'function', path = 'src/flask/helpers.py', startLine = 10): SymbolEntry =>
@@ -35,5 +35,12 @@ describe('rankMentions', () => {
   it('matches subsequences with the lowest score', () => {
     const r = rankMentions('gdf', syms, []);
     expect(r.map(i => i.label)).toEqual(['get_debug_flag']);
+  });
+});
+
+describe('contextMentions', () => {
+  it('keeps original anchors when the tool caller strips @ and keeps other hints', () => {
+    expect(contextMentions('Inspect @get_debug_flag, then @src/flask/cli.py.', ['get_debug_flag', 'CLI']))
+      .toEqual(['@get_debug_flag', '@src/flask/cli.py', 'CLI']);
   });
 });
