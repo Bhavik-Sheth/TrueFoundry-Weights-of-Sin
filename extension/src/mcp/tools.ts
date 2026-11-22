@@ -8,7 +8,7 @@
  *    read_file {path,startLine?,endLine?}; assemble_context {request,mentions?,budget?} (also pushes
  *    the packet to the panel); list_symbols {path?,query?} (deferred in the agent def);
  *    propose_write {summary,edits[]} (approval-gated); run_command {argv,timeoutSec<=180}
- *    (deferred, approval); why_exists {path,startLine,endLine} (deferred; blame/commit rationale, <=4000 chars).; read_symbol {name} (deferred; one function/class by name, <=16000 chars).
+ *    (deferred, approval); why_exists {path,startLine,endLine} (deferred; blame/commit rationale, <=4000 chars).; read_symbol {name} (deferred; one function/class by name, <=16000 chars).; get_instruction_pack {name} (deferred; versioned how-to guide from dist/instruction-packs).
  *
  * STATE (Slice 2): search_workspace, read_file, list_symbols, propose_write are real; assemble_context is
  * still fixture-based (Slice 5) but awaits index.ready; run_command is real (Slice 7).
@@ -22,6 +22,7 @@
  */
 import { workspaceRoot, hasNativeFiles } from '../shell/workspaceRoot';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { IndexApi } from '../context/indexer';
@@ -31,6 +32,7 @@ import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
 import { sourceWindow } from '../context/sourceWindow';
 import { resolveSymbol } from '../context/readSymbol';
+import { cachedPacks } from '../context/instructionPacks';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
 import { capWhyExists, explainRange } from '../history/historyGuard';
 import { assembleContext, prepareContextForModel } from '../context/assembler';
@@ -191,6 +193,17 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
       const full = await readLiveText(symbol.path);
       if (full === undefined) return err('FILE_NOT_FOUND', `Cannot read ${symbol.path}`);
       return ok({ ...sourceWindow(symbol.path, full, symbol.startLine, symbol.endLine), symbol: symbol.qualifiedName });
+    }));
+
+    server.registerTool('get_instruction_pack', {
+      description: 'Load a short procedural guide (python-editing, pytest-testing or rst-docs). Call before writing that kind of change.',
+      inputSchema: { name: z.string().min(1).describe('Pack name: python-editing, pytest-testing or rst-docs') },
+    }, guarded(async (a: { name: string }) => {
+      const packs = await cachedPacks(path.join(__dirname, 'instruction-packs'));
+      const pack = packs.find(p => p.name === a.name);
+      if (!pack) return err('UNKNOWN_PACK', packs.map(p => p.name + ' — ' + p.when).join('\n'));
+      deps.runs.recordContext(options.route?.run, { kind: 'instruction-pack', name: pack.name, version: pack.version });
+      return ok({ name: pack.name, version: pack.version, body: pack.body });
     }));
 
     server.registerTool('assemble_context', {

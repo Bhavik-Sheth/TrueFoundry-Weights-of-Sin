@@ -13,6 +13,7 @@ export type RunEvidence =
   | { kind: 'tool-output'; toolCallId: string; content: unknown }
   | { kind: 'proposal'; proposal: Pick<Proposal, 'key' | 'toolCallId' | 'hunks' | 'status' | 'result'>; bases: Array<{ path: string; hash: string }>; output?: Array<{ path: string; hash: string }> }
   | { kind: 'batch-plan'; plan: BatchPlan }
+  | { kind: 'instruction-pack'; name: string; version: number }
   | { kind: 'hunk-history'; operation: 'undo' | 'redo'; hunkId: string; path: string }
   | { kind: 'check'; source: string; name: string; status: string; proposalKey?: string; hunkIds?: string[]; argv?: string[]; location?: string; startLine?: number; endLine?: number; side?: 'base' | 'candidate'; revision?: string; baseRevision?: string; externalId?: string; sourceUrl?: string; detail?: string; ruleId?: string; fingerprints?: Record<string, string>; startColumn?: number; endColumn?: number }
   | { kind: 'requirement'; requirementId: string; requirementText: string; requirementRevision: number }

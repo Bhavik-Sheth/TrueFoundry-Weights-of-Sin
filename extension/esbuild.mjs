@@ -3,12 +3,12 @@
  *
  * Bundles src/extension.ts to dist/extension.js (platform node, format cjs, target node18,
  * external vscode, sourcemap). Supports --watch. Copies web-tree-sitter's runtime wasm and the
- * python grammar wasm (from the tree-sitter-python npm package) into dist/. Ripgrep is NOT bundled: the extension
+ * python grammar wasm (from the tree-sitter-python npm package) into dist/. Also copies instruction-packs/*.md to dist/instruction-packs/. Ripgrep is NOT bundled: the extension
  * uses VS Code's own rg binary.
  * Depends on: esbuild, package.json scripts. Depended on by: npm run build/watch.
  */
 import { build, context } from 'esbuild';
-import { copyFileSync, mkdirSync, existsSync } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -23,6 +23,13 @@ function copyWasm() {
   copyFileSync(runtime, path.join('dist', path.basename(runtime)));
   const pyDir = path.join(root, 'node_modules', 'tree-sitter-python');
   copyFileSync(path.join(pyDir, 'tree-sitter-python.wasm'), path.join('dist', 'tree-sitter-python.wasm'));
+}
+
+function copyInstructionPacks() {
+  const src = path.join(root, 'instruction-packs');
+  const dest = path.join('dist', 'instruction-packs');
+  mkdirSync(dest, { recursive: true });
+  for (const f of readdirSync(src).filter((n) => n.endsWith('.md'))) copyFileSync(path.join(src, f), path.join(dest, f));
 }
 
 const options = {
@@ -40,6 +47,7 @@ const options = {
 };
 
 copyWasm();
+copyInstructionPacks();
 if (watch) {
   const ctx = await context(options);
   await ctx.watch();
