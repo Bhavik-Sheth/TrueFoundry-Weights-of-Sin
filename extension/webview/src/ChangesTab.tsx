@@ -10,13 +10,16 @@
  */
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { AppliedHunk } from '../../src/types';
+import type { AppliedHunk, WiringGraph } from '../../src/types';
 import { post, subscribe } from './bridge';
+import { WiringMap } from './WiringMap';
 
 let hunks: AppliedHunk[] = [];
+let review: { key: string; wiring: WiringGraph } | undefined;
 const listeners = new Set<() => void>();
 subscribe((m) => {
   if (m.type === 'changes') { hunks = m.hunks; listeners.forEach((l) => l()); }
+  if (m.type === 'review') { review = { key: m.key, wiring: m.wiring }; listeners.forEach((l) => l()); }
 });
 
 const s: Record<string, CSSProperties> = {
@@ -38,14 +41,20 @@ function preview(patch: string): string[] {
 
 export function ChangesTab() {
   const [list, setList] = useState(hunks);
+  const [wiring, setWiring] = useState(review);
   useEffect(() => {
-    const l = () => setList(hunks);
+    const l = () => { setList(hunks); setWiring(review); };
     listeners.add(l);
     l();
     return () => { listeners.delete(l); };
   }, []);
 
-  if (list.length === 0) return <div style={{ ...s.root, ...s.muted }}>No applied changes yet.</div>;
+  // The tab does not know which proposal is pending, so it shows the latest review message's graph.
+  const map = wiring && wiring.wiring.edges.length > 0
+    ? <WiringMap key={wiring.key} graph={wiring.wiring} onOpenHunk={(path, line) => post({ type: 'openSource', path, line })} />
+    : null;
+
+  if (list.length === 0) return <div style={{ ...s.root, ...s.muted }}>{map}No applied changes yet.</div>;
 
   const byRun = new Map<string, AppliedHunk[]>();
   for (const h of list) byRun.set(h.runId, [...(byRun.get(h.runId) ?? []), h]);
@@ -56,6 +65,7 @@ export function ChangesTab() {
 
   return (
     <div style={s.root}>
+      {map}
       {[...byRun.entries()].map(([runId, rhs]) => {
         const byFile = new Map<string, AppliedHunk[]>();
         for (const h of rhs) byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);

@@ -63,8 +63,8 @@ function calls(parser: Parser, path: string, text: string, definitions: Map<stri
   } finally { tree.delete(); }
 }
 
-export async function compareProposalImpact(proposal: Proposal, workspaceSymbols: SymbolEntry[] = []) {
-  const parser = await loadParser();
+export async function compareProposalImpact(proposal: Proposal, workspaceSymbols: SymbolEntry[] = [], wasmDir?: string) {
+  const parser = await loadParser(wasmDir);
   try {
     const files = proposal.files.filter(file => file.path.endsWith('.py'));
     const changed = new Set(files.map(f => f.path));

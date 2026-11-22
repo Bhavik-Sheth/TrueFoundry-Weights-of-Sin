@@ -13,6 +13,8 @@
  * Depended on by: virtually every file (the webview imports types via a relative path).
  */
 
+import type { SummaryFact } from './review/summary';
+
 export type Sha = string; // sha256 hex
 
 export interface Selection {
@@ -225,6 +227,12 @@ export type ToHost =
   | { type: 'register' }
   | { type: 'updateSetting'; key: SettingKey; value: string | number | boolean | string[] };
 
+/** Before/after call and import edges of a proposal (built in review/wiring.ts; defined here so the webview needs no node types). */
+export interface WiringGraph {
+  nodes: Array<{ id: string; label: string; path: string; line?: number }>;
+  edges: Array<{ id: string; from: string; to: string; change: 'added' | 'removed'; kind: 'call' | 'import'; hunkId?: string; hunkLine?: number }>;
+}
+
 export type ToWebview =
   | { type: 'session'; sessionId: string; agent: string; url: string }
   | ({ type: 'runState' } & RunStateMsg)
@@ -234,6 +242,7 @@ export type ToWebview =
   | { type: 'setup'; status: SetupStatus; catalog: CatalogProviderView[]; settings: SettingsView }
   | { type: 'setupResult'; op: string; ok: boolean; message: string; steps?: SetupStep[] }
   | { type: 'showSetup' }
+  | { type: 'review'; key: string; wiring: WiringGraph; summary: SummaryFact[] }
   | { type: 'sessionView'; sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string };
 
 export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';

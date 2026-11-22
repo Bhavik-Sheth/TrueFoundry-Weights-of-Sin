@@ -47,6 +47,7 @@ import { registerIntegrations } from './review/integrations';
 import { matchingHunks, reviewCoordinates } from './review/matching';
 import { rebuildFile, sha256 } from './review/proposal';
 import { compareProposalImpact } from './review/impactGraph';
+import { wiringFor } from './review/wiring';
 import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
 
@@ -128,6 +129,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   if (journal) registerEvidence(ctx, journal, () => review.pending);
   review.onProposal = p => {
     agentBridge?.finish(p);
+    if (p.status === 'reviewing') {
+      wiringFor(p, index.symbols()).then(
+        wiring => post({ type: 'review', key: p.key, wiring, summary: [] }),
+        error => log('Could not build wiring map', String(error)));
+    }
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);
     if (p.status !== 'reviewing' && saved?.proposal.key === p.key && saved.run.id === p.runId) {
       void ctx.workspaceState.update(reviewCheckpointKey, undefined).then(undefined, error => log('Could not clear review checkpoint', String(error)));
