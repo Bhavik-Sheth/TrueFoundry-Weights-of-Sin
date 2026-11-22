@@ -420,6 +420,13 @@ export class RunManager extends EventEmitter {
         await this.resolveApproval(false, 'run_command arguments could not be parsed');
         return;
       }
+      // Asking about a program the runner will refuse anyway only stalls the run; deny it with the reason.
+      const allowlist = this.cfg.commandAllowlist ?? ['python', 'pytest', 'flask'];
+      const prog = argv[0].split(/[\\/]/).pop()!.replace(/\.exe$/i, '').toLowerCase();
+      if (!allowlist.some((a) => a.toLowerCase() === prog)) {
+        await this.resolveApproval(false, `COMMAND_NOT_ALLOWED: ${argv[0]} is not in the allowlist (${allowlist.join(', ')})`);
+        return;
+      }
       const id = p.toolCallId;
       let answered = false; // a duplicate answer for the same toolCallId is ignored
       const answer = async (allow: boolean) => {

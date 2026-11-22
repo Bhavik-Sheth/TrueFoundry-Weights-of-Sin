@@ -269,7 +269,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     record: journal?.record, flushEvidence: journal ? () => journal.flush() : undefined,
     tf, review, cfg, workspaceUri: rootId,
     askCommandApproval: async (argv) =>
-      (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, 'Allow', 'Deny')) === 'Allow',
+      (await vscode.window.showInformationMessage(`Agent wants to run: ${argv.join(' ')}`, { modal: true }, 'Allow')) === 'Allow',
   });
   let indexedRoot = rootId();
   ctx.subscriptions.push(vscode.commands.registerCommand('contexo.selectWorkspaceRoot', async (uri?: vscode.Uri) => {

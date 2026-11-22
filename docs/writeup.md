@@ -4,25 +4,27 @@
 
 ## 2. Starting point
 
-A developer wants an agent to make two different kinds of changes. First, they select a Flask helper and ask for a precise behavior change inside the function. The selection gives the agent a starting point and gives the reviewer a boundary to check. Then they ask for a CLI command that displays configuration and masks sensitive values. The agent has to find where commands are registered, how they are tested, and where users learn to use them.
+A developer selects a Flask helper and asks for a precise behavior change, which gives the agent a starting point and the reviewer a boundary. Then they ask for a CLI command that displays configuration and masks sensitive values. The agent has to find where commands are registered, tested and documented.
 
-Both tasks end in the source editor. The developer inspects the proposed hunks, chooses what to apply, and verifies what landed. We built this workflow on Microsoft’s MIT-licensed VS Code webview sample. It supplied the sidebar, content security policy and asset loading. Contexo adds a TrueForge-backed agent, repository context and native review. [Upstream record](../UPSTREAMS.md)
+The developer then reviews hunks in the editor, applies some and verifies what landed. We built on Microsoft’s MIT-licensed VS Code webview sample for the sidebar, content security policy and asset loading. Contexo adds a TrueForge-backed agent, repository context and native review. [Upstream record](../UPSTREAMS.md)
 
 ## 3. Architecture on TrueForge
 
-![Contexo architecture. VS Code and the CLI start scoped TrueForge sessions. TrueForge calls the configured model and dispatches tools over authenticated loopback MCP. Contexo owns repository context, hunk review, the working tree, candidate checks and evidence.](contexo-architecture.svg)
+![Contexo architecture. VS Code and the CLI start scoped TrueForge sessions. TrueForge calls the model and dispatches tools over authenticated loopback MCP. Contexo owns context, review, the working tree, checks and evidence.](contexo-architecture.svg)
 
-TrueForge owns inference, conversation state and tool approvals. Contexo supplies workspace-scoped reads and proposals over authenticated MCP. The editor verifies the file revision before staging a diff and again before saving accepted hunks. Command execution has its own approval. An eligible primary-model failure can start a fresh fallback session before approval. The journal records the context delivered, review decisions and checks. [Architecture and runtime details](../README.md#architecture)
+TrueForge owns inference, conversation state and tool approvals. Contexo supplies workspace-scoped reads and proposals over authenticated MCP, and verifies the file revision before staging a diff and before saving accepted hunks. Commands need their own approval. An eligible primary failure starts a fresh fallback session. The journal records delivered context, decisions and checks.
+
+An edit deleting a blamed fix is denied once with `HISTORY_CONCERN` and then needs per-hunk confirmation. Stale reviews can be regenerated. Changes shows a grounded summary and wiring map, and Task tracks each requirement to checked. Undo previews a three-way merge, Undo Run reverts a run, and startup recovers an interrupted apply. [Architecture and runtime details](../README.md#architecture)
 
 ## 4. How context is selected
 
-**First turn.** An inline edit starts with the selected code, its path and line range, and the full-buffer hash. A repository-wide turn starts with the goal. Contexo indexes Python symbols, imports and calls with Tree-sitter, then maps documentation by heading. For Go and Rust, live search supplies source previews and coordinates for exact reads.
+**First turn.** An inline edit starts with the selected code, its path and line range, and the full-buffer hash. A repository-wide turn starts with the goal. Contexo indexes Python symbols, imports and calls with Tree-sitter in a worker thread, then maps documentation by heading. For Go and Rust, live search supplies source previews and coordinates for exact reads.
 
-**What enters the model.** Explicit selections, paths and symbol anchors take priority. Plain keywords inform ranking. Contexo fuses BM25, symbol matching, live search and local sparse TF-IDF vectors. One-hop expansion links a leading implementation to registration sites, callers, tests and docs. The packer protects these roles, removes overlapping excerpts, and trims long symbols around signatures or matching lines. It budgets 8,000 estimated source tokens by default and separately caps the escaped response at 22,000 characters. The delivered packet records ranges, reasons and omissions.
+**What enters the model.** Explicit selections, paths, `@` mentions and symbol anchors take priority. Plain keywords inform ranking. Contexo fuses BM25, symbol matching, live search and local sparse TF-IDF vectors. One-hop expansion links a leading implementation to registration sites, callers, tests and docs. The packer protects these roles, removes overlapping excerpts, and trims long symbols around signatures or matching lines. It budgets 8,000 estimated source tokens by default and separately caps the escaped response at 22,000 characters. The delivered packet records ranges, reasons and omissions.
 
 **What a file contributes.** The file map explains why a file matters and what it contains. It shows the current buffer or checkout against Git HEAD, the latest file-changing commit subject and short before-and-after samples. The agent can request exact historical lines or read the current range. A range proposal then sends the path, coordinates, hash and replacement. Contexo reconstructs the diff against the live file.
 
-**What carries across steps.** TrueForge compacts the conversation and loads deferred tools on demand. Contexo’s journal preserves the goal, delivered source pointers, review decisions and observed checks. A checkpoint pages decisions in groups of 12. The agent can reopen the affected source at its current revision. Ranking data is reused per index snapshot. Git history is cached by immutable revision.
+**What carries across steps.** TrueForge compacts the conversation and loads deferred tools on demand, including `read_symbol`, `why_exists` and versioned instruction packs. Contexo’s journal preserves the goal, delivered source pointers, review decisions and observed checks. A checkpoint pages decisions in groups of 12. The agent can reopen the affected source at its current revision. Ranking data is reused per index snapshot. Git history is cached by immutable revision.
 
 **From intent to evidence.** In the HTTPX run, the goal was to reject invalid command-line timeouts and preserve Python API behavior. The packet brought together the flag declaration, CLI tests and timeout guide. Mercury received 19 excerpts in 21,777 serialized characters, read all three target files, and scoped six replacements to source it had read. After review and feedback, it reopened the test and guide on their new revisions and issued the verification command.
 
@@ -42,15 +44,15 @@ Mercury 3 is the hosted default. Switch the primary and fallback in Contexo Sett
 | --- | --- | --- |
 | A1 · Inline edit | 00:07–00:12, A record | Reviewed inline patch. FLASK_DEBUG=off prints False. |
 | A2 · Agent mode | 00:12–00:21, B record | Three files discovered. All 60 CLI tests passed. |
-| A3 · Streaming / Stop | Editor and CLI logs | Streamed events and cancelled command approval. |
-| B1 · Context selection | B record | Source, tests, guide and selection reasons recorded. |
-| B2 · Diff safety | Packaged host test | Mixed review, undo, redo and stale-base checks passed. |
+| A3 · Streaming / Stop | Editor and CLI logs | Streamed events, cancelled approval, 4.1 ms Stop latency. |
+| B1 · Context selection | B record, Flask host | Source, tests, guide and reasons. `@` mention ranked first. |
+| B2 · Diff safety | Packaged and Flask host | Mixed review, stale-base regenerate, history guard, merge undo, Undo Run and crash recovery passed. |
 | B3 · Resilience | 00:27–00:34, C record | Clear endpoint error and clean Git. Fallback fixture passed. |
 | B4 · TrueForge | 00:21–00:27, B record | MCP tools, deferred discovery and write approval recorded. |
 | C1 · Video | 00:00–00:34 | Evidence reel follows A, B and C in order. |
 | C2 · Write-up | This PDF | Three pages with the eight required headings. |
 
-[Flask verification and evidence reel](verification/2026-11-22/SUBMISSION.md)
+[Flask verification and evidence reel](verification/2026-11-22/SUBMISSION.md) · [Review and recovery checks](verification/2026-11-22/PRD_HANDOFF.md)
 
 ![Independent HTTPX behavior checks passed. Mercury 3 scored 15 of 15 after repair. Native Bonsai and the clean baseline each scored 6 of 15.](architecture/httpx-model-results.svg)
 
@@ -64,4 +66,6 @@ Claude Code and OpenAI Codex assisted development. The implementation uses the T
 
 Mercury’s first HTTPX patch needed feedback to repair the test file and Markdown fence. Native Bonsai emitted a tool request as text and made no source changes. An experimental adapter delivered all three relevant files after the retrieval fix, but the model exhausted its 512-token output allowance before a read or write. The upstream suite excluded one pre-existing Trio failure on both revisions.
 
-The evidence reel uses excerpts. The full submission requires continuous prompt-to-diff footage and public links. With another month, we would validate an actual 100-file migration through forced compaction, run interrupted-apply and remote-host tests, and rehearse on a second model. Local two-root routing is covered by the packaged fixture. [Remaining implementation and verification](REMAINING_WORK_PLAN.md)
+Review features were checked on Flask with replayed patches and a scripted model, not live Mercury. Known gaps include history-match precision, single-file regeneration in multi-file proposals and new-file Undo Run.
+
+The evidence reel uses excerpts. The full submission requires continuous prompt-to-diff footage and public links. With another month, we would validate an actual 100-file migration through forced compaction, run remote-host tests, and rehearse on a second model. Local two-root routing is covered by the packaged fixture. [Remaining implementation and verification](REMAINING_WORK_PLAN.md)

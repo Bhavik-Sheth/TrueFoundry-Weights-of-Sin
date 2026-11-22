@@ -72,10 +72,25 @@ export function TrueForgeStep({ status }: { status: SetupStatus }) {
   );
 }
 
-const OPENROUTER = 'openrouter';
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-// Free OpenRouter chat models that list tool calling (checked 20 Nov 2026); editable before saving.
-const OPENROUTER_DEFAULT_MODELS = 'google/gemma-4-31b-it:free, nvidia/nemotron-3-ultra-550b-a55b:free';
+// OpenAI-compatible providers not in TrueForge's catalog; saved as TrueForge "custom" providers.
+// Default model ids are tool-calling chat models and stay editable before saving.
+const PRESETS: Record<string, { label: string; baseUrl: string; models: string; hint: string }> = {
+  openrouter: {
+    label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1',
+    models: 'google/gemma-4-31b-it:free, nvidia/nemotron-3-ultra-550b-a55b:free',
+    hint: 'Use the ids from openrouter.ai/models.',
+  },
+  nim: {
+    label: 'NVIDIA NIM', baseUrl: 'https://integrate.api.nvidia.com/v1',
+    models: 'meta/llama-3.3-70b-instruct',
+    hint: 'Use the ids from build.nvidia.com (key starts with nvapi-).',
+  },
+  groq: {
+    label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1',
+    models: 'llama-3.3-70b-versatile, openai/gpt-oss-120b',
+    hint: 'Use the ids from console.groq.com/docs/models.',
+  },
+};
 
 export function ProviderStep({ data }: { data: SetupData }) {
   const status = data.status!;
@@ -83,30 +98,29 @@ export function ProviderStep({ data }: { data: SetupData }) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
-  const [modelIds, setModelIds] = useState(OPENROUTER_DEFAULT_MODELS);
+  const [modelIds, setModelIds] = useState(PRESETS.openrouter.models);
   const chosen = type || inception.name;
-  // OpenRouter is not in TrueForge's catalog; it is OpenAI-compatible, so it is saved as a
-  // TrueForge "custom" provider. TrueForge (not Contexo) calls this URL.
+  // TrueForge (not Contexo) calls the preset's URL.
   const isInception = chosen === inception.name;
-  const openRouter = chosen === OPENROUTER;
-  const custom = !openRouter && (data.catalog.find((c) => c.type === chosen)?.custom ?? false);
+  const preset = PRESETS[chosen];
+  const custom = !preset && (data.catalog.find((c) => c.type === chosen)?.custom ?? false);
   const ids = modelIds.split(',').map((s) => s.trim()).filter(Boolean);
   // A provider TrueForge already has keeps its stored key when the key field is left empty.
-  const alreadySaved = status.providersConfigured.includes(openRouter ? OPENROUTER : custom ? name : chosen);
+  const alreadySaved = status.providersConfigured.includes(preset ? chosen : custom ? name : chosen);
   const keyOk = !!key || alreadySaved;
   const canSave =
     status.trueforge === 'running' &&
     !!chosen &&
-    (openRouter ? keyOk && ids.length > 0 : custom ? !!name && !!baseUrl && ids.length > 0 : keyOk);
+    (preset ? keyOk && ids.length > 0 : custom ? !!name && !!baseUrl && ids.length > 0 : keyOk);
   const save = () => {
     post({
       type: 'saveProvider',
-      providerType: isInception || openRouter ? 'custom' : chosen,
+      providerType: isInception || preset ? 'custom' : chosen,
       key,
       ...(isInception
         ? { name: inception.name, baseUrl: inception.baseUrl, modelIds: [inception.model] }
-        : openRouter
-        ? { name: 'openrouter', baseUrl: OPENROUTER_BASE_URL, modelIds: ids }
+        : preset
+        ? { name: chosen, baseUrl: preset.baseUrl, modelIds: ids }
         : custom
           ? { name, baseUrl, modelIds: ids }
           : {}),
@@ -118,26 +132,31 @@ export function ProviderStep({ data }: { data: SetupData }) {
       <h3>Add a model provider</h3>
       <p>Your key is sent once to your local TrueForge, which stores it. Contexo never keeps it.</p>
       <label htmlFor="prov-type">Provider</label>
-      <select id="prov-type" value={chosen} onChange={(e) => setType(e.target.value)}>
+      <select id="prov-type" value={chosen} onChange={(e) => {
+        setType(e.target.value);
+        if (PRESETS[e.target.value]) setModelIds(PRESETS[e.target.value].models);
+      }}>
         <option value={inception.name}>Inception · Mercury 3</option>
         {data.catalog.filter(c => c.type !== inception.name).map((c) => (
           <option key={c.type} value={c.type}>
             {c.type}
           </option>
         ))}
-        <option value={OPENROUTER}>openrouter</option>
+        {Object.entries(PRESETS).map(([id, p]) => (
+          <option key={id} value={id}>{p.label}</option>
+        ))}
       </select>
       {isInception && <p>Mercury 3 · {inception.baseUrl}</p>}
-      {openRouter && (
+      {preset && (
         <>
-          <label htmlFor="prov-or-models">OpenRouter model ids (comma separated)</label>
+          <label htmlFor="prov-or-models">{preset.label} model ids (comma separated)</label>
           <input
             id="prov-or-models"
             placeholder="e.g. anthropic/claude-sonnet-4.5, openai/gpt-4o"
             value={modelIds}
             onChange={(e) => setModelIds(e.target.value)}
           />
-          <p>Use the ids from openrouter.ai/models. Saved in TrueForge as a custom OpenAI-compatible provider.</p>
+          <p>{preset.hint} Saved in TrueForge as a custom OpenAI-compatible provider.</p>
         </>
       )}
       {custom && (

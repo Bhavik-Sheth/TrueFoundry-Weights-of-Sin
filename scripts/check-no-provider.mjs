@@ -12,7 +12,7 @@ const markers = [
   'api.anthropic.com',
   'generativelanguage.googleapis.com',
   'api.mistral.ai',
-  'api.groq.com',
+  // api.groq.com is allowed: the Setup view hands it to TrueForge as a custom-provider URL (TrueForge calls it, not Contexo).
   '@anthropic-ai/sdk',
   /require\(["']openai["']\)/,
   /from ["']openai["']/,

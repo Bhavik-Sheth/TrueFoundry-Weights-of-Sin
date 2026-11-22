@@ -180,6 +180,16 @@ describe('RunManager', () => {
       expect(tf.approveCalls[0]).toMatchObject({ allow: false, reason: 'user denied command' });
     });
 
+    it('denies a command outside the allowlist without asking, and says why', async () => {
+      const ask = vi.fn(async () => true);
+      const gitTurn = [created, call('m1', 'run_command', { input: { argv: ['git', 'show', 'HEAD:a.py'] } }), approval('m1'), paused];
+      const { rm, tf } = setup(gitTurn, [[done]], undefined, { commandAllowlist: ['python', 'pytest', 'flask'] }, ask);
+      await rm.start('agent', 'run');
+      expect(ask).not.toHaveBeenCalled();
+      expect(tf.approveCalls[0]).toMatchObject({ allow: false });
+      expect(tf.approveCalls[0].reason).toContain('COMMAND_NOT_ALLOWED: git');
+    });
+
     it('denies by default without a handler, and sends one approval only', async () => {
       const { rm, tf } = setup(turn, [[done]]);
       await rm.start('agent', 'run');
