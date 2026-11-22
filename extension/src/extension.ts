@@ -105,7 +105,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     return reduceRequirements(readReplay(await journal.read(runId)).records);
   };
   const pushRequirements = (runId: string) => {
-    void readRequirements(runId).then(items => post({ type: 'requirements', runId, items }), error => log('Could not read requirements', String(error)));
+    void readRequirements(runId).then(items => {
+      const pending = review.pending?.runId === runId ? review.pending : undefined;
+      post({ type: 'requirements', runId, items, pendingHunks: pending?.hunks.map(h => ({ id: h.id, path: h.path, line: h.newStart })) });
+    }, error => log('Could not read requirements', String(error)));
   };
   if (journal) {
     journal.onRecord = (runId, evidence) => {

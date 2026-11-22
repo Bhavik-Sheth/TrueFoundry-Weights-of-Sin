@@ -247,7 +247,7 @@ export type ToWebview =
   | { type: 'showSetup' }
   | { type: 'review'; key: string; wiring: WiringGraph; summary: SummaryFact[] }
   | { type: 'reviewClosed'; key: string }
-  | { type: 'requirements'; runId: string; items: RequirementView[] }
+  | { type: 'requirements'; runId: string; items: RequirementView[]; pendingHunks?: Array<{ id: string; path: string; line: number }> }
   | { type: 'sessionView'; sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string };
 
 export type SettingKey = 'excerptBudget' | 'firstEventTimeoutMs' | 'commandAllowlist' | 'autoStartTrueForge' | 'devMode';

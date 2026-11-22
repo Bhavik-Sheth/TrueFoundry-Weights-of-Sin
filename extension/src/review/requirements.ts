@@ -22,7 +22,7 @@ export interface RequirementView {
   text: string;
   revision: number;
   state: 'open' | 'proposed' | 'accepted' | 'applied' | 'checked';
-  links: Array<{ hunkId: string; source: 'agent' | 'human' }>;
+  links: Array<{ hunkId: string; source: 'agent' | 'human'; path?: string; line?: number }>;
 }
 
 const CLAUSE = /,\s+(?:and\s+)?(?=(?:be|must|should|masking|ensure|update|add|keep|make)\b)/i;
@@ -61,6 +61,7 @@ export function reduceRequirements(records: JournalRecord[]): RequirementView[] 
   const links = new Map<string, Map<string, { source: 'agent' | 'human'; linked: boolean }>>();
   const decision = new Map<string, string>();
   const applied = new Map<string, number>();
+  const where = new Map<string, { path: string; line: number }>();
   for (const { evidence, sequence } of records) {
     if (evidence.kind === 'requirement-link') {
       const source = evidence.source === 'agent' ? 'agent' : 'human';
@@ -68,7 +69,10 @@ export function reduceRequirements(records: JournalRecord[]): RequirementView[] 
       for (const hunkId of evidence.hunkIds as string[]) forRequirement.set(hunkId, { source, linked: evidence.linked !== false });
       links.set(evidence.requirementId, forRequirement);
     } else if (evidence.kind === 'proposal') {
-      for (const hunk of evidence.proposal.hunks as Array<{ id: string; decision: string }>) decision.set(hunk.id, hunk.decision);
+      for (const hunk of evidence.proposal.hunks as Array<{ id: string; decision: string; path: string; newStart: number }>) {
+        decision.set(hunk.id, hunk.decision);
+        where.set(hunk.id, { path: hunk.path, line: hunk.newStart });
+      }
       if (evidence.proposal.status === 'applied') {
         for (const id of (evidence.proposal.result?.applied ?? []) as string[]) if (!applied.has(id)) applied.set(id, sequence);
       }
@@ -87,7 +91,7 @@ export function reduceRequirements(records: JournalRecord[]): RequirementView[] 
     }
     return {
       id: requirement.id, label: 'R' + (index + 1), text: requirement.text, revision: requirement.revision, state,
-      links: linked.map(([hunkId, link]) => ({ hunkId, source: link.source })),
+      links: linked.map(([hunkId, link]) => ({ hunkId, source: link.source, ...where.get(hunkId) })),
     };
   });
 }

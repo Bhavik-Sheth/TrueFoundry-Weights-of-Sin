@@ -53,6 +53,11 @@ describe('reduceRequirements', () => {
     expect(reduceRequirements([requirement, on])[0].links).toEqual([{ hunkId: 'h1', source: 'human' }]);
     expect(reduceRequirements([requirement, on, link(3, { source: 'human', linked: false })])[0]).toMatchObject({ state: 'open', links: [] });
   });
+  it('locates linked hunks from proposal records', () => {
+    const h = { ...hunk('pending'), path: 'src/a.py', newStart: 12 };
+    const p = rec({ kind: 'proposal', proposal: { key: 'k', toolCallId: 't', hunks: [h], status: 'reviewing' }, bases: [] }, 3);
+    expect(reduceRequirements([requirement, link(2), p])[0].links).toEqual([{ hunkId: 'h1', source: 'agent', path: 'src/a.py', line: 12 }]);
+  });
   it('latest revision wins', () => {
     const edited = rec({ kind: 'requirement', requirementId: 'q1', requirementText: 'Do it better', requirementRevision: 2 }, 2);
     expect(reduceRequirements([requirement, edited])[0]).toMatchObject({ text: 'Do it better', revision: 2 });
