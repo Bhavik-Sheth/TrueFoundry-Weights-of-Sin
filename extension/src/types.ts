@@ -219,6 +219,7 @@ export type ToHost =
   | { type: 'openSource'; path: string; line: number }
   | { type: 'linkRequirement'; requirementId: string; hunkId: string; linked: boolean }
   | { type: 'undo'; hunkId: string }
+  | { type: 'undoRun'; runId: string }
   | { type: 'redo'; hunkId: string }
   | { type: 'setupRefresh' }
   | { type: 'startTrueForge' }

@@ -24,6 +24,21 @@ import type { AppliedHunk, Hunk, ToWebview } from '../types';
 import { log } from '../log';
 import { sha256 } from './proposal';
 import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
+import { threeWay } from './threeWay';
+
+/** Text of one file before and after a review apply, kept so undo can three-way merge later. */
+export interface ApplySnapshot {
+  applyId: string;
+  runId: string;
+  path: string;
+  before: string;
+  after: string;
+  hunkIds: string[];
+  at: number;
+}
+
+const SNAPSHOT_KEY = 'undo.snapshots.v1';
+const SNAPSHOT_LIMIT = 20;
 
 function resolveUri(rel: string): vscode.Uri {
   const root = workspaceRoot()?.uri;
@@ -46,6 +61,13 @@ export function applyHunkPatch(current: string, patch: string): string | null {
 /** Pure: text after undoing the hunk (null if the file changed at this hunk). */
 export function undoPatchOn(current: string, patch: string): string | null {
   return applyHunkPatch(current, reverseHunkPatch(patch));
+}
+
+/** Pure: the snapshot's `after` text with only this hunk reversed (the `other` side of the merge). */
+export function undoHunkText(snapshot: ApplySnapshot, patch: string): string {
+  const r = undoPatchOn(snapshot.after, patch);
+  if (r === null) throw new Error('The hunk does not apply to its apply snapshot.');
+  return r;
 }
 
 function firstChanged(patch: string): string {
@@ -74,9 +96,11 @@ export async function pickHunk(stack: UndoStack, mode: 'undo' | 'redo'): Promise
 
 export class UndoStack {
   private history: AppliedHunk[] = [];
+  private snapshots: ApplySnapshot[] = [];
 
   constructor(private post: (m: ToWebview) => void = () => {}, private storage?: vscode.Memento) {
     this.history = storage?.get<AppliedHunk[]>('review.history.v1', []) ?? [];
+    this.snapshots = storage?.get<ApplySnapshot[]>(SNAPSHOT_KEY, []) ?? [];
   }
 
   private async saveHistory(): Promise<void> {
@@ -84,10 +108,11 @@ export class UndoStack {
     await this.storage?.update('review.history.v1', this.history);
   }
 
-  async applyFiles(m: Map<string, string>, expected?: ReadonlyMap<string, string>): Promise<void> {
+  async applyFiles(m: Map<string, string>, expected?: ReadonlyMap<string, string>,
+    meta?: { runId: string; hunkIds: ReadonlyMap<string, string[]> }): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
     if (!m.size) return;
-    const docs: Array<{ uri: vscode.Uri; text: string; document?: vscode.TextDocument; version?: number }> = [];
+    const docs: Array<{ rel: string; uri: vscode.Uri; text: string; document?: vscode.TextDocument; version?: number; before: string }> = [];
     const root = workspaceRoot()?.uri;
     for (const [rel, text] of m) {
       const uri = resolveUri(rel);
@@ -109,7 +134,7 @@ export class UndoStack {
         edit.createFile(uri, { overwrite: false, ignoreIfExists: false });
         edit.insert(uri, new vscode.Position(0, 0), text);
       }
-      docs.push({ uri, text, document: existing, version: existing?.version });
+      docs.push({ rel, uri, text, document: existing, version: existing?.version, before: existing?.getText() ?? '' });
     }
     if (workspaceRoot()?.uri.toString() !== root?.toString()) {
       throw new Error('The workspace changed before apply.');
@@ -121,13 +146,23 @@ export class UndoStack {
     }
     const ok = await vscode.workspace.applyEdit(edit);
     if (!ok) throw new Error('workspace.applyEdit returned false');
-    for (const { uri, text } of docs) {
+    const saved: ApplySnapshot[] = [];
+    for (const { rel, uri, text, before } of docs) {
       const doc = await vscode.workspace.openTextDocument(uri);
       if (!await doc.save()) throw new Error('Could not save ' + uri.fsPath);
       const disk = new TextDecoder('utf-8', { fatal: true }).decode(await vscode.workspace.fs.readFile(uri));
       if (doc.getText() !== text || disk !== text) {
         throw new Error('The saved file differs from the reviewed text: ' + uri.path);
       }
+      const ids = meta?.hunkIds.get(rel);
+      if (meta && ids?.length) {
+        saved.push({ applyId: `${meta.runId}:${Date.now()}:${saved.length}:${rel}`, runId: meta.runId, path: rel,
+          before, after: doc.getText(), hunkIds: [...ids], at: Date.now() });
+      }
+    }
+    if (saved.length) {
+      this.snapshots = [...this.snapshots, ...saved].slice(-SNAPSHOT_LIMIT);
+      await this.storage?.update(SNAPSHOT_KEY, this.snapshots);
     }
   }
 
@@ -165,6 +200,7 @@ export class UndoStack {
       log('undo read failed', rec.path, String(e));
       next = null;
     }
+    if (next === null && undo) return this.mergeUndo(rec);
     if (next === null) {
       void vscode.window.showWarningMessage(`Cannot ${undo ? 'undo' : 'redo'} automatically: ${rec.path} changed at this hunk`);
       return false;
@@ -172,6 +208,88 @@ export class UndoStack {
     if (workspaceRoot()?.uri.toString() !== root) return false;
     await this.applyFiles(new Map([[rec.path, next]]), new Map([[rec.path, currentHash]]));
     rec.undone = undo;
+    await this.saveHistory();
+    return true;
+  }
+
+  private snapshotFor(rec: AppliedHunk): ApplySnapshot | undefined {
+    return [...this.snapshots].reverse().find((s) => s.path === rec.path && s.hunkIds.includes(rec.hunkId));
+  }
+
+  private async preview(rel: string, merged: string, title: string): Promise<void> {
+    const doc = await vscode.workspace.openTextDocument({ content: merged });
+    await vscode.commands.executeCommand('vscode.diff', resolveUri(rel), doc.uri, title);
+  }
+
+  /** Fallback when the direct reverse patch no longer applies: three-way merge against the apply snapshot. */
+  private async mergeUndo(rec: AppliedHunk): Promise<boolean> {
+    const snap = this.snapshotFor(rec);
+    if (!snap) {
+      void vscode.window.showWarningMessage('Cannot undo automatically: no snapshot for this apply (older than the last 20 applies).');
+      return false;
+    }
+    const root = workspaceRoot()?.uri.toString();
+    let current: string;
+    let merged: { clean: boolean; text: string };
+    try {
+      current = await this.readCurrent(rec.path);
+      merged = await threeWay(current, snap.after, undoHunkText(snap, rec.patch));
+    } catch (e) {
+      log('undo merge failed', rec.path, String(e));
+      void vscode.window.showWarningMessage(`Cannot undo automatically: ${rec.path} could not be merged.`);
+      return false;
+    }
+    await this.preview(rec.path, merged.text, 'Undo hunk (merged with your edits)');
+    if (!merged.clean) {
+      void vscode.window.showWarningMessage(`Undo conflicts with later edits in ${rec.path}; nothing was written.`);
+      return false;
+    }
+    const pick = await vscode.window.showWarningMessage('Apply undo?', { modal: true }, 'Apply');
+    if (pick !== 'Apply' || workspaceRoot()?.uri.toString() !== root) return false;
+    await this.applyFiles(new Map([[rec.path, merged.text]]), new Map([[rec.path, sha256(current)]]));
+    rec.undone = true;
+    await this.saveHistory();
+    return true;
+  }
+
+  /** Revert every live hunk of a run by folding its apply snapshots (newest first) into the current text. */
+  async undoRun(runId: string): Promise<boolean> {
+    const live = this.history.filter((h) => h.runId === runId && !h.undone && this.inWorkspace(h));
+    if (live.length === 0) return false;
+    const snaps = this.snapshots.filter((s) => s.runId === runId && live.some((h) => h.path === s.path && s.hunkIds.includes(h.hunkId)));
+    if (snaps.length === 0) {
+      void vscode.window.showWarningMessage('Cannot undo automatically: no snapshot for this apply (older than the last 20 applies).');
+      return false;
+    }
+    const root = workspaceRoot()?.uri.toString();
+    const out = new Map<string, string>();
+    const hashes = new Map<string, string>();
+    try {
+      for (const path of new Set(snaps.map((s) => s.path))) {
+        const original = await this.readCurrent(path);
+        let current = original;
+        for (const snap of snaps.filter((s) => s.path === path).sort((a, b) => b.at - a.at)) {
+          const r = await threeWay(current, snap.after, snap.before);
+          if (!r.clean) {
+            await this.preview(path, r.text, 'Undo run (conflicts)');
+            void vscode.window.showWarningMessage(`Undo conflicts with later edits in ${path}; nothing was written.`);
+            return false;
+          }
+          current = r.text;
+        }
+        out.set(path, current);
+        hashes.set(path, sha256(original));
+      }
+    } catch (e) {
+      log('undo run failed', runId, String(e));
+      void vscode.window.showWarningMessage('Cannot undo the run automatically: a merge failed.');
+      return false;
+    }
+    for (const [path, text] of out) await this.preview(path, text, 'Undo run (merged with your edits)');
+    const pick = await vscode.window.showWarningMessage('Apply undo?', { modal: true }, 'Apply');
+    if (pick !== 'Apply' || workspaceRoot()?.uri.toString() !== root) return false;
+    await this.applyFiles(out, hashes);
+    for (const h of live) if (out.has(h.path)) h.undone = true;
     await this.saveHistory();
     return true;
   }

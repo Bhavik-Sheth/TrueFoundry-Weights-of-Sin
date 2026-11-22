@@ -443,6 +443,9 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         case 'undo':
           void vscode.commands.executeCommand('contexo.undoHunk', m.hunkId);
           break;
+        case 'undoRun':
+          void review.undo.undoRun(m.runId);
+          break;
         case 'redo':
           void vscode.commands.executeCommand('contexo.redoHunk', m.hunkId);
           break;

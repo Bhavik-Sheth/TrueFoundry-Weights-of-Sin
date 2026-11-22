@@ -444,7 +444,9 @@ export class ReviewEngine {
         return;
       }
       if (workspaceRoot()?.uri.toString() !== root.toString()) throw new Error('The workspace changed before apply.');
-      await this.undo.applyFiles(out, new Map(p.files.map(file => [file.path, file.baseHash])));
+      const hunkIds = new Map<string, string[]>();
+      for (const h of p.hunks) if (h.decision === 'accepted') hunkIds.set(h.path, [...(hunkIds.get(h.path) ?? []), h.id]);
+      await this.undo.applyFiles(out, new Map(p.files.map(file => [file.path, file.baseHash])), { runId: run.id, hunkIds });
       await this.undo.recordApplied(run.id, p.hunks.filter((h) => h.decision === 'accepted'));
       this.finish(p, 'applied', computeResult(p.hunks));
       await this.flushEvidence?.();

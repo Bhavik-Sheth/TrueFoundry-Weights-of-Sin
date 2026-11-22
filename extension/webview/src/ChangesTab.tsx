@@ -72,9 +72,6 @@ export function ChangesTab() {
   const byRun = new Map<string, AppliedHunk[]>();
   for (const h of list) byRun.set(h.runId, [...(byRun.get(h.runId) ?? []), h]);
 
-  const undoRun = (hs: AppliedHunk[]) => {
-    for (const h of [...hs].reverse()) if (!h.undone) post({ type: 'undo', hunkId: h.hunkId });
-  };
 
   return (
     <div style={s.root}>
@@ -87,7 +84,7 @@ export function ChangesTab() {
           <div key={runId}>
             <div style={s.row}>
               <strong>Run {runId.slice(0, 8)}</strong>
-              <button style={s.btn} disabled={rhs.every((h) => h.undone)} onClick={() => undoRun(rhs)}>Undo run</button>
+              <button style={s.btn} disabled={rhs.every((h) => h.undone)} onClick={() => post({ type: 'undoRun', runId })}>Undo run</button>
             </div>
             {[...byFile.entries()].map(([path, hs]) => (
               <div key={path}>
