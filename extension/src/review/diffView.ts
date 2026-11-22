@@ -37,7 +37,7 @@ import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 import { UndoStack, pickHunk } from './applyUndo';
 import { addedLines, scopeGuard, symbolCheck } from './guards';
 import { getConfig } from '../config';
-import { explainRange, historyGate, needsHistoryCheck } from '../history/historyGuard';
+import { blockedByHistory, explainRange, historyGate, needsHistoryCheck, partitionAcceptAll } from '../history/historyGuard';
 import type { WhyExists } from '../history/historyGuard';
 import {
   acceptedCount, buildHunks, computeResult, once, proposalKey, rebuildFile, setAllDecisions,
@@ -293,7 +293,7 @@ export class ReviewEngine {
     const proposal = this.pending;
     if (!proposal) return;
     const hunk = proposal.hunks.find(h => h.id === hunkId);
-    if (d === 'accepted' && hunk?.historyConcern && !hunk.historyConcern.read) {
+    if (d === 'accepted' && hunk && blockedByHistory(hunk)) {
       const choice = await vscode.window.showWarningMessage(
         'This hunk removes code with recorded history. Open "Why does this exist?" first?',
         { modal: true }, 'Open history', 'Accept anyway');
@@ -324,18 +324,24 @@ export class ReviewEngine {
     out.push('', '## PRs', '', w?.prs.length ? w.prs.map(n => `#${n}`).join(', ') : 'none');
     out.push('', '## Tests', '', w?.tests.length ? w.tests.map(t => `- ${t}`).join(NL) : 'none');
     out.push('', '## Agent acknowledgement', '', flag.acknowledgement ?? 'none');
-    flag.read = true;
     const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: out.join(NL) });
     await vscode.window.showTextDocument(doc, { preview: true });
+    flag.read = true;
   }
 
   async acceptAll(key: Sha): Promise<void> {
     const proposal = this.pending;
     if (proposal?.key !== key) return;
+    const { accept, held } = partitionAcceptAll(proposal.hunks);
     await this.updateDecisions(proposal, hunks => {
-      setAllDecisions(hunks, 'accepted');
+      const ids = new Set(accept.map(h => h.id));
+      for (const h of hunks) if (ids.has(h.id)) h.decision = 'accepted';
       return true;
     });
+    if (held.length > 0) {
+      void vscode.window.showInformationMessage(
+        `${held.length} hunk(s) remove code with recorded history and were left pending. Open "Why does this exist?" on each, then accept them individually.`);
+    }
   }
 
   private applying = false;

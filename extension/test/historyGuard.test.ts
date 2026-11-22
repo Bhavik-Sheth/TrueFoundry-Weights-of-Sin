@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { capWhyExists, detectConcern, explainRange, historyGate, needsHistoryCheck, parseBlamePorcelain } from '../src/history/historyGuard';
+import { capWhyExists, detectConcern, explainRange, historyGate, needsHistoryCheck, partitionAcceptAll, parseBlamePorcelain } from '../src/history/historyGuard';
 import type { Hunk } from '../src/types';
 import type { WhyExists } from '../src/history/historyGuard';
 
@@ -123,5 +123,15 @@ describe('historyGate', () => {
     const r = historyGate({ runId: 'r', hunks: [h1], explains: new Map([['h1', w(false)]]), acknowledged: undefined, denied: new Set() });
     expect(r.deny).toBeUndefined();
     expect(r.flags.size).toBe(0);
+  });
+});
+
+describe('partitionAcceptAll', () => {
+  const mk = (id: string, read?: boolean): Hunk => ({ id, path: 'a.py', oldStart: 1, oldLines: 1, newStart: 1, newLines: 0, lines: [], outsideSelection: false, decision: 'pending',
+    ...(read === undefined ? {} : { historyConcern: { sha: 'a'.repeat(40), subject: 's', concern: 'race', issues: [], read } }) });
+  it('holds back unread history hunks only', () => {
+    const r = partitionAcceptAll([mk('plain'), mk('unread', false), mk('read', true)]);
+    expect(r.accept.map((h) => h.id)).toEqual(['plain', 'read']);
+    expect(r.held.map((h) => h.id)).toEqual(['unread']);
   });
 });

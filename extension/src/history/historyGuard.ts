@@ -182,3 +182,13 @@ export function historyGate(input: {
   for (const { hunk, flag } of found) flags.set(hunk.id, flag);
   return { flags };
 }
+
+/** True when a hunk carries history that the reviewer has not read yet. */
+export function blockedByHistory(h: Hunk): boolean {
+  return !!h.historyConcern && !h.historyConcern.read;
+}
+
+/** Splits hunks for "accept all": hunks with unread history are held back for individual review. */
+export function partitionAcceptAll(hunks: Hunk[]): { accept: Hunk[]; held: Hunk[] } {
+  return { accept: hunks.filter((h) => !blockedByHistory(h)), held: hunks.filter(blockedByHistory) };
+}
