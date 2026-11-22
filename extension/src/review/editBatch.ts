@@ -36,6 +36,10 @@ function applyRanges(base: string, edits: FileEdit[]) {
     if (old.length > EDIT_MAX_CHARACTERS) throw new Error('INVALID_RANGE: read and edit a smaller source range.');
     let replacement = newText.replace(/\r?\n/g, eol);
     if (replacement && old.endsWith('\n') && !replacement.endsWith('\n')) replacement += eol;
+    // Models often omit the blank separator lines that end a selected range; keep them.
+    const trailingBlanks = (text: string) => (text.match(/(?:\r?\n[ \t]*)*$/)?.[0].match(/\n/g)?.length ?? 0);
+    const dropped = trailingBlanks(old) - trailingBlanks(replacement);
+    if (replacement && dropped > 0) replacement += eol.repeat(dropped);
     if (replacement === old) throw new Error('NO_CHANGE: the supplied range replacement matches the current source.');
     return { first, last, replacement };
   }).sort((a, b) => b.first - a.first);
