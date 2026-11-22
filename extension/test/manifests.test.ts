@@ -27,6 +27,13 @@ describe('agent manifests', () => {
     expect(m.preloadTools).not.toContain('run_command');
     expect(AGENT_NAMES.primary).toBe('contexo');
   });
+  it('includes read-only explorer guidance with dynamic subagents enabled', () => {
+    const instructions = readFileSync(join(dir, 'instructions.md'), 'utf8');
+    const { manifest } = buildAgentRequest('primary', 'p/m', instructions);
+    expect(manifest.instructions).toContain('## Exploration subagents');
+    expect(manifest.instructions).toContain('never call propose_write or run_command');
+    expect(manifest.config.dynamicSubAgents).toEqual({ enabled: true });
+  });
   it('connector matches contexo-editor.mcp.json with port and token', () => {
     const json = (camel(readJson('contexo-editor.mcp.json')) as any).manifest;
     json.url = 'http://127.0.0.1:9000/mcp';

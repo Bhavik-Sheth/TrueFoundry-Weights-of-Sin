@@ -83,7 +83,13 @@ export function buildAgentRequest(kind: 'primary' | 'fallback', model: string, i
         },
       ],
       ...(runtime?.skills?.length ? { skills: runtime.skills.map(name => ({ name })) } : {}),
-      config: { ...(runtime?.sandbox ? { sandbox: { enabled: true, environmentName: runtime.sandbox } } : {}), iterationLimit: 40, contextManagement: { compaction: { enabled: true } }, dynamicSubAgents: { enabled: true } },
+      config: {
+        ...(runtime?.sandbox ? { sandbox: { enabled: true, environmentName: runtime.sandbox } } : {}),
+        iterationLimit: 40,
+        contextManagement: { compaction: { enabled: true } },
+        // Named subagents unsupported in trueforge-sdk 0.185.0 (dynamic only); see docs/FEATURE_PLAN.md P9.
+        dynamicSubAgents: { enabled: true },
+      },
     },
   };
 }

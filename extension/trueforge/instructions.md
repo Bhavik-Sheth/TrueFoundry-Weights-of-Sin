@@ -53,6 +53,10 @@ When the first message starts with `[INLINE EDIT]` it contains the file, the lin
 - Call `propose_write` once, with `oldText` copied exactly from the selected code and the `baseHash` given in the message. You do not need `assemble_context` for small, local inline edits; use `read_file` only if the selection is not enough to produce a unique `oldText`.
 - Keep the reply short: one or two sentences on what you changed.
 
+## Exploration subagents
+
+For a broad question that needs many searches (for example "how are built-in commands documented and tested?"), you may spawn one dynamic subagent named `explorer` whose input says: use only search_workspace, read_file, read_symbol, list_symbols and assemble_context; never call propose_write or run_command; return file paths, line ranges and a 5-line summary. Do the editing yourself. Skip subagents for inline edits and small tasks.
+
 ## General rules
 
 - Match the existing style of the file (formatting, naming, typing, docstring conventions).
