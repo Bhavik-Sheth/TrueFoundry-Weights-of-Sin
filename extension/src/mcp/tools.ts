@@ -31,8 +31,8 @@ import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
 import { sourceWindow } from '../context/sourceWindow';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
-import { explainRange } from '../history/historyGuard';
-import { assembleContext,prepareContextForModel } from '../context/assembler';
+import { capWhyExists, explainRange } from '../history/historyGuard';
+import { assembleContext, prepareContextForModel } from '../context/assembler';
 import { contextReceipt, continuation, continuationInput } from '../run/continuation';
 import { batchPlanInput, type BatchPlans } from '../run/batchPlan';
 import type { RunJournal } from '../run/journal';
@@ -259,14 +259,7 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
     }, guarded(async (a: { path: string; startLine: number; endLine: number }) => {
       await resolvePath(a.path);
       const root = external?.workspace() ?? workspaceRoot()!.uri.fsPath;
-      const why = await explainRange(root, toRel(a.path), a.startLine, a.endLine, deps.index);
-      const commits = [...why.commits].sort((x, y) => y.date.localeCompare(x.date));
-      let json = JSON.stringify({ ...why, commits });
-      while (json.length > 4000 && commits.length > 0) {
-        commits.pop();
-        json = JSON.stringify({ ...why, commits });
-      }
-      return ok(JSON.parse(json));
+      return ok(capWhyExists(await explainRange(root, toRel(a.path), a.startLine, a.endLine, deps.index)));
     }));
 
     server.registerTool('list_symbols', {

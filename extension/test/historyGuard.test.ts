@@ -6,8 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectConcern, explainRange, needsHistoryCheck, parseBlamePorcelain } from '../src/history/historyGuard';
+import { capWhyExists, detectConcern, explainRange, needsHistoryCheck, parseBlamePorcelain } from '../src/history/historyGuard';
 import type { Hunk } from '../src/types';
+import type { WhyExists } from '../src/history/historyGuard';
 
 function hunk(lines: string[]): Hunk {
   return { id: 'h', path: 'a.py', oldStart: 0, oldLines: 0, newStart: 0, newLines: 0, lines, outsideSelection: false, decision: 'pending' };
@@ -77,5 +78,18 @@ describe('explainRange', () => {
   });
   it('not a git repo -> note no-git', async () => {
     expect((await explainRange(plainDir, 'x.py', 1, 1)).note).toBe('no-git');
+  });
+});
+
+describe('capWhyExists', () => {
+  it('keeps the JSON within the cap even with oversized issues', () => {
+    const w: WhyExists = {
+      commits: [{ sha: 'a', author: 'A', date: '2020-01-01', subject: 's', bodyExcerpt: 'b'.repeat(300), lines: [1, 2] }],
+      issues: Array.from({ length: 2000 }, (_, i) => `#${i}`),
+      prs: [], tests: [], concern: 'race',
+    };
+    expect(JSON.stringify(capWhyExists(w)).length).toBeLessThanOrEqual(4000);
+    expect(JSON.stringify(capWhyExists({ ...w, issues: ['#1'] })).length).toBeLessThanOrEqual(4000);
+    expect(capWhyExists({ ...w, issues: ['#1'] }).commits).toHaveLength(1);
   });
 });

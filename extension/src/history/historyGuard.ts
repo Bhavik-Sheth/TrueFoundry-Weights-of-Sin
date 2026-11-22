@@ -127,3 +127,14 @@ export async function explainRange(root: string, path: string, startLine: number
   cache.set(key, result);
   return result;
 }
+
+/** Shrinks a WhyExists so its JSON is <= max chars: drops oldest commits first, then trims issues/prs/tests. */
+export function capWhyExists(w: WhyExists, max = 4000): WhyExists {
+  const out: WhyExists = { ...w, commits: [...w.commits].sort((a, b) => b.date.localeCompare(a.date)), issues: [...w.issues], prs: [...w.prs], tests: [...w.tests] };
+  const fits = () => JSON.stringify(out).length <= max;
+  while (!fits() && out.commits.length > 0) out.commits.pop();
+  for (const key of ['issues', 'prs', 'tests'] as const) {
+    while (!fits() && out[key].length > 0) out[key].pop();
+  }
+  return out;
+}
