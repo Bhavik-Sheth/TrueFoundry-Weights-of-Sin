@@ -285,6 +285,7 @@ export interface SettingsView {
   trueforgeUrl: string;
   /** True while the primary agent is deliberately pointed at a broken model ("Test resilience"). */
   simulatedFailure: boolean;
+  metrics?: { loopP50Ms: number; loopP95Ms: number; lastStopMs?: number; lastIndexMs?: number };
 }
 
 export interface SetupStep {

@@ -22,6 +22,7 @@ import type { Node, Parser } from 'web-tree-sitter';
 import type { SymbolEntry } from '../types';
 import { resolveRgPath } from './search';
 import { WorkerParser } from './workerParser';
+import { Timer } from '../metrics';
 
 export interface IndexApi {
   ready: Promise<void>;
@@ -377,7 +378,7 @@ function listFiles(rgPath: string, cwd: string): Promise<string[]> {
   });
 }
 
-export function startIndexing(): IndexApi & { dispose(): Promise<void> } {
+export function startIndexing(): IndexApi & { readonly lastIndexMs?: number; dispose(): Promise<void> } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
   const idx = new SymbolIndex();
@@ -449,11 +450,12 @@ export function startIndexing(): IndexApi & { dispose(): Promise<void> } {
     }
   };
 
+  let lastIndexMs: number | undefined;
   const indexCurrent = async (): Promise<void> => {
     idx.clear();
     const r = root();
     if (!r) return;
-    const t0 = Date.now();
+    const timer = Timer.start();
     const rg = resolveRgPath(vs.env.appRoot);
     const files = await listFiles(rg, r);
     if (root() !== r) return;
@@ -463,8 +465,10 @@ export function startIndexing(): IndexApi & { dispose(): Promise<void> } {
       vs.window.setStatusBarMessage(`Contexo: indexing ${Math.min(i + CHUNK, files.length)}/${files.length}`, 1500);
       await new Promise<void>((res) => setImmediate(res));
     }
+    if (root() !== r) return;
+    lastIndexMs = timer.elapsedMs();
     const all = idx.symbols();
-    log(`[index] ready: ${idx.fileCount()} files, ${all.filter((s) => s.kind !== 'doc').length} symbols, ${all.filter((s) => s.kind === 'doc').length} doc sections in ${Date.now() - t0} ms`);
+    log(`[index] ready: ${idx.fileCount()} files, ${all.filter((s) => s.kind !== 'doc').length} symbols, ${all.filter((s) => s.kind === 'doc').length} doc sections in ${lastIndexMs} ms`);
   };
 
   let ready = Promise.resolve();
@@ -532,6 +536,7 @@ export function startIndexing(): IndexApi & { dispose(): Promise<void> } {
 
   return {
     get ready() { return ready; },
+    get lastIndexMs() { return lastIndexMs; },
     languageLinks,
     symbols: () => idx.symbols(),
     byName: (n) => idx.byName(n),

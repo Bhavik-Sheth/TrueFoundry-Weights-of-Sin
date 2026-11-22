@@ -130,10 +130,18 @@ export async function runCommand(argv: string[], timeoutSec?: number, owner?: st
   return runCommandIn(folder.uri.fsPath, getConfig().commandAllowlist, argv, timeoutSec, owner);
 }
 
-export function killAll(owner?: string): void {
+export async function killAll(owner?: string): Promise<void> {
+  const kills: Array<Promise<void>> = [];
   for (const [pid, runId] of tracked) {
     if (owner !== undefined && owner !== runId) continue;
-    treeKill(pid, 'SIGKILL', () => {});
     tracked.delete(pid);
+    kills.push(new Promise<void>((resolve, reject) => {
+      treeKill(pid, 'SIGKILL', error => {
+        if (error) reject(error);
+        else resolve();
+      });
+    }));
   }
+  const error = (await Promise.allSettled(kills)).find(result => result.status === 'rejected');
+  if (error) throw error.reason;
 }

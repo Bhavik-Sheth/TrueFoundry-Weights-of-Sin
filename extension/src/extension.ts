@@ -55,6 +55,7 @@ import { readReplay } from './replay/records';
 import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
 import { rankMentions } from './context/mentions';
+import { startLoopMonitor } from './metrics';
 
 let indexRef: ReturnType<typeof startIndexing> | undefined;
 let journalRef: RunJournal | undefined;
@@ -78,6 +79,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const savedRoot = ctx.workspaceState.get<string>('contexo.selectedWorkspace');
   const initialRoot = vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === savedRoot);
   if (initialRoot) selectWorkspaceRoot(initialRoot.uri);
+  const loopMonitor = startLoopMonitor();
+  ctx.subscriptions.push(loopMonitor);
   const index = indexRef = startIndexing();
   let cachedPaths: string[] | undefined;
   const invalidatePaths = () => { cachedPaths = undefined; };
@@ -344,6 +347,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const FAILURE_KEY = 'contexo.simulatedPrimaryFailure';
   const setup = new SetupController({
     post, token, mcpPort: mcp.port, index,
+    metrics: () => {
+      const { p50Ms, p95Ms } = loopMonitor.snapshot();
+      return { loopP50Ms: p50Ms, loopP95Ms: p95Ms, lastStopMs: runs.lastStopMs, lastIndexMs: index.lastIndexMs };
+    },
     failureStore: { get: () => ctx.globalState.get<boolean>(FAILURE_KEY, false), set: (v) => ctx.globalState.update(FAILURE_KEY, v) },
   });
   const sessions = new SessionController({

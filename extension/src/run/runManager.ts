@@ -41,6 +41,7 @@ import { ApprovalDeliveryUnknown, type TfClient } from './tfClient';
 import { killAll } from '../mcp/runCommand';
 import { classifyDetailed, takeOver, type Classification } from './fallback';
 import { log } from '../log';
+import { Timer } from '../metrics';
 import { resolveRequirementRefs, splitRequirements } from '../review/requirements';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,6 +53,8 @@ export type RunReview = Pick<ReviewEngine, 'pending' | 'beginProposal' | 'attach
 
 export class RunManager extends EventEmitter {
   active?: Run;
+  private stopLatencyMs?: number;
+  get lastStopMs(): number | undefined { return this.stopLatencyMs; }
 
   private tf: TfClient;
   private review: RunReview;
@@ -192,9 +195,9 @@ export class RunManager extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    const timer = Timer.start();
     const run = this.active;
     if (!run || run.state === 'cancelled' || run.state === 'done' || run.state === 'failed') return;
-    const t0 = performance.now();
     // Synchronous part first: nothing after this point may reach the workspace.
     run.state = 'cancelled';
     run.sealedSessions.push(run.sessionId);
@@ -202,10 +205,14 @@ export class RunManager extends EventEmitter {
     this.pending = [];
     this.abort?.abort();
     try { this.review.discardPending(); } catch (e) { log('stop: discardPending failed', String(e)); }
-    try { killAll(run.id); } catch (e) { log('stop: killAll failed', String(e)); }
+    const cleanup = killAll(run.id).catch(e => log('stop: killAll failed', String(e)));
     this.setState('cancelled');
     this.emit('stream', [{ kind: 'turn-done', status: 'cancelled' }] as UiStreamEvent[]);
-    log(`[stop] local stop in ${Math.round(performance.now() - t0)}ms`, run.id);
+    await cleanup;
+    const value = timer.elapsedMs();
+    this.stopLatencyMs = value;
+    this.capture(run, { kind: 'metric', name: 'stopLatencyMs', value }, false);
+    log(`[stop] local stop in ${value}ms`, run.id);
     if (run.sessionId) {
       try { await this.tf.cancel(run.sessionId); } catch (e) { log('stop: tf.cancel failed', String(e)); }
     }

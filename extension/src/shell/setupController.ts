@@ -31,6 +31,7 @@ export interface SetupDeps {
   token: string;
   mcpPort: number;
   index: { ready: Promise<void>; symbols(): unknown[] };
+  metrics: () => SettingsView['metrics'];
   /** Persistent "simulated primary failure" flag (extension globalState). */
   failureStore: { get(): boolean; set(v: boolean): void | PromiseLike<void> };
 }
@@ -132,6 +133,7 @@ export class SetupController {
       devMode: c.devMode,
       trueforgeUrl: c.trueforgeUrl,
       simulatedFailure: this.sim.active,
+      metrics: this.deps.metrics(),
     };
   }
 

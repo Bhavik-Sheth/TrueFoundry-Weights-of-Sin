@@ -9,6 +9,7 @@ const killAll = vi.fn();
 vi.mock('../src/mcp/runCommand', () => ({ killAll: () => killAll() }));
 
 import { RunManager } from '../src/run/runManager';
+import type { RunEvidence } from '../src/run/journal';
 import { FakeTfClient } from './fakes/fakeTfClient';
 import type { TfEvent, UiStreamEvent } from '../src/types';
 
@@ -35,15 +36,16 @@ function setup(turn: TfEvent[], resumes: TfEvent[][] = [], begin: () => Promise<
     beginProposal: vi.fn(begin),
     discardPending: vi.fn(() => { order.push('discard'); }),
   };
-  killAll.mockImplementation(() => { order.push('killAll'); });
-  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo', fallbackAgent: 'contexo-fallback', firstEventTimeoutMs: 0, trueforgeUrl: 'http://tf:8790', ...cfgOver } as never, askCommandApproval: ask });
+  killAll.mockImplementation(async () => { order.push('killAll'); });
+  const evidence: RunEvidence[] = [];
+  const rm = new RunManager({ tf, review: review as never, cfg: { primaryAgent: 'contexo', fallbackAgent: 'contexo-fallback', firstEventTimeoutMs: 0, trueforgeUrl: 'http://tf:8790', ...cfgOver } as never, askCommandApproval: ask, record: (_id, item) => evidence.push(item) });
   const events: UiStreamEvent[] = [];
   const states: Array<{ state: string; hunks?: number; banner?: string; agent?: string }> = [];
   const sessions: Array<{ sessionId: string; agent: string }> = [];
   rm.on('session', (x) => sessions.push(x));
   rm.on('stream', (e: UiStreamEvent[]) => events.push(...e));
   rm.on('state', (s) => states.push(s));
-  return { tf, review, rm, events, states, order, sessions };
+  return { tf, review, rm, events, states, order, sessions, evidence };
 }
 
 const text = (events: UiStreamEvent[]) =>
@@ -96,7 +98,12 @@ describe('RunManager', () => {
 
   it('stop() discards and kills before cancel resolves', async () => {
     let open!: () => void;
-    const { rm, tf, order } = setup([created, delta('m1', 'x')]);
+    const { rm, tf, order, evidence } = setup([created, delta('m1', 'x')]);
+    let killed!: () => void;
+    killAll.mockImplementationOnce(() => {
+      order.push('killAll');
+      return new Promise<void>(resolve => { killed = resolve; });
+    });
     tf.cancelGate = new Promise<void>((r) => { open = r; });
     tf.hold = new Promise<void>(() => {});
     void rm.start('agent', 'hi');
@@ -104,6 +111,14 @@ describe('RunManager', () => {
     const stopP = rm.stop();
     await tick();
     expect(order).toEqual(['discard', 'killAll']);
+    expect(rm.isToolCallAllowed()).toBe(false);
+    expect(evidence.find(item => item.kind === 'metric')).toBeUndefined();
+    killed();
+    await tick();
+    const metric = evidence.find(item => item.kind === 'metric');
+    expect(metric).toMatchObject({ kind: 'metric', name: 'stopLatencyMs', value: expect.any(Number) });
+    expect(metric?.value).toBeLessThan(300);
+    expect(rm.lastStopMs).toBe(metric?.value);
     expect(tf.cancelCalls).toEqual(['sess_1']);
     open();
     await stopP;

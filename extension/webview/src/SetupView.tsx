@@ -314,7 +314,10 @@ export function SettingsTab({ data }: { data: SetupData }) {
   return (
     <div className="settings">
       <div className="filter-bar" role="group" aria-label="Settings sections">
-        {groups.map(item => <button key={item} type="button" aria-pressed={item === group} onClick={() => setGroup(item)}>{item}</button>)}
+        {groups.map(item => <button key={item} type="button" aria-pressed={item === group} onClick={() => {
+          setGroup(item);
+          if (item === 'Diagnostics') post({ type: 'setupRefresh' });
+        }}>{item}</button>)}
       </div>
       <div className="settings-panel" hidden={group !== 'Runtime'}>
       <section className="step">
@@ -345,6 +348,18 @@ export function SettingsTab({ data }: { data: SetupData }) {
         </div>}
       </div>
       <div className="settings-panel" hidden={group !== 'Diagnostics'}>
+      {s.metrics && <section className="step">
+        <h3>Performance</h3>
+        <table className="health">
+          <tbody>
+            <tr><th scope="row">Event-loop delay p50</th><td>{s.metrics.loopP50Ms.toFixed(1)} ms</td></tr>
+            <tr><th scope="row">Event-loop delay p95</th><td>{s.metrics.loopP95Ms.toFixed(1)} ms</td></tr>
+            <tr><th scope="row">Last stop</th><td>{s.metrics.lastStopMs === undefined ? '—' : `${s.metrics.lastStopMs.toFixed(1)} ms`}</td></tr>
+            <tr><th scope="row">Last full index</th><td>{s.metrics.lastIndexMs === undefined ? '—' : `${s.metrics.lastIndexMs.toFixed(1)} ms`}</td></tr>
+          </tbody>
+        </table>
+        <button className="btn secondary" type="button" onClick={() => post({ type: 'setupRefresh' })}>Refresh diagnostics</button>
+      </section>}
       <section className="step">
         <h3>Test resilience</h3>
         <p>
