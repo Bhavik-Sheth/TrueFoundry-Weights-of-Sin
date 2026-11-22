@@ -11,15 +11,16 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AppliedHunk, WiringGraph } from '../../src/types';
+import type { SummaryFact } from '../../src/review/summary';
 import { post, subscribe } from './bridge';
 import { WiringMap } from './WiringMap';
 
 let hunks: AppliedHunk[] = [];
-let review: { key: string; wiring: WiringGraph } | undefined;
+let review: { key: string; wiring: WiringGraph; summary: SummaryFact[] } | undefined;
 const listeners = new Set<() => void>();
 subscribe((m) => {
   if (m.type === 'changes') { hunks = m.hunks; listeners.forEach((l) => l()); }
-  if (m.type === 'review') { review = { key: m.key, wiring: m.wiring }; listeners.forEach((l) => l()); }
+  if (m.type === 'review') { review = { key: m.key, wiring: m.wiring, summary: m.summary }; listeners.forEach((l) => l()); }
   if (m.type === 'reviewClosed' && review?.key === m.key) { review = undefined; listeners.forEach((l) => l()); }
 });
 
@@ -55,7 +56,18 @@ export function ChangesTab() {
     ? <WiringMap key={wiring.key} graph={wiring.wiring} onOpenHunk={(path, line) => post({ type: 'openSource', path, line })} />
     : null;
 
-  if (list.length === 0) return <div style={{ ...s.root, ...s.muted }}>{map}No applied changes yet.</div>;
+  const facts = wiring && wiring.summary.length > 0
+    ? (
+      <ul aria-label="Review summary" style={{ margin: 0, paddingLeft: 18 }}>
+        {wiring.summary.map((f, i) => {
+          const open = f.hunkIds.length > 0 && f.path ? () => post({ type: 'openSource', path: f.path!, line: f.line ?? 1 }) : undefined;
+          return <li key={i}>{open ? <a href="#" onClick={(e) => { e.preventDefault(); open(); }}>{f.text}</a> : f.text}</li>;
+        })}
+      </ul>
+    )
+    : null;
+
+  if (list.length === 0) return <div style={{ ...s.root, ...s.muted }}>{facts}{map}No applied changes yet.</div>;
 
   const byRun = new Map<string, AppliedHunk[]>();
   for (const h of list) byRun.set(h.runId, [...(byRun.get(h.runId) ?? []), h]);
@@ -66,6 +78,7 @@ export function ChangesTab() {
 
   return (
     <div style={s.root}>
+      {facts}
       {map}
       {[...byRun.entries()].map(([runId, rhs]) => {
         const byFile = new Map<string, AppliedHunk[]>();

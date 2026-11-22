@@ -6,7 +6,9 @@
  *  - buildWiring(impact, proposal, candidateSymbols, baseSymbols?): pure graph from compareProposalImpact output;
  *    an edge's hunkId (and hunkLine = its newStart) is the first hunk of its file overlapping the calling symbol (new side for added edges,
  *    old side against baseSymbols for removed ones). Module-level edges use the first hunk with a matching +/- line.
- *  - wiringFor(proposal, workspaceSymbols, wasmDir?): compares the proposal with every hunk accepted and builds the graph.
+ *  - wiringWithSymbols(proposal, workspaceSymbols, wasmDir?): compares the proposal with every hunk accepted; returns the graph plus the
+ *    parsed before/after symbols of its Python files.
+ *  - wiringFor(proposal, workspaceSymbols, wasmDir?): the graph alone.
  *
  * Must not import 'vscode'. Depends on: impactGraph.ts, proposal.ts, indexer.ts. Depended on by: extension.ts.
  */
@@ -53,17 +55,19 @@ export function buildWiring(impact: Impact, proposal: Proposal, candidateSymbols
   return { nodes: [...nodes.values()], edges };
 }
 
-export async function wiringFor(proposal: Proposal, workspaceSymbols: SymbolEntry[], wasmDir?: string): Promise<WiringGraph> {
+export async function wiringWithSymbols(proposal: Proposal, workspaceSymbols: SymbolEntry[], wasmDir?: string): Promise<{ wiring: WiringGraph; before: SymbolEntry[]; after: SymbolEntry[] }> {
   const all = structuredClone(proposal);
   for (const h of all.hunks) h.decision = 'accepted';
   const impact = await compareProposalImpact(all, workspaceSymbols, wasmDir);
   const parser = await loadParser(wasmDir);
   try {
     const py = all.files.filter(f => f.path.endsWith('.py'));
-    return buildWiring(
-      impact, all,
-      py.flatMap(f => parsePython(parser, f.path, rebuildFile(f.base, f.path, all.hunks))),
-      py.flatMap(f => parsePython(parser, f.path, f.base)),
-    );
+    const after = py.flatMap(f => parsePython(parser, f.path, rebuildFile(f.base, f.path, all.hunks)));
+    const before = py.flatMap(f => parsePython(parser, f.path, f.base));
+    return { wiring: buildWiring(impact, all, after, before), before, after };
   } finally { parser.delete(); }
+}
+
+export async function wiringFor(proposal: Proposal, workspaceSymbols: SymbolEntry[], wasmDir?: string): Promise<WiringGraph> {
+  return (await wiringWithSymbols(proposal, workspaceSymbols, wasmDir)).wiring;
 }

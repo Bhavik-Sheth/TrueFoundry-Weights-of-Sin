@@ -47,7 +47,8 @@ import { registerIntegrations } from './review/integrations';
 import { matchingHunks, reviewCoordinates } from './review/matching';
 import { rebuildFile, sha256 } from './review/proposal';
 import { compareProposalImpact } from './review/impactGraph';
-import { wiringFor } from './review/wiring';
+import { wiringWithSymbols } from './review/wiring';
+import { checksFromJournal, summarizeProposal } from './review/summary';
 import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
 
@@ -131,8 +132,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   review.onProposal = p => {
     agentBridge?.finish(p);
     if (p.status === 'reviewing') {
-      wiringFor(p, index.symbols()).then(
-        wiring => { if (p.status === 'reviewing') post({ type: 'review', key: p.key, wiring, summary: [] }); },
+      wiringWithSymbols(p, index.symbols()).then(
+        async ({ wiring, before, after }) => {
+          const checks = await journal?.read(p.runId).then(checksFromJournal, () => []) ?? [];
+          if (p.status === 'reviewing') post({ type: 'review', key: p.key, wiring, summary: summarizeProposal(p, wiring, checks, before, after) });
+        },
         error => log('Could not build wiring map', String(error)));
     }
     const saved = ctx.workspaceState.get<ReviewCheckpoint>(reviewCheckpointKey);
