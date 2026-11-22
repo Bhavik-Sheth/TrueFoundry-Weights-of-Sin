@@ -3,7 +3,7 @@ import { loadParser, parsePython } from '../context/indexer';
 import type { Proposal, SymbolEntry } from '../types';
 import { rebuildFile } from './proposal';
 
-const moduleOf = (path: string) => path.replace(/^src\//, '').replace(/\.py$/, '').replace(/\/__init__$/, '').replaceAll('/', '.');
+export const moduleOf = (path: string) => path.replace(/^src\//, '').replace(/\.py$/, '').replace(/\/__init__$/, '').replaceAll('/', '.');
 
 function importedNames(root: Node, path: string) {
   const aliases = new Map<string, string>();

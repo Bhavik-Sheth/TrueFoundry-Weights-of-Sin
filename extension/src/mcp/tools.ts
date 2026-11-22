@@ -8,7 +8,7 @@
  *    read_file {path,startLine?,endLine?}; assemble_context {request,mentions?,budget?} (also pushes
  *    the packet to the panel); list_symbols {path?,query?} (deferred in the agent def);
  *    propose_write {summary,edits[]} (approval-gated); run_command {argv,timeoutSec<=180}
- *    (deferred, approval); why_exists {path,startLine,endLine} (deferred; blame/commit rationale, <=4000 chars).
+ *    (deferred, approval); why_exists {path,startLine,endLine} (deferred; blame/commit rationale, <=4000 chars).; read_symbol {name} (deferred; one function/class by name, <=16000 chars).
  *
  * STATE (Slice 2): search_workspace, read_file, list_symbols, propose_write are real; assemble_context is
  * still fixture-based (Slice 5) but awaits index.ready; run_command is real (Slice 7).
@@ -30,6 +30,7 @@ import type { RunManager } from '../run/runManager';
 import type { ProposeArgs, Selection, ToWebview } from '../types';
 import { previewSelection } from '../context/tokens';
 import { sourceWindow } from '../context/sourceWindow';
+import { resolveSymbol } from '../context/readSymbol';
 import { fileContextInput, fileContextReader } from '../context/fileContext';
 import { capWhyExists, explainRange } from '../history/historyGuard';
 import { assembleContext, prepareContextForModel } from '../context/assembler';
@@ -85,6 +86,13 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
     return external ? assertNativeWorkspacePath(external.workspace(), relative)
       : root && hasNativeFiles(root) ? assertNativeWorkspacePath(root.fsPath, relative)
         : Promise.resolve(resolveInWorkspace(relative));
+  };
+  /** Live text: the open editor buffer if any, else disk; undefined when unreadable. */
+  const readLiveText = async (relPath: string): Promise<string | undefined> => {
+    const abs = await resolvePath(relPath);
+    const open = openDocText(abs);
+    if (open !== undefined) return open;
+    try { return await readFile(abs, 'utf8'); } catch { return undefined; }
   };
   /** Wraps a handler with the Stop/authorization check. */
   const guarded = <A>(fn: (args: A) => ToolResult | Promise<ToolResult>) => async (args: A): Promise<ToolResult> => {
@@ -165,16 +173,24 @@ export function makeToolRegistrar(deps: ToolDeps, options: { requireRoute?: bool
         endLine: z.number().int().min(1).optional().describe('Last line, 1-based, inclusive'),
       },
     }, guarded(async (a: { path: string; startLine?: number; endLine?: number }) => {
-      const abs = await resolvePath(a.path);
-      let full = openDocText(abs);
-      if (full === undefined) {
-        try {
-          full = await readFile(abs, 'utf8');
-        } catch {
-          return err('FILE_NOT_FOUND', `Cannot read ${a.path}`);
-        }
-      }
+      const full = await readLiveText(a.path);
+      if (full === undefined) return err('FILE_NOT_FOUND', `Cannot read ${a.path}`);
       return ok(sourceWindow(toRel(a.path), full, a.startLine, a.endLine));
+    }));
+
+    server.registerTool('read_symbol', {
+      description:
+        'Read one Python function/class by name (e.g. "FlaskGroup.get_command"). Returns its exact lines and the file hash to use as baseHash. ' +
+        'Ambiguous names return candidates.',
+      inputSchema: { name: z.string().min(1).describe('Symbol name, qualified name, or module-qualified name') },
+    }, guarded(async (a: { name: string }) => {
+      await deps.index.ready;
+      const found = resolveSymbol(deps.index, a.name);
+      if (!('symbol' in found)) return ok(found);
+      const { symbol } = found;
+      const full = await readLiveText(symbol.path);
+      if (full === undefined) return err('FILE_NOT_FOUND', `Cannot read ${symbol.path}`);
+      return ok({ ...sourceWindow(symbol.path, full, symbol.startLine, symbol.endLine), symbol: symbol.qualifiedName });
     }));
 
     server.registerTool('assemble_context', {
