@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import type { Node, Parser } from 'web-tree-sitter';
 import type { SymbolEntry } from '../types';
 import { resolveRgPath } from './search';
+import { WorkerParser } from './workerParser';
 
 export interface IndexApi {
   ready: Promise<void>;
@@ -69,7 +70,7 @@ function lastIdent(fn: Node | null): string | undefined {
 }
 
 type BoundCall = NonNullable<SymbolEntry['boundCalls']>[number];
-type ImportBinding = { module: string; imported?: string };
+export type ImportBinding = { module: string; imported?: string };
 
 function importBindings(root: Node): Map<string, ImportBinding> {
   const bindings = new Map<string, ImportBinding>();
@@ -276,8 +277,7 @@ export class SymbolIndex {
     }
     let bindings: Map<string, ImportBinding> | undefined;
     const entries = parsePython(parser, file, text, imports => { bindings = imports; });
-    this.setFile(file, entries);
-    if (bindings?.size) this.exports.set(file, bindings);
+    this.setFile(file, entries, bindings);
   }
 
   resolveReexport(source: string, module: string, name: string): SymbolEntry | undefined {
@@ -323,9 +323,10 @@ export class SymbolIndex {
     return undefined;
   }
 
-  setFile(p: string, entries: SymbolEntry[]): void {
+  setFile(p: string, entries: SymbolEntry[], bindings?: Map<string, ImportBinding>): void {
     this.removeFile(p);
     this.files.set(p, entries);
+    if (bindings?.size) this.exports.set(p, bindings);
     for (const e of entries) {
       const k = e.name.toLowerCase();
       const a = this.names.get(k);
@@ -376,12 +377,16 @@ function listFiles(rgPath: string, cwd: string): Promise<string[]> {
   });
 }
 
-export function startIndexing(): IndexApi {
+export function startIndexing(): IndexApi & { dispose(): Promise<void> } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const vs = require('vscode') as typeof import('vscode');
   const idx = new SymbolIndex();
-  let parser: Parser | undefined;
+  let worker: Promise<WorkerParser> | undefined;
+  let workerDisabled = false;
+  let disposed = false;
+  let fallbackParser: Promise<Parser | undefined> | undefined;
   const root = () => {
+    if (disposed) return undefined;
     const uri = workspaceRoot()?.uri;
     return uri && hasNativeFiles(uri) ? uri.fsPath : undefined;
   };
@@ -413,7 +418,30 @@ export function startIndexing(): IndexApi {
         };
         for (const symbol of symbols ?? []) visit(symbol, '');
         if (root() === r) idx.setFile(rel, entries);
+      } else if (!rel.endsWith('.py')) {
+        if (root() === r) idx.setText(undefined, rel, text);
       } else {
+        if (root() !== r) return;
+        if (!workerDisabled) {
+          try {
+            const parser = await (worker ??= WorkerParser.start(path.join(__dirname, 'indexWorker.js'), __dirname));
+            if (root() !== r) return;
+            const { symbols, imports } = await parser.parseFull(rel, text);
+            if (root() === r) idx.setFile(rel, symbols, new Map(imports));
+            return;
+          } catch (error) {
+            if (disposed) return;
+            if (!workerDisabled) {
+              workerDisabled = true;
+              log('[index] Python worker failed; using in-process parsing', String(error));
+              void worker?.then(parser => parser.dispose()).catch(() => {});
+            }
+          }
+        }
+        const parser = await (fallbackParser ??= loadParser().catch(error => {
+          log('[index] tree-sitter failed to load; docs only', String(error));
+          return undefined;
+        }));
         if (root() === r) idx.setText(parser, rel, text);
       }
     } catch {
@@ -426,7 +454,6 @@ export function startIndexing(): IndexApi {
     const r = root();
     if (!r) return;
     const t0 = Date.now();
-    parser ??= await loadParser().catch((e) => { log('[index] tree-sitter failed to load; docs only', String(e)); return undefined; });
     const rg = resolveRgPath(vs.env.appRoot);
     const files = await listFiles(rg, r);
     if (root() !== r) return;
@@ -448,7 +475,7 @@ export function startIndexing(): IndexApi {
   };
   void reindexAll();
 
-  vs.workspace.onDidSaveTextDocument((doc) => {
+  const saves = vs.workspace.onDidSaveTextDocument((doc) => {
     const r = root();
     if (!r || !hasNativeFiles(doc.uri) || vs.workspace.getWorkspaceFolder(doc.uri)?.uri.toString() !== workspaceRoot()?.uri.toString()) return;
     const rel = path.relative(r, doc.uri.fsPath).replace(/\\/g, '/');
@@ -513,5 +540,11 @@ export function startIndexing(): IndexApi {
     resolveReexport: (source, module, name) => idx.resolveReexport(source, module, name),
     reindexFile: (p) => indexOne(p.replace(/\\/g, '/')),
     reindexAll,
+    async dispose() {
+      disposed = true;
+      saves.dispose();
+      await worker?.then(parser => parser.dispose()).catch(() => {});
+      (await fallbackParser)?.delete();
+    },
   };
 }

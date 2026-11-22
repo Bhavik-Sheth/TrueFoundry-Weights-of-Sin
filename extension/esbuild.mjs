@@ -33,9 +33,9 @@ function copyInstructionPacks() {
 }
 
 const options = {
-  entryPoints: ['src/extension.ts'],
+  entryPoints: { extension: 'src/extension.ts', indexWorker: 'src/context/indexWorker.ts' },
   bundle: true,
-  outfile: 'dist/extension.js',
+  outdir: 'dist',
   format: 'cjs',
   platform: 'node',
   target: 'node18',
@@ -46,6 +46,8 @@ const options = {
   logLevel: 'info',
 };
 
+const { outdir, ...standaloneOptions } = options;
+
 copyWasm();
 copyInstructionPacks();
 if (watch) {
@@ -55,8 +57,8 @@ if (watch) {
 } else {
   await Promise.all([
     build(options),
-    build({ ...options, entryPoints: ['src/cli/main.ts'], outfile: 'dist/contexo.cjs' }),
-    build({ ...options, entryPoints: ['src/run/registrationCli.ts'], outfile: 'dist/register.cjs' }),
-    build({ ...options, entryPoints: ['src/localReview/server.ts'], outfile: 'dist/local-review.cjs' }),
+    build({ ...standaloneOptions, entryPoints: ['src/cli/main.ts'], outfile: 'dist/contexo.cjs' }),
+    build({ ...standaloneOptions, entryPoints: ['src/run/registrationCli.ts'], outfile: 'dist/register.cjs' }),
+    build({ ...standaloneOptions, entryPoints: ['src/localReview/server.ts'], outfile: 'dist/local-review.cjs' }),
   ]);
 }

@@ -56,6 +56,7 @@ import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
 import { rankMentions } from './context/mentions';
 
+let indexRef: ReturnType<typeof startIndexing> | undefined;
 let journalRef: RunJournal | undefined;
 let mcpHandle: McpHandle | undefined;
 let runsRef: RunManager | undefined;
@@ -77,7 +78,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const savedRoot = ctx.workspaceState.get<string>('contexo.selectedWorkspace');
   const initialRoot = vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === savedRoot);
   if (initialRoot) selectWorkspaceRoot(initialRoot.uri);
-  const index = startIndexing();
+  const index = indexRef = startIndexing();
   let cachedPaths: string[] | undefined;
   const invalidatePaths = () => { cachedPaths = undefined; };
   const workspacePaths = async () => cachedPaths ??= (await vscode.workspace.findFiles('**/*', '**/{.git,node_modules,.venv}/**', 5000))
@@ -522,6 +523,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 }
 
 export async function deactivate(): Promise<void> {
+  await indexRef?.dispose();
+  indexRef = undefined;
   const runs = runsRef;
   if (runs?.active?.state === 'streaming') await runs.stop();
   await journalRef?.close().catch(error => log('Journal flush failed', String(error)));
