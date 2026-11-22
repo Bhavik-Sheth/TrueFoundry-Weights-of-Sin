@@ -12,6 +12,11 @@
  *      current text; if it does not apply cleanly show "Cannot undo automatically: file changed at
  *      this hunk" and leave the file alone.
  *    - undoLastApply(): undo all hunks of the latest apply in reverse order.
+ *    - applyFiles(m, expected, meta): with meta {runId, hunkIds} also stores an ApplySnapshot per file (last 20).
+ *    - undoHunk falls back to a three-way merge preview (threeWay) against the snapshot when the direct
+ *      reverse patch fails; undoRun(runId) folds a run's snapshots newest -> oldest, all-or-nothing.
+ *  - undoHunkText(snapshot, patch): pure; snapshot.after with only that hunk reversed.
+ *  - re-exports type ApplySnapshot (helpers live in review/undoSnapshots).
  *    - list(): history; each change posts a changes message to the panel.
  *
  * Rules: in-memory history only (lost on reload, documented limitation). Paths are workspace-relative POSIX.
@@ -25,20 +30,11 @@ import { log } from '../log';
 import { sha256 } from './proposal';
 import { assertNativeWorkspacePath, resolveUnder } from '../mcp/server';
 import { threeWay } from './threeWay';
+import { appendSnapshots, findSnapshot, foldUndo, uncoveredHunks, type ApplySnapshot } from './undoSnapshots';
 
-/** Text of one file before and after a review apply, kept so undo can three-way merge later. */
-export interface ApplySnapshot {
-  applyId: string;
-  runId: string;
-  path: string;
-  before: string;
-  after: string;
-  hunkIds: string[];
-  at: number;
-}
+export type { ApplySnapshot };
 
 const SNAPSHOT_KEY = 'undo.snapshots.v1';
-const SNAPSHOT_LIMIT = 20;
 
 function resolveUri(rel: string): vscode.Uri {
   const root = workspaceRoot()?.uri;
@@ -161,7 +157,7 @@ export class UndoStack {
       }
     }
     if (saved.length) {
-      this.snapshots = [...this.snapshots, ...saved].slice(-SNAPSHOT_LIMIT);
+      this.snapshots = appendSnapshots(this.snapshots, saved);
       await this.storage?.update(SNAPSHOT_KEY, this.snapshots);
     }
   }
@@ -213,7 +209,7 @@ export class UndoStack {
   }
 
   private snapshotFor(rec: AppliedHunk): ApplySnapshot | undefined {
-    return [...this.snapshots].reverse().find((s) => s.path === rec.path && s.hunkIds.includes(rec.hunkId));
+    return findSnapshot(this.snapshots, rec.hunkId, rec.path);
   }
 
   private async preview(rel: string, merged: string, title: string): Promise<void> {
@@ -256,27 +252,24 @@ export class UndoStack {
   async undoRun(runId: string): Promise<boolean> {
     const live = this.history.filter((h) => h.runId === runId && !h.undone && this.inWorkspace(h));
     if (live.length === 0) return false;
-    const snaps = this.snapshots.filter((s) => s.runId === runId && live.some((h) => h.path === s.path && s.hunkIds.includes(h.hunkId)));
-    if (snaps.length === 0) {
-      void vscode.window.showWarningMessage('Cannot undo automatically: no snapshot for this apply (older than the last 20 applies).');
+    const snaps = this.snapshots.filter((s) => s.runId === runId);
+    if (uncoveredHunks(live, snaps).length > 0) {
+      void vscode.window.showWarningMessage('Cannot undo run automatically: no snapshot for some of its applies (older than the last 20 applies).');
       return false;
     }
     const root = workspaceRoot()?.uri.toString();
     const out = new Map<string, string>();
     const hashes = new Map<string, string>();
     try {
-      for (const path of new Set(snaps.map((s) => s.path))) {
+      for (const path of new Set(live.map((h) => h.path))) {
         const original = await this.readCurrent(path);
-        let current = original;
-        for (const snap of snaps.filter((s) => s.path === path).sort((a, b) => b.at - a.at)) {
-          const r = await threeWay(current, snap.after, snap.before);
-          if (!r.clean) {
-            await this.preview(path, r.text, 'Undo run (conflicts)');
-            void vscode.window.showWarningMessage(`Undo conflicts with later edits in ${path}; nothing was written.`);
-            return false;
-          }
-          current = r.text;
+        const r = await foldUndo(original, snaps.filter((s) => s.path === path && live.some((h) => h.path === path && s.hunkIds.includes(h.hunkId))));
+        if (!r.ok) {
+          await this.preview(path, r.text, 'Undo run (conflicts)');
+          void vscode.window.showWarningMessage(`Undo conflicts with later edits in ${path}; nothing was written.`);
+          return false;
         }
+        const current = r.text;
         out.set(path, current);
         hashes.set(path, sha256(original));
       }

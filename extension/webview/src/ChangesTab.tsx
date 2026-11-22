@@ -72,7 +72,6 @@ export function ChangesTab() {
   const byRun = new Map<string, AppliedHunk[]>();
   for (const h of list) byRun.set(h.runId, [...(byRun.get(h.runId) ?? []), h]);
 
-
   return (
     <div style={s.root}>
       {facts}
