@@ -44,11 +44,12 @@ export function summarizeProposal(p: Proposal, wiring: WiringGraph, checks: Summ
   const paths = p.files.map(f => f.path);
   facts.push(fact(`Changes ${paths.length} ${paths.length === 1 ? 'file' : 'files'}: ${paths.join(', ')}`, p.hunks));
 
-  const key = (s: SymbolEntry) => s.kind + ' ' + s.qualifiedName;
+  const labelFor = (s: SymbolEntry) => s.kind + ' ' + s.qualifiedName;
+  const key = (s: SymbolEntry) => s.path + '\0' + labelFor(s);
   const beforeKeys = new Set(symbolsBefore.map(key));
   const afterKeys = new Set(symbolsAfter.map(key));
-  for (const s of symbolsAfter) if (!beforeKeys.has(key(s))) facts.push(fact(`Adds ${key(s)}`, hunksTouching(p, s, 'new')));
-  for (const s of symbolsBefore) if (!afterKeys.has(key(s))) facts.push(fact(`Removes ${key(s)}`, hunksTouching(p, s, 'old')));
+  for (const s of symbolsAfter) if (!beforeKeys.has(key(s))) facts.push(fact(`Adds ${labelFor(s)}`, hunksTouching(p, s, 'new')));
+  for (const s of symbolsBefore) if (!afterKeys.has(key(s))) facts.push(fact(`Removes ${labelFor(s)}`, hunksTouching(p, s, 'old')));
 
   const imports = new Map<string, Hunk[]>();
   for (const h of p.hunks) {
@@ -63,19 +64,21 @@ export function summarizeProposal(p: Proposal, wiring: WiringGraph, checks: Summ
     facts.push(fact(`New call: ${label(e.from)} → ${label(e.to)}`, p.hunks.filter(h => h.id === e.hunkId)));
   }
 
-  for (const c of checks) {
+  const checkFacts = checks.map(c => {
     const counts = c.passed !== undefined || c.failed !== undefined ? ` (${c.passed ?? 0} passed, ${c.failed ?? 0} failed)` : '';
-    facts.push(fact(`Check ${c.argv.join(' ')}: exit ${c.exitCode}${counts}`, [], c.id));
-  }
+    return fact(`Check ${c.argv.join(' ')}: exit ${c.exitCode}${counts}`, [], c.id);
+  });
 
   const outside = p.hunks.filter(h => h.outsideSelection);
   const history = p.hunks.filter(h => h.historyConcern);
   const flagged = new Set([...outside, ...history]);
+  const flags: SummaryFact[] = [];
   if (flagged.size) {
     const reasons = [outside.length ? 'outside selection' : '', history.length ? 'history concern' : ''].filter(Boolean).join(', ');
-    facts.push(fact(`${flagged.size} ${flagged.size === 1 ? 'hunk' : 'hunks'} flagged: ${reasons}`, [...flagged]));
+    flags.push(fact(`${flagged.size} ${flagged.size === 1 ? 'hunk' : 'hunks'} flagged: ${reasons}`, [...flagged]));
   }
-  return facts.slice(0, MAX_FACTS);
+  const visibleChecks = checkFacts.slice(-(MAX_FACTS - 1 - flags.length));
+  return [...facts.slice(0, MAX_FACTS - visibleChecks.length - flags.length), ...visibleChecks, ...flags];
 }
 
 function argvOf(raw: unknown): string[] | undefined {
@@ -98,7 +101,7 @@ export function checksFromRecords(records: Array<{ sequence?: number; evidence: 
   const calls = new Map<string, string[]>();
   const checks: Array<SummaryCheck & { sequence: number }> = [];
   for (const { sequence, evidence } of records) {
-    if (evidence?.kind === 'agent-event' && evidence.event?.kind === 'tool-call') {
+    if (evidence?.kind === 'agent-event' && evidence.event?.kind === 'tool-call' && evidence.event.name === 'run_command') {
       const argv = argvOf(evidence.event.args);
       if (argv && typeof evidence.event.toolCallId === 'string') calls.set(evidence.event.toolCallId, argv);
     } else if (evidence?.kind === 'tool-output' && calls.has(evidence.toolCallId)) {

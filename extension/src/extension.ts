@@ -82,10 +82,15 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const loopMonitor = startLoopMonitor();
   ctx.subscriptions.push(loopMonitor);
   const index = indexRef = startIndexing();
-  let cachedPaths: string[] | undefined;
+  let cachedPaths: Promise<string[]> | undefined;
   const invalidatePaths = () => { cachedPaths = undefined; };
-  const workspacePaths = async () => cachedPaths ??= (await vscode.workspace.findFiles('**/*', '**/{.git,node_modules,.venv}/**', 5000))
-    .map(uri => vscode.workspace.asRelativePath(uri, false).replace(/[\\]/g, '/'));
+  const workspacePaths = () => cachedPaths ??= (async () => {
+    const folder = workspaceRoot();
+    if (!folder) return [];
+    const uris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, '**/*'), '**/{.git,node_modules,.venv}/**', 5000);
+    return uris.map(uri => vscode.workspace.asRelativePath(uri, false).replace(/[\\]/g, '/'));
+  })().catch(error => { log('Could not list workspace files for mentions', String(error)); return []; });
   registerImpact(ctx);
   const review = registerReview(ctx, post);
   review.index = index;
@@ -109,22 +114,32 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     : undefined;
   journalRef = journal;
   const requirementKinds = new Set(['requirement', 'requirement-link', 'proposal', 'tool-output']);
-  const requirementTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let requirementTimer: ReturnType<typeof setTimeout> | undefined;
+  let requirementRunId: string | undefined;
+  let requirementRead = 0;
+  ctx.subscriptions.push({ dispose() {
+    clearTimeout(requirementTimer);
+    if (journal) journal.onRecord = undefined;
+    requirementRunId = undefined;
+  } });
   const readRequirements = async (runId: string) => {
     if (!journal) return [];
     return reduceRequirements(readReplay(await journal.read(runId)).records);
   };
   const pushRequirements = (runId: string) => {
+    if (requirementRunId !== runId) return;
+    const read = ++requirementRead;
     void readRequirements(runId).then(items => {
+      if (requirementRunId !== runId || requirementRead !== read) return;
       const pending = review.pending?.runId === runId ? review.pending : undefined;
       post({ type: 'requirements', runId, items, pendingHunks: pending?.hunks.map(h => ({ id: h.id, path: h.path, line: h.newStart })) });
     }, error => log('Could not read requirements', String(error)));
   };
   if (journal) {
     journal.onRecord = (runId, evidence) => {
-      if (!requirementKinds.has(evidence.kind)) return;
-      clearTimeout(requirementTimers.get(runId));
-      requirementTimers.set(runId, setTimeout(() => { requirementTimers.delete(runId); pushRequirements(runId); }, 200));
+      if (runId !== requirementRunId || !requirementKinds.has(evidence.kind)) return;
+      clearTimeout(requirementTimer);
+      requirementTimer = setTimeout(() => pushRequirements(runId), 200);
     };
   }
   review.flushEvidence = journal ? () => journal.flush() : undefined;
@@ -376,6 +391,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     }
     status.update(s);
     post({ type: 'runState', ...s });
+    const runId = runs.active?.id;
+    if (runId && runId !== requirementRunId) {
+      clearTimeout(requirementTimer);
+      requirementRunId = runId;
+      post({ type: 'requirements', runId, items: [] });
+      pushRequirements(runId);
+    }
     if (s.state === 'done' || s.state === 'failed' || s.state === 'cancelled' || s.state === 'awaiting-review') {
       void sessions.refreshCurrent().catch((e) => log('session refresh failed', String(e)));
     }
@@ -404,10 +426,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
             vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
           break;
         }
-        case 'mentionQuery':
-          void workspacePaths().then(paths => post({ type: 'mentionResults', q: m.q, items: rankMentions(m.q, index.symbols(), paths) }))
-            .catch(error => log('Mention query failed', error));
+        case 'mentionQuery': {
+          const request = workspacePaths();
+          void request.then(paths => {
+            if (request === cachedPaths) post({ type: 'mentionResults', q: m.q, items: rankMentions(m.q, index.symbols(), paths) });
+          });
           break;
+        }
         case 'send':
           void ask(m.text).catch(error => log('Assistant request failed', error));
           break;

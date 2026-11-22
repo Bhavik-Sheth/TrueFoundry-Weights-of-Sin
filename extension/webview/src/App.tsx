@@ -139,6 +139,7 @@ export function App() {
           disabled={busy}
           placeholder={busy ? 'Run in progress...' : 'Ask the agent... (Enter to send, Shift+Enter for a new line)'}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); }}
+          onSelect={e => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={(e) => {
             if (mentions.onKeyDown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey) {

@@ -523,6 +523,7 @@ export class ReviewEngine {
   }
 
   private dropDocs(p: Proposal): void {
+    for (const hunk of p.hunks) this.whyByHunk.delete(hunk.id);
     for (const f of p.files) {
       this.docs.delete(docUri(BASE_SCHEME, p.key, f.path).toString());
       this.docs.delete(docUri(PROPOSED_SCHEME, p.key, f.path).toString());

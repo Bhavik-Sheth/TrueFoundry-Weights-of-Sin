@@ -47,6 +47,7 @@ describe('summarizeProposal', () => {
     const facts = summarizeProposal(p, graph, [], removed, []);
     expect(facts).toHaveLength(8);
     expect(facts[1].text).toBe('Removes function old0');
+    expect(facts.at(-1)?.text).toBe('1 hunk flagged: outside selection, history concern');
     const flagged = summarizeProposal(p, graph, [], [], []).map(f => f.text);
     expect(flagged[flagged.length - 1]).toBe('1 hunk flagged: outside selection, history concern');
   });
@@ -57,6 +58,8 @@ describe('checksFromJournal', () => {
     const lines = [
       { sequence: 1, evidence: { kind: 'agent-event', event: { kind: 'tool-call', toolCallId: 'c1', name: 'run_command', args: { argv: ['pytest', '-q'] } } } },
       { sequence: 2, evidence: { kind: 'tool-output', toolCallId: 'c1', content: JSON.stringify({ exitCode: 1, stdout: '1 failed, 59 passed in 2s', stderr: '' }) } },
+      { sequence: 3, evidence: { kind: 'agent-event', event: { kind: 'tool-call', toolCallId: 'c2', name: 'other_tool', args: { argv: ['pytest'] } } } },
+      { sequence: 4, evidence: { kind: 'tool-output', toolCallId: 'c2', content: { exitCode: 0 } } },
     ].map(r => JSON.stringify(r)).join('\n');
     expect(checksFromJournal(lines)).toEqual([{ id: 'c1', argv: ['pytest', '-q'], exitCode: 1, passed: 59, failed: 1 }]);
   });

@@ -30,7 +30,7 @@ export function useMentions(text: string, caret: number, setText: (t: string, ca
 
   const items = q && res.q === q && dismissed !== q ? res.items : [];
   const insert = (item: MentionItem) => {
-    const head = text.slice(0, caret).replace(/@\S+$/, item.insert + ' ');
+    const head = text.slice(0, caret).replace(/@\S+$/, () => item.insert + ' ');
     setText(head + text.slice(caret), head.length);
   };
   const onKeyDown = (e: KeyboardEvent): boolean => {
