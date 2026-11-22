@@ -53,6 +53,7 @@ import { reduceRequirements, requirementsFromRecords } from './review/requiremen
 import { readReplay } from './replay/records';
 import { parseSarif } from './review/sarif';
 import { regeneratePrompt } from './review/regenerate';
+import { rankMentions } from './context/mentions';
 
 let journalRef: RunJournal | undefined;
 let mcpHandle: McpHandle | undefined;
@@ -76,6 +77,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const initialRoot = vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === savedRoot);
   if (initialRoot) selectWorkspaceRoot(initialRoot.uri);
   const index = startIndexing();
+  let cachedPaths: string[] | undefined;
+  const invalidatePaths = () => { cachedPaths = undefined; };
+  const workspacePaths = async () => cachedPaths ??= (await vscode.workspace.findFiles('**/*', '**/{.git,node_modules,.venv}/**', 5000))
+    .map(uri => vscode.workspace.asRelativePath(uri, false).replace(/[\\]/g, '/'));
   registerImpact(ctx);
   const review = registerReview(ctx, post);
   review.index = index;
@@ -262,6 +267,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     selectWorkspaceRoot(picked.folder.uri);
     indexedRoot = rootId();
     post({ type: 'changes', hunks: review.undo.list() });
+    invalidatePaths();
     await Promise.all([index.reindexAll(), ctx.workspaceState.update('contexo.selectedWorkspace', indexedRoot)]);
   }));
   ctx.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -270,6 +276,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     if (indexedRoot !== rootId()) {
       indexedRoot = rootId();
       post({ type: 'changes', hunks: review.undo.list() });
+      invalidatePaths();
       void index.reindexAll();
     }
   }));
@@ -388,6 +395,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
             vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)));
           break;
         }
+        case 'mentionQuery':
+          void workspacePaths().then(paths => post({ type: 'mentionResults', q: m.q, items: rankMentions(m.q, index.symbols(), paths) }))
+            .catch(error => log('Mention query failed', error));
+          break;
         case 'send':
           void ask(m.text).catch(error => log('Assistant request failed', error));
           break;
@@ -476,7 +487,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       await vscode.commands.executeCommand('contexo.panel.focus');
       setup.showSetup();
     }),
-    vscode.commands.registerCommand('contexo.reindex', () => index.reindexAll()),
+    vscode.commands.registerCommand('contexo.reindex', () => { invalidatePaths(); return index.reindexAll(); }),
     vscode.commands.registerCommand('contexo.stopTrueForge', async () => {
       if (runs.active && runs.active.state !== 'done') await runs.stop();
       void vscode.window.showInformationMessage(await setup.stopTrueForge());

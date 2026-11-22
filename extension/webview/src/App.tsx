@@ -17,6 +17,7 @@ import { SessionTab } from './SessionTab';
 import { ContextTab } from './ContextTab';
 import { ChangesTab } from './ChangesTab';
 import { TaskTab } from './TaskTab';
+import { useMentions } from './MentionPopover';
 import { SettingsTab, Wizard } from './SetupView';
 import type { SetupData } from './SetupView';
 import type { ToWebview } from '../../src/types';
@@ -28,6 +29,8 @@ export function App() {
   const [tab, setTab] = useState<Tab>(() => getState<{ tab?: Tab }>().tab ?? 'chat');
   const [run, setRun] = useState<RunStateMsg>({ state: 'idle' });
   const [text, setText] = useState('');
+  const [caret, setCaret] = useState(0);
+  const mentions = useMentions(text, caret, (t, c) => { setText(t); setCaret(c); });
   const [setup, setSetup] = useState<SetupData>({ catalog: [], results: {} });
   const [skipped, setSkipped] = useState(() => getState<{ skipWizard?: boolean }>().skipWizard === true);
 
@@ -129,13 +132,15 @@ export function App() {
       </div>
       {tab !== 'settings' && tab !== 'session' && (
       <div className="composer">
+        {mentions.popover}
         <textarea
           aria-label="Message the Contexo assistant"
           value={text}
           disabled={busy}
           placeholder={busy ? 'Run in progress...' : 'Ask the agent... (Enter to send, Shift+Enter for a new line)'}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); }}
           onKeyDown={(e) => {
+            if (mentions.onKeyDown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               send();

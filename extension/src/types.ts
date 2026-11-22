@@ -214,6 +214,7 @@ export type ToHost =
   | { type: 'reviewAction'; action: 'workbench' | 'check' | 'restore' | 'sync' | 'replay' | 'import' }
   | { type: 'stop' }
   | { type: 'send'; text: string }
+  | { type: 'mentionQuery'; q: string }
   | { type: 'regenerate'; path: string }
   | { type: 'openSource'; path: string; line: number }
   | { type: 'linkRequirement'; requirementId: string; hunkId: string; linked: boolean }
@@ -236,6 +237,9 @@ export interface WiringGraph {
   edges: Array<{ id: string; from: string; to: string; change: 'added' | 'removed'; kind: 'call' | 'import'; hunkId?: string; hunkLine?: number }>;
 }
 
+/** One @ mention completion candidate (ranked in context/mentions.ts). */
+export interface MentionItem { kind: 'file' | 'symbol'; insert: string; label: string; detail: string }
+
 export type ToWebview =
   | { type: 'session'; sessionId: string; agent: string; url: string }
   | ({ type: 'runState' } & RunStateMsg)
@@ -245,6 +249,7 @@ export type ToWebview =
   | { type: 'setup'; status: SetupStatus; catalog: CatalogProviderView[]; settings: SettingsView }
   | { type: 'setupResult'; op: string; ok: boolean; message: string; steps?: SetupStep[] }
   | { type: 'showSetup' }
+  | { type: 'mentionResults'; q: string; items: MentionItem[] }
   | { type: 'review'; key: string; wiring: WiringGraph; summary: SummaryFact[] }
   | { type: 'reviewClosed'; key: string }
   | { type: 'requirements'; runId: string; items: RequirementView[]; pendingHunks?: Array<{ id: string; path: string; line: number }> }
