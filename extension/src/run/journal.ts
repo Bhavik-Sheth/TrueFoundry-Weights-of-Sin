@@ -155,6 +155,20 @@ export class RunJournal {
     return [...new Set([...portable, ...(await this.database?.list() ?? [])])].sort();
   }
 
+  /** Full records of the newest n runs (newest first, by last recordedAt). Uses read(), since continuationRecords omits request/state. */
+  async lastRuns(n: number): Promise<RunRecord[][]> {
+    const runs: RunRecord[][] = [];
+    for (const id of await this.list()) {
+      const records: RunRecord[] = [];
+      for (const line of (await this.read(id).catch(() => '')).split(String.fromCharCode(10))) {
+        try { const entry = JSON.parse(line) as RunRecord; if (entry?.runId === id) records.push(entry); } catch { /* skip unreadable line */ }
+      }
+      if (records.length) runs.push(records);
+    }
+    const newest = (records: RunRecord[]) => records.reduce((t, r) => Math.max(t, Date.parse(r.recordedAt) || 0), 0);
+    return runs.sort((a, b) => newest(b) - newest(a)).slice(0, n);
+  }
+
   async checkpointReview(proposal: Proposal, workspaceUri: string): Promise<void> {
     const bytes = Buffer.from(JSON.stringify(proposal));
     const artifact = createHash('sha256').update(bytes).digest('hex');

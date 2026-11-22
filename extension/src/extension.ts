@@ -41,6 +41,7 @@ import { SessionController } from './shell/sessionController';
 
 import { BatchPlans, proposalOutput } from './run/batchPlan';
 import { RunJournal } from './run/journal';
+import { startupPrompt, unfinishedRun } from './run/startupPrompt';
 import { registerReplay } from './replay/commands';
 import { registerEvidence } from './review/evidence';
 import { registerIntegrations } from './review/integrations';
@@ -498,9 +499,20 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   );
   log(`Contexo activated; MCP at ${mcp.url}`);
   void setup.init().then(async () => {
-    if (ctx.workspaceState.get(reviewCheckpointKey) && !ctx.workspaceState.get('review.apply.v1')) {
-      const choice = await vscode.window.showInformationMessage('Contexo has an unfinished review.', 'Restore Review');
-      if (choice) await vscode.commands.executeCommand('contexo.restorePendingReview');
+    const applyPending = !!ctx.workspaceState.get('review.apply.v1');
+    const reviewPending = !!ctx.workspaceState.get(reviewCheckpointKey);
+    const unfinished = applyPending || reviewPending ? undefined
+      : await journal?.lastRuns(1).then(([records]) => records && unfinishedRun(records), () => undefined);
+    const prompt = startupPrompt({ applyPending, reviewPending, unfinished });
+    if (!prompt) return;
+    const choice = await vscode.window.showInformationMessage(prompt.message, ...prompt.actions.filter(a => a !== 'Dismiss'));
+    if (choice === 'Recover') {
+      await review.recoverApply();
+      post({ type: 'changes', hunks: review.undo.list() });
+    } else if (choice === 'Restore Review') {
+      await vscode.commands.executeCommand('contexo.restorePendingReview');
+    } else if (choice === 'Resume' && unfinished) {
+      await runs.start('agent', `Continue the unfinished task from run ${unfinished.runId}: "${unfinished.request}". Call batch_plan with action "status" and fromRunId "${unfinished.runId}" if a plan exists, otherwise call resume_context, then re-read files before editing.`);
     }
   }).catch((error: unknown) => log('Contexo activation follow-up failed', String(error)));
 }

@@ -6,7 +6,9 @@ import { MessageBody } from './MessageBody';
 interface SessionState { sessions: SessionView[]; recent: SessionSummary[]; selected: string[]; error?: string; loaded: boolean }
 let state: SessionState = { sessions: [], recent: [], selected: [], loaded: false };
 const listeners = new Set<() => void>();
+let trueForgeUrl = '';
 subscribe(message => {
+  if (message.type === 'session') { trueForgeUrl = message.url; listeners.forEach(listener => listener()); return; }
   if (message.type !== 'sessionView') return;
   state = { sessions: message.sessions, recent: message.recent, selected: message.selected, error: message.error, loaded: true };
   listeners.forEach(listener => listener());
@@ -132,11 +134,12 @@ function SessionTurn({ turn, filter }: { turn: TurnView; filter: Filter }) {
 
 export function SessionTab({ onViewContext }: { onViewContext: () => void }) {
   const [st, setSt] = useState(state);
+  const [url, setUrl] = useState(trueForgeUrl);
   const [sessionId, setSessionId] = useState('');
   const [turnId, setTurnId] = useState('');
   const [filter, setFilter] = useState<Filter>('All');
   useEffect(() => {
-    const listener = () => setSt(state);
+    const listener = () => { setSt(state); setUrl(trueForgeUrl); };
     listeners.add(listener);
     listener();
     post({ type: 'sessionLoad' });
@@ -178,6 +181,7 @@ export function SessionTab({ onViewContext }: { onViewContext: () => void }) {
       <header className="session-header">
         <div><strong>{session.agent}</strong><div className="muted">{session.model ?? 'Model unavailable'}</div></div>
         {!current && <button className="inline-action" type="button" onClick={onViewContext}>View context</button>}
+        {url && <button className="inline-action" type="button" onClick={() => post({ type: 'openTrueForge' })}>Open in TrueForge</button>}
       </header>
       {st.sessions.length > 1 && <label className="session-field">Run session
         <select aria-label="Run session" value={session.id} onChange={event => { setSessionId(event.target.value); setTurnId(''); }}>
