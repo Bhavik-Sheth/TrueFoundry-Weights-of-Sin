@@ -36,23 +36,23 @@ On pinned LMCache and HTTPX, filename-free probes delivered **5/5** and **3/3** 
 
 ## 5. Model setup
 
-Mercury 3 is the hosted default. Switch the primary and fallback in Contexo Settings. TrueForge holds the provider credentials. The Flask editor A/B sessions cost an estimated **$0.0102 combined** at Inception’s launch rates. The two Mercury HTTPX turns cost about **$0.0102** on the same basis. Qwen3 1.7B ran locally through Ollama, and Bonsai 4B ran locally through MLX. Local runs had no hosted API charge. [Pricing basis](https://www.inceptionlabs.ai/blog/introducing-mercury-3) · [Session counters](verification/2026-11-20/local-editor/sessions.json)
+Mercury 3 is the hosted default. Switch the primary and fallback in Contexo Settings. TrueForge holds the provider credentials. Earlier Flask editor A/B sessions cost an estimated **$0.0102 combined** at Inception’s launch rates. The two Mercury HTTPX turns cost about **$0.0102** on the same basis. Qwen3 1.7B ran locally through Ollama, and Bonsai 4B ran locally through MLX. Local runs had no hosted API charge. [Pricing basis](https://www.inceptionlabs.ai/blog/introducing-mercury-3) · [Session counters](verification/2026-11-20/local-editor/sessions.json)
 
 ## 6. Scorecard
 
-| Criterion | Reel or record | Evidence |
+| Criterion | Video time | Evidence |
 | --- | --- | --- |
-| A1 · Inline edit | 00:07–00:12, A record | Reviewed inline patch. FLASK_DEBUG=off prints False. |
-| A2 · Agent mode | 00:12–00:21, B record | Three files discovered. All 60 CLI tests passed. |
-| A3 · Streaming / Stop | Editor and CLI logs | Streamed events, cancelled approval, 4.1 ms Stop latency. |
-| B1 · Context selection | B record, Flask host | Source, tests, guide and reasons. `@` mention ranked first. |
-| B2 · Diff safety | Packaged and Flask host | Mixed review, stale-base regenerate, history guard, merge undo, Undo Run and crash recovery passed. |
-| B3 · Resilience | 00:27–00:34, C record | Clear endpoint error and clean Git. Fallback fixture passed. |
-| B4 · TrueForge | 00:21–00:27, B record | MCP tools, deferred discovery and write approval recorded. |
-| C1 · Video | 00:00–00:34 | Evidence reel follows A, B and C in order. |
-| C2 · Write-up | This PDF | Three pages with the eight required headings. |
+| A1 · Inline edit | 00:15–00:52 | Per-hunk review. FLASK_DEBUG=off prints False. |
+| A2 · Agent mode | 01:15–02:35 | Three files discovered from one request. All 60 CLI tests pass. |
+| A3 · Streaming / Stop | 01:05–01:15 | Stop cancels the turn. Git shows a clean tree. |
+| B1 · Context selection | 01:23–01:51 | Graph, ranked excerpts, inclusion reasons and packet budget. |
+| B2 · Diff safety | 00:27–01:05 | Reject and accept a hunk, apply, then undo and redo. |
+| B3 · Resilience | 02:35–03:25 | Local Qwen takes over after an endpoint error. Git stays clean. |
+| B4 · TrueForge | 01:52–01:58 | Task B turn, editor MCP calls and pending write approval. |
+| C1 · Video | 00:00–04:00 | A, B and C appear in order with on-screen checks. |
+| C2 · Write-up | This PDF | Eight required headings and timestamps for the recorded evidence. |
 
-[Flask verification and evidence reel](verification/2026-11-22/SUBMISSION.md) · [Review and recovery checks](verification/2026-11-22/PRD_HANDOFF.md)
+[Watch the full demo](https://www.youtube.com/watch?v=ZB7hxPhwrwU) · [Flask verification and evidence reel](verification/2026-11-22/SUBMISSION.md) · [Review and recovery checks](verification/2026-11-22/PRD_HANDOFF.md)
 
 ![Independent HTTPX behavior checks passed. Mercury 3 scored 15 of 15 after repair. Native Bonsai and the clean baseline each scored 6 of 15.](architecture/httpx-model-results.svg)
 
@@ -68,4 +68,4 @@ Mercury’s first HTTPX patch needed feedback to repair the test file and Markdo
 
 Review features were checked on Flask with replayed patches and a scripted model, not live Mercury. Known gaps include history-match precision, single-file regeneration in multi-file proposals and new-file Undo Run.
 
-The evidence reel uses excerpts. The full submission requires continuous prompt-to-diff footage and public links. With another month, we would validate an actual 100-file migration through forced compaction, run remote-host tests, and rehearse on a second model. Local two-root routing is covered by the packaged fixture. [Remaining implementation and verification](REMAINING_WORK_PLAN.md)
+The full demo preserves prompt-to-diff footage for A and B. The local Qwen fallback sent a malformed write that was denied, leaving Flask clean. With another month, we would validate an actual 100-file migration through forced compaction, run remote-host tests, and rehearse on a second model. Local two-root routing is covered by the packaged fixture. [Remaining implementation and verification](REMAINING_WORK_PLAN.md)

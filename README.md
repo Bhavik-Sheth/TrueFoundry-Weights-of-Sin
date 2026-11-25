@@ -2,7 +2,7 @@
 
 [![VSIX 0.0.2](https://img.shields.io/badge/VSIX-0.0.2-23699a)](#open-the-extension) [![Extension suite](https://img.shields.io/badge/Vitest-233_passed_·_1_TODO-286d80)](docs/verification/2026-11-21/AGENT_BRIDGE.md#current-candidate-summary) [![Flask CLI](https://img.shields.io/badge/Flask_CLI-60_passed-25785c)](docs/verification/2026-11-20/local-editor/B-mercury-pytest.txt)
 
-**Competition evidence** · [Three-page A4 write-up](docs/Contexo-writeup.pdf) · [34-second evidence reel](docs/verification/2026-11-20/local-editor/evidence-reel.mp4) · [Run counters and tool calls](docs/verification/2026-11-20/local-editor/sessions.json) · [Run the checks yourself](#reproduce-the-checks) · [Architecture and context management](#architecture)
+**Competition evidence** · [Watch the full demo on YouTube](https://www.youtube.com/watch?v=ZB7hxPhwrwU) · [Download the 4-minute MP4](https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/releases/tag/contexo-demo) · [Demo assets](docs/demo/README.md) · [Three-page A4 write-up](docs/Contexo-writeup.pdf) · [34-second evidence reel](docs/verification/2026-11-20/local-editor/evidence-reel.mp4) · [Run counters and tool calls](docs/verification/2026-11-20/local-editor/sessions.json) · [Run the checks yourself](#reproduce-the-checks) · [Architecture and context management](#architecture)
 
 Contexo is a VS Code extension that adds a context-aware coding agent to the editor. Its agent loop runs entirely on [TrueForge](https://github.com/truefoundry/trueforge) (TrueFoundry's open-source agent harness) in local mode. Built for the TrueFoundry Forge-a-thon.
 

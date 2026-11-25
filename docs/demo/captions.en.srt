@@ -1,0 +1,267 @@
+1
+00:00:01,269 --> 00:00:03,969
+This is Contexo, a Visual Studio Code
+
+2
+00:00:03,969 --> 00:00:06,244
+agent built on True Forge.
+
+3
+00:00:06,244 --> 00:00:08,169
+It shows why code enters the model's
+
+4
+00:00:08,169 --> 00:00:10,794
+context, puts edits up for review,
+
+5
+00:00:10,794 --> 00:00:12,344
+and keeps the editor usable when a
+
+6
+00:00:12,344 --> 00:00:13,267
+model fails.
+
+7
+00:00:15,490 --> 00:00:18,415
+Task A. I select Flask's debug helper,
+
+8
+00:00:18,415 --> 00:00:20,335
+press Command K, then E,
+
+9
+00:00:20,355 --> 00:00:22,330
+and give the exact instruction.
+
+10
+00:00:22,330 --> 00:00:24,527
+The request stays scoped to this function.
+
+11
+00:00:27,090 --> 00:00:29,715
+The proposed change opens for review.
+
+12
+00:00:29,715 --> 00:00:31,440
+I can reject a single hunk,
+
+13
+00:00:31,440 --> 00:00:33,815
+change my mind, and accept it.
+
+14
+00:00:33,815 --> 00:00:36,265
+Contexo checks the base file hash and
+
+15
+00:00:36,265 --> 00:00:38,064
+waits for Apply before writing.
+
+16
+00:00:44,090 --> 00:00:45,915
+With Flask Debug set to off,
+
+17
+00:00:45,915 --> 00:00:47,405
+the helper now prints False.
+
+18
+00:00:52,394 --> 00:00:54,914
+In Changes, I undo the applied hunk.
+
+19
+00:00:54,914 --> 00:00:56,864
+The original code comes back.
+
+20
+00:00:56,864 --> 00:00:58,840
+Redo restores the reviewed change.
+
+21
+00:01:05,515 --> 00:01:07,190
+I reset the demo checkout,
+
+22
+00:01:07,190 --> 00:01:09,740
+start another request, and press Stop.
+
+23
+00:01:09,740 --> 00:01:12,065
+Git status confirms the working tree stayed
+
+24
+00:01:12,065 --> 00:01:12,624
+clean.
+
+25
+00:01:15,390 --> 00:01:17,365
+Task B. I ask for a built-in
+
+26
+00:01:17,365 --> 00:01:20,240
+Flask config command. The prompt names zero
+
+27
+00:01:20,240 --> 00:01:20,903
+files.
+
+28
+00:01:24,080 --> 00:01:26,380
+The context graph links the command,
+
+29
+00:01:26,380 --> 00:01:29,395
+tests, and guide. The initial packet packs
+
+30
+00:01:29,395 --> 00:01:32,520
+about sixty-nine hundred estimated source tokens into
+
+31
+00:01:32,520 --> 00:01:35,695
+an eight-thousand-token budget. Below the graph you
+
+32
+00:01:35,695 --> 00:01:38,095
+can inspect why excerpts were chosen,
+
+33
+00:01:38,095 --> 00:01:39,339
+and which ones were left out.
+
+34
+00:01:51,869 --> 00:01:54,694
+The TrueForge turn records the editor's MCP
+
+35
+00:01:54,694 --> 00:01:57,083
+tools and the pending write approval.
+
+36
+00:01:59,670 --> 00:02:01,920
+The proposal finds the implementation,
+
+37
+00:02:01,920 --> 00:02:04,395
+its tests, and the command guide.
+
+38
+00:02:04,395 --> 00:02:05,970
+I review the hunks and then apply
+
+39
+00:02:05,970 --> 00:02:06,889
+the changes.
+
+40
+00:02:12,265 --> 00:02:14,019
+Sixty CLI tests pass.
+
+41
+00:02:16,815 --> 00:02:19,017
+Flask help lists the new config command.
+
+42
+00:02:21,760 --> 00:02:24,485
+The demo app prints masked JSON.
+
+43
+00:02:24,485 --> 00:02:26,285
+Even the nested key is masked,
+
+44
+00:02:26,285 --> 00:02:28,147
+while public values stay readable.
+
+45
+00:02:31,385 --> 00:02:33,054
+Git shows three changed files.
+
+46
+00:02:35,590 --> 00:02:38,365
+Task C. I reset Flask and configure
+
+47
+00:02:38,365 --> 00:02:41,145
+the primary model with an unreachable endpoint.
+
+48
+00:02:51,235 --> 00:02:53,285
+I repeat the inline edit.
+
+49
+00:02:53,285 --> 00:02:55,085
+The editor stays responsive,
+
+50
+00:02:55,085 --> 00:02:56,985
+and a local Qwen model takes over
+
+51
+00:02:56,985 --> 00:02:57,896
+automatically.
+
+52
+00:03:02,950 --> 00:03:05,519
+The fallback's malformed write is rejected.
+
+53
+00:03:09,253 --> 00:03:11,603
+Git status confirms the working tree stayed
+
+54
+00:03:11,603 --> 00:03:12,180
+clean.
+
+55
+00:03:14,933 --> 00:03:16,733
+Both routes are visible in the session
+
+56
+00:03:16,733 --> 00:03:18,671
+view. I restore the primary.
+
+57
+00:03:25,465 --> 00:03:27,715
+We also tried the local Bonsai four
+
+58
+00:03:27,715 --> 00:03:30,815
+billion parameter checkpoint on LMCache.
+
+59
+00:03:30,815 --> 00:03:32,940
+It read the selected file through True
+
+60
+00:03:32,940 --> 00:03:36,165
+Forge. A separate retrieval test found all
+
+61
+00:03:36,165 --> 00:03:38,440
+five target file roles within the transport
+
+62
+00:03:38,440 --> 00:03:38,917
+limit.
+
+63
+00:03:43,615 --> 00:03:46,065
+TrueForge runs the agent loop.
+
+64
+00:03:46,065 --> 00:03:49,140
+Contexo supplies the editor tools and context,
+
+65
+00:03:49,140 --> 00:03:51,090
+gates every edit through review,
+
+66
+00:03:51,090 --> 00:03:53,365
+and preserves a trace of each run.
+
+67
+00:03:53,365 --> 00:03:54,521
+That's Contexo.

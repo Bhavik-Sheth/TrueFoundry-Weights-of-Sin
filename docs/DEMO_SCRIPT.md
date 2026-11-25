@@ -1,5 +1,7 @@
 # Demo script (max 4:00)
 
+[Watch the published demo](https://www.youtube.com/watch?v=ZB7hxPhwrwU) · [Chapters, captions and download](demo/README.md)
+
 Order is fixed by the rules: Task A, verify, Task B, verify, Task C, verify. Cut model waiting time, but never cut between giving an instruction and the diff appearing. Show the TrueForge session briefly during Task B, in Contexo's Session tab (no TrueForge UI is used anywhere in the demo).
 
 The [evidence reel](verification/2026-11-20/local-editor/evidence-reel.mp4) and [live HTTPX benchmark](verification/2026-11-21/model-comparison/README.md) document previous runs. The current release rehearsal uses Mercury as primary and a verified tool-capable model for fallback.
@@ -32,7 +34,7 @@ The [evidence reel](verification/2026-11-20/local-editor/evidence-reel.mp4) and 
 | 2:45-3:45 | **Task C** | `git checkout .` to reset; Settings -> Test resilience -> Simulate primary model failure (banner stays visible); repeat Task A. Show the editor staying responsive, the fallback banner and the second model completing (or a clear error); the Session tab shows the sealed primary and the fallback session. Restore the primary afterwards. | B3 |
 | 3:45-4:00 | Verify C | `git status` shows only the fallback result if accepted, or nothing if the run failed; closing caption. | B3, C1 |
 
-Adjust timing to the real run; keep the total under 4:00. Record real timestamps into the scorecard in `docs/writeup.md` (every `[TODO]`).
+Adjust timing to the real run; keep the total under 4:00. Use the [write-up scorecard](writeup.md#6-scorecard) for the recorded timestamps.
 
 ## Notes
 

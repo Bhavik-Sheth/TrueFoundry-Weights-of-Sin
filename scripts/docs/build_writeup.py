@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / 'docs' / 'Contexo-writeup.pdf'
-REPO_BLOB = 'https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/blob/foldr/'
+REPO_BLOB = 'https://github.com/Bhavik-Sheth/TrueFoundry-Weights-of-Sin/blob/main/'
 BROWSERS = [
     r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
     r'C:\Program Files\Google\Chrome\Application\chrome.exe',
@@ -135,7 +135,7 @@ def to_html(md: str, directory: Path) -> str:
 def build_html(pages: list[tuple[str, str]], appendix: bool) -> str:
     out = []
     layout = 'page appendix' if appendix else 'page submission'
-    footer = 'Architecture notes' if appendix else '22 November 2026'
+    footer = 'Architecture notes' if appendix else '25 November 2026'
     for n, (title, md) in enumerate(pages, 1):
         heading = '' if appendix and n > 1 and pages[n - 2][0] == title else f'<h1>{title}</h1>'
         html_body = to_html(md, ROOT if appendix else ROOT / 'docs')
